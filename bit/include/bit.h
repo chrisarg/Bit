@@ -34,7 +34,9 @@
 
 
     Functions that manipulate the bitset:
+    * Bit_aset          : Set an array of bits in the bitset to one
     * Bit_bset          : Set a bit in the bitset to one
+    * Bit_aclear        : Clear an array of bits in the bitset
     * Bit_bclear        : Clear a bit in the bitset
     * Bit_clear         : Clears a range of bits [lo,hi] in the bitset
     * Bit_get           : Get the value of a bit in the bitset
@@ -121,10 +123,13 @@ extern int Bit_buffer_size(
 
     It is a checked runtime error to 1) pass a NULL set 2) of the low bit
     is less than zero, 3) the high bit to be greater than the bitset
-    length and 4) the low bit to be greater than the high bit.
+    length and 4) the low bit to be greater than the high bit, 5) the
+    indices to attempt to overrun the bitset length.
     */
-
+extern void Bit_aset(T set, int indices[], int n); // set an array of bits
 extern void Bit_bset(T set, int index);   // set a bit in the bitset to 1
+extern void Bit_aclear(T set, int indices[],
+                      int n); // clear an array of bits in the bitset
 extern void Bit_bclear(T set, int index); // clear a bit in the bitset
 extern void Bit_clear(T set, int lo,
                       int hi); // clear a range of bits [lo,hi] in the bitset
@@ -135,7 +140,7 @@ Bit_map(T set, void apply(int n, int bit, void *cl),
                    // is a pointer to a closure that is provided by the clinet
 extern void Bit_not(T set, int lo,
                     int hi); // inverts a range of bits [lo,hi] in the bitset
-extern int Bit_put(T set, int n, int bit); // sets the nth bit to bit in set
+extern int Bit_put(T set, int n, int val); // sets the nth bit to val in set
 extern void Bit_set(T set, int lo,
                     int hi); // sets a range of bits [lo,hi] in the bitset
 

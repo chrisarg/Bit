@@ -17,6 +17,8 @@
 // Benchmarking function type definition
 typedef int64_t (*benchmark_func)(int size, int iterations);
 
+int64_t bench_Bit_aset(int size, int iterations);
+int64_t bench_Bit_aclear(int size, int iterations);
 int64_t bench_Bit_count(int size, int iterations);
 int64_t bench_Bit_inter_count(int size, int iterations);
 int64_t bench_Bit_inter_count_mem(int size, int iterations);
@@ -26,6 +28,49 @@ int64_t bench_Bit_and_SIMD(int size, int iterations);
 void summarize_results(char *test, int64_t timeElapsed, int num_of_iterations);
 int64_t timeDiff(struct timespec *timeA_p, struct timespec *timeB_p);
 
+int64_t bench_Bit_aset(int size, int iterations) {
+  struct timespec start_time, end_time;
+  int64_t timeElapsed = 0;
+  volatile int result;
+  Bit_T bit1 = Bit_new(size);
+  int length_of_index = size / 2 >= 2048 ? 2048 : size/2;
+  int *indices = malloc((length_of_index)  * sizeof(int));
+  for (int i = 0; i < length_of_index; i++) {
+    indices[i] = i;
+  }
+  clock_gettime(CLOCK_MONOTONIC, &start_time);
+  for (int i = 0; i < iterations; i++) {
+    Bit_aset(bit1, indices, length_of_index);
+  }
+
+  clock_gettime(CLOCK_MONOTONIC, &end_time);
+  timeElapsed = timeDiff(&end_time, &start_time);
+  free(bit1);
+  free(indices);
+  return timeElapsed;
+}
+
+int64_t bench_Bit_aclear(int size, int iterations) {
+  struct timespec start_time, end_time;
+  int64_t timeElapsed = 0;
+  volatile int result;
+  Bit_T bit1 = Bit_new(size);
+  int length_of_index = size / 2 >= 2048 ? 2048 : size/2;
+  int *indices = malloc((length_of_index)  * sizeof(int));
+  for (int i = 0; i < length_of_index; i++) {
+    indices[i] = i;
+  }
+  clock_gettime(CLOCK_MONOTONIC, &start_time);
+  for (int i = 0; i < iterations; i++) {
+    Bit_aclear(bit1, indices, length_of_index);
+  }
+
+  clock_gettime(CLOCK_MONOTONIC, &end_time);
+  timeElapsed = timeDiff(&end_time, &start_time);
+  free(bit1);
+  free(indices);
+  return timeElapsed;
+}
 int64_t bench_Bit_count(int size, int iterations) {
   struct timespec start_time, end_time;
   int64_t timeElapsed = 0;
@@ -205,9 +250,10 @@ int main() {
   int size_array[] = {128,   256,   512,   1024,   2048,   4096,   8192,
                       16384, 32768, 65536, 131072, 262144, 524288, 1048576};
   char *test_array[] = {"Count", "Inter Count", "Inter Count Mem",
-                        "Inter", "And",         "And_SIMD"};
-#if defined(__AVX2__)
-    printf("AVX2 detected\n");
+                        "Inter", "And",         "And_SIMD",
+                      "aset", "aclear"};
+#if defined(__AVX512__)
+    printf("AVX512 detected\n");
 #elif defined(__AVX2__)
   printf("AVX2 detected\n");
 #elif defined(__SSE2__)
@@ -225,8 +271,24 @@ int main() {
   benchmark_func benchmark_funcs[] = {
       bench_Bit_count,       bench_Bit_inter_count, bench_Bit_inter_count_mem,
       bench_Bit_inter_count, bench_Bit_and,         bench_Bit_and_SIMD,
+      bench_Bit_aset,       bench_Bit_aclear,
   };
-  int iterations = 100000;
+  char *test_explantion[] = {
+      "Count the number of bits set in the bitset",
+      "Count the number of bits set in an intersection",
+      "Count the number of bits set in the intersection by first\n"
+        "\tforming the intersection and then counting",
+      "Intersection of two bitsets",
+      "Bitwise AND of two buffers",
+      "Bitwise AND of two buffers using SIMD intrinsics",
+      "Set an array of bits (up to 2048) in the bitset",
+      "Clear an array of bits (up to 2048) in the bitset",};
+  // print an one line summary of the tests
+  printf("Benchmarking the bit library\n");
+  for (int i = 0; i < sizeof(test_array) / sizeof(char *); i++) {
+    printf("%s => %s\n",test_array[i], test_explantion[i]);
+  }
+  int iterations = 1000;
   int64_t timeElapsed;
   char s[50];
   for (int j = 0; j < sizeof(test_array) / sizeof(char *); j++) {

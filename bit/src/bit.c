@@ -177,6 +177,22 @@ int Bit_buffer_size(int length) {
 
 /*---------------------------------------------------------------------------*/
 // Functions that manipulate an individual bitset (member operations):
+void Bit_aset(T set, int indices[], int n) {
+  assert(set);
+  assert(indices);
+  for (int i = 0; i < n; i++) {
+   assert(indices[i] >= 0 && indices[i] < set->length);
+    set->bytes[indices[i] / BPB] |= 1 << (indices[i] % BPB);
+  }
+}
+void Bit_aclear(T set, int indices[], int n) {
+  assert(set);
+  assert(indices);
+  for (int i = 0; i < n; i++) {
+   assert(indices[i] >= 0 && indices[i] < set->length);
+    set->bytes[indices[i] / BPB] &= ~(1 << (indices[i] % BPB));
+  }
+}
 void Bit_bset(T set, int index) {
   assert(set);
   assert(index >= 0 && index < set->length);

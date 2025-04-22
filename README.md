@@ -34,7 +34,7 @@ on unions/differences/intersections of sets) and fast population counts (see bel
 
 ### Prerequisites
 
-- C compiler (GCC, Clang, or Intel ICC)
+- C compiler (GCC, Clang, or Intel ICX)
 - GNU Make
 
 ### Building
@@ -149,15 +149,18 @@ int Bit_union_count(T s, T t);
 
 This project incorporates or is inspired by several open-source libraries:
 
-- **libpopcnt**: A C/C++ library for counting the number of 1 bits (bit population count) specialized for different CPU architectures. Licensed under BSD 2-Clause.
+- **libpopcnt**: A C/C++ library for counting the number of 1 bits (bit
+  population count) specialized for different CPU architectures. Licensed under
+  BSD 2-Clause.
+    https://github.com/kimwalisch/libpopcnt
 - **sse-popcount**: The SIMD population count implementation of the Harley-Seal
   algorithm based on the paper "Faster Population Counts using AVX2
   Instructions" by Daniel Lemire, Nathan Kurz and Wojciech Mula.
-- **Wilkes-Wheeler-Gill Algorithm**: A highly portable and efficient algorithm
-  for counting set bits documented in "The Preparation of Programs for an
-  Electronic Digital Computer". Nearly 70 years after it's introduction, this
-  scalar algorithm outperforms hardware popcounts (including SSE popcounts and
-  hardware scalar popcounts)
+    https://github.com/WojciechMula/sse-popcount
+- **cii** : The Bit_T library in C interfaces and implementations by David
+  Hanson
+    https://github.com/drh/cii 
+
 
 ## Performance
 
@@ -168,7 +171,13 @@ the population counts for different CPU architectures:
 - **AVX2**: Uses 256-bit vector operations on supported CPUs
 - **NEON**: Falls back to 128-bit vector operations on older CPUs
 - **SVE**
-- **Scalar**: Provides optimized scalar implementations for universal compatibility
+- **Scalar**: Provides optimized scalar implementations for universal
+  compatibility. The scalar implementation is based on the **Wilkes-Wheeler-Gill
+  Algorithm**: A highly portable and efficient algorithm   for counting set bits 
+  documented in "The Preparation of Programs for an Electronic Digital
+  Computer". 
+  Nearly 70 years after it's introduction, this scalar algorithm outperforms
+  hardware popcounts (including SSE popcounts and hardware scalar popcounts)
 
 The benchmarking suite demonstrates significant performance advantages over naive implementations, especially for large bitsets.
 
