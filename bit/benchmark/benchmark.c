@@ -31,7 +31,6 @@ int64_t timeDiff(struct timespec *timeA_p, struct timespec *timeB_p);
 int64_t bench_Bit_aset(int size, int iterations) {
   struct timespec start_time, end_time;
   int64_t timeElapsed = 0;
-  volatile int result;
   Bit_T bit1 = Bit_new(size);
   int length_of_index = size / 2 >= 2048 ? 2048 : size/2;
   int *indices = malloc((length_of_index)  * sizeof(int));
@@ -53,7 +52,6 @@ int64_t bench_Bit_aset(int size, int iterations) {
 int64_t bench_Bit_aclear(int size, int iterations) {
   struct timespec start_time, end_time;
   int64_t timeElapsed = 0;
-  volatile int result;
   Bit_T bit1 = Bit_new(size);
   int length_of_index = size / 2 >= 2048 ? 2048 : size/2;
   int *indices = malloc((length_of_index)  * sizeof(int));
@@ -276,8 +274,8 @@ int main() {
   char *test_explantion[] = {
       "Count the number of bits set in the bitset",
       "Count the number of bits set in an intersection",
-      "Count the number of bits set in the intersection by first\n"
-        "\tforming the intersection and then counting",
+      ("Count the number of bits set in the intersection by first\n"
+        "\tforming the intersection and then counting"),
       "Intersection of two bitsets",
       "Bitwise AND of two buffers",
       "Bitwise AND of two buffers using SIMD intrinsics",
@@ -285,14 +283,14 @@ int main() {
       "Clear an array of bits (up to 2048) in the bitset",};
   // print an one line summary of the tests
   printf("Benchmarking the bit library\n");
-  for (int i = 0; i < sizeof(test_array) / sizeof(char *); i++) {
+  for (size_t i = 0; i < sizeof(test_array) / sizeof(char *); i++) {
     printf("%s => %s\n",test_array[i], test_explantion[i]);
   }
   int iterations = 1000;
   int64_t timeElapsed;
   char s[50];
-  for (int j = 0; j < sizeof(test_array) / sizeof(char *); j++) {
-    for (int i = 0; i < sizeof(size_array) / sizeof(int); i++) {
+  for (size_t j = 0; j < sizeof(test_array) / sizeof(char *); j++) {
+    for (size_t i = 0; i < sizeof(size_array) / sizeof(int); i++) {
       timeElapsed = benchmark_funcs[j](size_array[i], iterations);
       snprintf(s, sizeof(s), "Bit %15s (size = %10d)", test_array[j],
                size_array[i]);

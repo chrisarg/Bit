@@ -22,7 +22,6 @@
 
 #define T Bit_T
 
-
 // Detect architecture and set appropriate alignment
 #if defined(__LP64__) || defined(__x86_64__) || defined(__amd64__) ||          \
     defined(__aarch64__) || defined(_WIN64) || defined(__ia64__) ||            \
@@ -34,14 +33,11 @@
 #define ALIGNMENT 32
 #endif
 
-
-
 #ifdef BUILTIN_POPCOUNT
 #define POPCOUNT(x) __builtin_popcountll(x)
 #else
 #define POPCOUNT(x) count_WWG((x))
 #endif
-
 
 static_assert(ALIGNMENT >= 2 * sizeof(void *),
               "Alignment must be greater or equal to 2 x* sizeof(void *)");
@@ -52,21 +48,21 @@ static inline uint64_t count_WWG(unsigned long long input_num);
 static void *portable_aligned_calloc(size_t alignment, size_t size);
 
 #if (ALIGNMENT % 32 || ALIGNMENT % 64)
-  #define MM_LOAD_256(x) _mm256_loadu_si256((__m256i *)(x))
+#define MM_LOAD_256(x) _mm256_loadu_si256((__m256i *)(x))
 #else
-  #define MM_LOAD_256(x) _mm256_load_si256((__m256i *)(x))
+#define MM_LOAD_256(x) _mm256_load_si256((__m256i *)(x))
 #endif
 
 #if ALIGNMENT % 64
-  #define MM_LOAD_512(x) _mm512_loadu_si512((__m512i *)(x))
+#define MM_LOAD_512(x) _mm512_loadu_si512((__m512i *)(x))
 #else
-  #define MM_LOAD_512(x) _mm512_load_si512((__m512i *)(x))
+#define MM_LOAD_512(x) _mm512_load_si512((__m512i *)(x))
 #endif
 
 #ifdef USE_LIBPOPCNT
 #include "libpopcnt.h"
-//#include "popcnt-sse-harley-seal.h"
-//#define popcnt(x, size)   popcnt_SSE_harley_seal((x), (size))
+// #include "popcnt-sse-harley-seal.h"
+// #define popcnt(x, size)   popcnt_SSE_harley_seal((x), (size))
 #endif
 // masks used for some of the bit functions in the public API
 unsigned const char msbmask[] = {
@@ -79,7 +75,7 @@ unsigned const char lsbmask[] = {0x01, 0x03, 0x07, 0x0F,
 // Bitset structure
 /*
  The ADT provides access to the bitset as bytes,or qwords,
- anticipating optimization of the code *down the road*, 
+ anticipating optimization of the code *down the road*,
  including loading of externally allocated buffers into it
  The interface is effectively the one for Bit_T presented by D. Hanson
  in C Interfaces and Implementations, ISBN 0-201-49841-3 Ch13, 1997.
@@ -89,8 +85,8 @@ unsigned const char lsbmask[] = {0x01, 0x03, 0x07, 0x0F,
 */
 struct T {
   int length;
-  size_t size_in_bytes;       // number of 8 bit container
-  size_t size_in_qwords;      // number of 64 bit container
+  int size_in_bytes;       // number of 8 bit container
+  int size_in_qwords;      // number of 64 bit container
   bool is_Bit_T_allocated;    // true if allocated by the library
   unsigned char *bytes;       // pointer to the first byte
   unsigned long long *qwords; // pointer to the first qword
@@ -152,13 +148,13 @@ int Bit_length(T set) {
 int Bit_count(T set) {
   assert(set);
   int length = 0;
-  #ifndef USE_LIBPOPCNT
+#ifndef USE_LIBPOPCNT
   for (size_t i = 0; i < nqwords(set->length); i++) {
     length += POPCOUNT(set->qwords[i]);
   }
-  #else
+#else
   length = (int)popcnt(set->bytes, set->size_in_bytes);
-  #endif
+#endif
   return length;
 }
 
@@ -181,7 +177,7 @@ void Bit_aset(T set, int indices[], int n) {
   assert(set);
   assert(indices);
   for (int i = 0; i < n; i++) {
-   assert(indices[i] >= 0 && indices[i] < set->length);
+    assert(indices[i] >= 0 && indices[i] < set->length);
     set->bytes[indices[i] / BPB] |= 1 << (indices[i] % BPB);
   }
 }
@@ -189,7 +185,7 @@ void Bit_aclear(T set, int indices[], int n) {
   assert(set);
   assert(indices);
   for (int i = 0; i < n; i++) {
-   assert(indices[i] >= 0 && indices[i] < set->length);
+    assert(indices[i] >= 0 && indices[i] < set->length);
     set->bytes[indices[i] / BPB] &= ~(1 << (indices[i] % BPB));
   }
 }
@@ -211,7 +207,7 @@ void Bit_clear(T set, int lo, int hi) {
   assert(lo <= hi);
   if (lo / 8 < hi / 8) {
     // clear the most significant bits in byte lo/8
-    set->bytes[lo / 8] &= ~ msbmask[lo % 8];
+    set->bytes[lo / 8] &= ~msbmask[lo % 8];
     // clear the least significant bits in byte hi/8
     set->bytes[hi / 8] &= ~lsbmask[hi % 8];
     // clear the bits in between
@@ -295,7 +291,7 @@ int Bit_leq(T s, T t) {
   assert(s && t);
   assert(s->length == t->length);
   for (int i = s->size_in_qwords; --i >= 0;)
-    if ((s->qwords[i] &~t->qwords[i]) != 0)
+    if ((s->qwords[i] & ~t->qwords[i]) != 0)
       return 0;
   return 1;
 }
@@ -326,7 +322,7 @@ int Bit_lt(T s, T t) {
   } else {                                                                     \
     assert(s->length == t->length);                                            \
     T set = Bit_new(s->length);                                                \
-    for (int i = s->size_in_qwords; --i >= 0;) {                                \
+    for (int i = 0; i < s->size_in_qwords; i++) {                              \
       set->qwords[i] = s->qwords[i] op t->qwords[i];                           \
     }                                                                          \
     return set;                                                                \
@@ -357,7 +353,7 @@ T Bit_union(T s, T t) { setop(copy(t), copy(t), copy(s), |); }
   } else {                                                                     \
     assert(s->length == t->length);                                            \
     int answer = 0;                                                            \
-    for (int i = s->size_in_qwords; --i >= 0;) {                                \
+    for (int i = 0; i < s->size_in_qwords; i++) {                              \
       answer += POPCOUNT(s->qwords[i] op t->qwords[i]);                        \
     }                                                                          \
     return answer;                                                             \

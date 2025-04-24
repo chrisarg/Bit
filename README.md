@@ -53,9 +53,28 @@ make LIBPOPCNT=1
 # Run tests
 make test
 
-# Run benchmarks
+# Make the benchmark (this will also build the OpenMP benchmark)
 make bench
+
+# Make the open-mp benchmark
+make bench_omp
 ```
+### Benchmarking
+
+```bash
+# Runs various benchmarks
+./build/benchmark  
+
+# OpenMP benchmark
+Usage: ./build/openmp_bit <size> <number of reference bitsets> <max threads>
+```
+
+The OpenMP benchmark assesses the scaling of searching (intersection count) of a
+single bitset of given size(capacity) against a database of reference bitsets. 
+The benchmark will run 3 repetitions of a single threaded search, and then run
+the same query using OpenMP from 1 to the maximum number of threads to assess
+the scaling of the performance. A guided schedule is used internally to schedule
+the OpenMP threads.
 
 ## Usage Example
 
@@ -93,6 +112,11 @@ int main() {
 ## API Overview
 
 ### Creation and Destruction
+Create, free and free safely (by nullifying the pointer of a bitset). If you are
+using this library in a C/C++ project, I strongly suggest you free safely.
+Bit_free is intended to be used by the Perl interfaces (both functional and
+object oriented) to manage the buffer of the bitset. You can still use them in
+your C projects, but they offer no protection from double "freeing".
 
 ```c
 Bit_T Bit_new(int length);
@@ -101,7 +125,11 @@ void Bit_free_safe(T *set);
 ```
 
 ### Bitset Properties
-
+Return the length (capacity) of the bitset, the current population count of the
+bitset. 
+The last 3 functions will be used in future versions to facilitate the creation
+of memory buffers that will be loaded onto bitsets. For now you can refer to the
+header file to see what they do.
 ```c
 int Bit_length(T set);
 int Bit_count(T set);
@@ -111,9 +139,17 @@ int Bit_buffer_size(int length);
 ```
 
 ### Bit Manipulation
+Setting and clearing of irregular arrays (aset/aclear) of bits in a bitset,
+setting and clearing of ranges of bits (set/clear), or individual bits
+(bset/bclear).
+Other functions put a specific value in a given bit (and return the old bit),
+i.e. put, or return the current value of the bit (get). We can also map a
+function on the entire bit, clear the entire bitset or negate the bitset (not).
 
 ```c
+void Bit_aset(T set, int indices[], int n); 
 void Bit_bset(T set, int index);
+void Bit_aclear(T set, int indices[], int n);
 void Bit_bclear(T set, int index);
 void Bit_clear(T set, int lo, int hi);
 int Bit_get(T set, int index);
@@ -124,6 +160,8 @@ void Bit_set(T set, int lo, int hi);
 ```
 
 ### Bitset Comparisons
+Standard equality, less than equal, more than equal operations between two
+bitsets
 
 ```c
 int Bit_eq(T s, T t);
@@ -132,6 +170,10 @@ int Bit_lt(T s, T t);
 ```
 
 ### Set Operations
+Those are grouped in functions that return a bitset that is the difference
+(minus), symmetric difference (diff), union and intersection of two bitsets.
+Alternatively, one returns the population counts of the result of these set
+operations, without actually forming it.
 
 ```c
 T Bit_diff(T s, T t);
@@ -165,7 +207,7 @@ This project incorporates or is inspired by several open-source libraries:
 ## Performance
 
 The library is optimized for performance, with specialized implementations of
-the population counts for different CPU architectures:
+the population count for different CPU architectures:
 
 - **AVX512**: Utilizes 512-bit vector operations for maximum throughput
 - **AVX2**: Uses 256-bit vector operations on supported CPUs
@@ -179,7 +221,12 @@ the population counts for different CPU architectures:
   Nearly 70 years after it's introduction, this scalar algorithm outperforms
   hardware popcounts (including SSE popcounts and hardware scalar popcounts)
 
-The benchmarking suite demonstrates significant performance advantages over naive implementations, especially for large bitsets.
+The benchmarking suite demonstrates significant performance advantages over
+naive implementations, especially for large bitsets.
+Note that currently the population counts on the results of set operations use
+the builtin popcount or the WCG scalar implementations. The compiler may (or may
+not) promote them to a vectorized popcount depending on the compiler, the
+architecture, the flags, the alignment of the planets etc. 
 
 ## Applications
 

@@ -26,11 +26,7 @@
     * Bit_buffer_size   : Return the size of the buffer needed to store
                           the individual bits of the bitset (in bytes)
     *
-    Functions that facilitate the external memory management of the bitset and
-    its contents. These functions can be used to interface with other libraries.
-    * Bit_load          : Initialize a bitset using an external buffer that is
-                          managed
-    * size_of_Bit_T     : Return the size of an uninitialized Bit_T(in bytes)
+
 
 
     Functions that manipulate the bitset:
@@ -111,11 +107,13 @@ extern void Bit_free_safe(T *set); // free the bitset and zero the pointer
 
 extern int Bit_length(T set);
 extern int Bit_count(T set);     // uses popcount
+/*
 extern int size_of_Bit_T(void);  // size of the struct T
 extern int Bit_size(int length); // total size needed to store struct T
                                  // and the buffer of bits (in bytes)
 extern int Bit_buffer_size(
     int length); // total size needed to store struct T and the buffer
+*/
 
 /*
     Functions that manipulate an individual bitset (member operations).
