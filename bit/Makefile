@@ -1,15 +1,31 @@
 # Check for available compilers if user hasn't specified one
 ifeq ($(origin CC),default)
+$(info Default compiler not set, checking for available compilers...)
 # Check for icx first
-ifneq ($(shell which icx 2>/dev/null),)
-CC = icx
+ifneq ($(shell which gcc 2>/dev/null),)
+$(info Using gcc to compile)
+CC=gcc
 # Then check for clang
 else ifneq ($(shell which clang 2>/dev/null),)
-CC = clang
-# Default to gcc
-else
-CC = gcc
+$(info Using clang to compile)
+CC=clang
+# Check for icx
+else ifneq ($(shell which icx 2>/dev/null),)
+$(info Using icx to compile)
+CC=icx
 endif
+endif
+
+ifeq ($(origin GPU),undefined)
+$(info Default GPU offload not set, will set to NVIDIA)
+GPU=NVIDIA
+endif
+
+# check to see if the CC is one of icx, clang, or gcc
+ifneq ($(filter $(CC),gcc clang icx),)
+$(info CC is set to $(CC), which is a supported compiler)
+else
+$(error CC=$(CC) is not one of the supported compilers (gcc, clang, icx))
 endif
 
 # Set the appropriate OpenMP flag based on compiler
@@ -17,11 +33,42 @@ ifeq ($(CC),gcc)
 OPENMP_FLAG = -fopenmp
 else ifeq ($(CC),g++)
 OPENMP_FLAG = -fopenmp
+else ifeq ($(CC),clang)
+OPENMP_FLAG = -fopenmp
 else
 # For clang, icx, icc
 OPENMP_FLAG = -qopenmp
 endif
 
+$(info GPU is set to $(GPU))
+#Set the appropriate offload flag based on GPU type
+ifeq ($(GPU),NVIDIA)
+ifeq ($(CC),gcc)
+OFFLOAD_FL = -fno-stack-protector -fcf-protection=none -foffload=nvptx-none
+else ifeq ($(CC),clang)
+OFFLOAD_FL = -fopenmp-targets=nvptx64 -foffload-lto
+else ifeq ($(CC),icx)
+OFFLOAD_FL = -fopenmp-targets=nvptx64-nvidia-cuda
+endif
+else ifeq ($(GPU),AMD)
+ifeq ($(CC),gcc)
+OFFLOAD_FL = -foffload=amdgcn-amd-amdhsa
+else ifeq ($(CC),clang)
+OFFLOAD_FL = -foffload=amdgcn-amd-amdhsa
+else ifeq ($(CC),icx)
+OFFLOAD_FL = -foffload=amdgcn-amd-amdhsa
+endif
+else ifeq ($(GPU),INTEL)
+ifeq ($(CC),gcc)
+OFFLOAD_FL = -foffload=spir64-unknown-unknown
+else ifeq ($(CC),clang)
+OFFLOAD_FL = -foffload=spir64-unknown-unknown
+else ifeq ($(CC),icx)	
+OFFLOAD_FL = -foffload=spir64-unknown-unknown
+endif
+else
+$(error GPU = $(GPU) is not one of the supported GPUs (NVIDIA, AMD, INTEL))
+endif
 # Allow custom build directory, default to 'build' folder
 BUILD_DIR ?= build
 
@@ -29,20 +76,30 @@ BUILD_DIR ?= build
 $(shell mkdir -p $(BUILD_DIR))
 
 ## compiler flags
-CFLAGS = -Wall -Wextra -Iinclude -std=c11 -fPIC -O3 -march=native
+CFLAGS0 = -Wall -Wextra -Iinclude -std=c11 -fPIC -O3 -march=native \
+-Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable
 
 ## additional flags - may be removed at some point
 DEFINES ?=
-CFLAGS += $(DEFINES)
+CFLAGS += $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0)
 
 
-# Handle libpopcnt integration
-LIBPOPCNT ?= 0
-ifneq ($(filter-out 0,$(LIBPOPCNT)),)
-CFLAGS += -DUSE_LIBPOPCNT
-ifeq ($(filter clean test bench distclean,$(MAKECMDGOALS)),)
-$(info Using libpopcnt for population count)
-endif
+# Default to enabled
+LIBPOPCNT ?= 1
+
+# Convert to lowercase for case-insensitive comparison
+LIBPOPCNT_LC := $(shell echo $(LIBPOPCNT) | tr A-Z a-z)
+
+# Check if it's one of the "false" values
+ifneq ($(filter $(LIBPOPCNT_LC),0 no n false f off),)
+    # LIBPOPCNT is disabled - don't add the flag
+    $(info libpopcnt integration disabled)
+else
+    # LIBPOPCNT is enabled
+    CFLAGS += -DUSE_LIBPOPCNT
+    ifeq ($(filter clean test bench distclean,$(MAKECMDGOALS)),)
+        $(info Using libpopcnt for population count)
+    endif
 endif
 
 SRC = src/bit.c
@@ -71,7 +128,7 @@ all: $(TARGET)
 
 # Rule to build object files in the build directory
 $(BUILD_DIR)/%.o: src/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(OPENMP_FLAG) -c $< -o $@
 
 $(BUILD_DIR)/%.o: tests/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -108,6 +165,3 @@ clean:
 # Additional target to clean everything including dependencies
 distclean: clean
 
-# Special target that enables libpopcnt
-LIBPOPCNT:
-	$(MAKE) LIBPOPCNT=1

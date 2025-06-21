@@ -18,23 +18,28 @@ on unions/differences/intersections of sets) and fast population counts (see bel
   available for set operations (Under Development)
 - **Specialized Population Counting**: Integration of the libpopcnt library 
   offering  multiple implementations of bit counting algorithms ("population
-  counts", aka _popcount_ aka _popcnt_) including:
+  counts", aka _popcount_ aka _popcnt_) for CPUs including:
   - Hardware POPCNT
   - Wilkes-Wheeler-Gill algorithm
   - SIMD-accelerated counting
+  The optimal method is chosen by the library during cpuid (invoked once at
+  first use)
 - **Set Operations**: Union, intersection, difference, and symmetric difference
-- **Memory Efficiency**: Precise memory management with aligned allocations
 - **Comprehensive API**: Based on David Hanson's "C Interfaces and Implementations" design
 - **Thread-Safety**: No global state, all operations are reentrant
 - **Loading of bitset buffers**: This will facilitate integration and coupling
   with scripting languages (under development)
+- **Hardware (GPU) acceleration**: Using OpenMP to offload set operations over
+  bit containers in Graphic Processing Units (under development) and TPUs (e.g.
+  Coral TPU, under development)
 - **Perl interface**: Both object oriented and functional (under development)
 
 ## Installation
 
 ### Prerequisites
 
-- C compiler (GCC, Clang, or Intel ICX)
+- C compiler (GCC, Clang, or Intel ICX) : GCC extensively tested, Clang and ICX
+  support still experimental
 - GNU Make
 
 ### Building
@@ -47,8 +52,6 @@ cd Bit
 # Build the library
 make
 
-# Build with libpopcnt integration (for faster population counting)
-make LIBPOPCNT=1
 
 # Run tests
 make test
@@ -97,13 +100,25 @@ int main() {
     int count = Bit_inter_count(bitset1, bitset2);
     printf("Intersection count: %d\n", count);  // Output: 1
     
-    // Create intersection bitset
+    // Create a bitset to hold the interesection
     Bit_T intersection = Bit_inter(bitset1, bitset2);
     
     // Clean up
-    Bit_free(bitset1);
-    Bit_free(bitset2);
-    Bit_free(intersection);
+    Bit_free(&bitset1);
+    Bit_free(&bitset2);
+    Bit_free(&intersection);
+
+    // How to properly utilize an externally allocated buffer
+    int length = 1024;
+    int nbytes = Bit_buffer_size(length);
+    unsigned char *buffer = malloc(nbytes);
+    fill_with_values(buffer); 
+    Bit_T bitset = Bit_load(length,buffer);
+    do_things_with(bitset);
+    Bit_free(&bitset);
+    do_otherthings_with(buffer);
+    free(buffer);
+
     
     return 0;
 }
@@ -126,15 +141,11 @@ void Bit_free_safe(T *set);
 
 ### Bitset Properties
 Return the length (capacity) of the bitset, the current population count of the
-bitset. 
-The last 3 functions will be used in future versions to facilitate the creation
-of memory buffers that will be loaded onto bitsets. For now you can refer to the
-header file to see what they do.
+bitset or the size (in bytes) of the buffer needed to store the bits in the bitset
+of a given length.
 ```c
 int Bit_length(T set);
 int Bit_count(T set);
-int size_of_Bit_T(void);
-int Bit_size(int length);
 int Bit_buffer_size(int length);
 ```
 
@@ -209,8 +220,11 @@ This project incorporates or is inspired by several open-source libraries:
 The library is optimized for performance, with specialized implementations of
 the population count for different CPU architectures:
 
-- **AVX512**: Utilizes 512-bit vector operations for maximum throughput
-- **AVX2**: Uses 256-bit vector operations on supported CPUs
+- **AVX512**: Utilizes 512-bit vector operations for maximum throughput. 
+The implementation will depend on the processor architecture and may include HW
+popcounts or the Harley - Searl algorithm.
+- **AVX2**: Uses 256-bit vector operations on supported CPUs to implement the 
+Harley - Searl algorithm
 - **NEON**: Falls back to 128-bit vector operations on older CPUs
 - **SVE**
 - **Scalar**: Provides optimized scalar implementations for universal
@@ -218,15 +232,9 @@ the population count for different CPU architectures:
   Algorithm**: A highly portable and efficient algorithm   for counting set bits 
   documented in "The Preparation of Programs for an Electronic Digital
   Computer". 
-  Nearly 70 years after it's introduction, this scalar algorithm outperforms
-  hardware popcounts (including SSE popcounts and hardware scalar popcounts)
 
-The benchmarking suite demonstrates significant performance advantages over
-naive implementations, especially for large bitsets.
-Note that currently the population counts on the results of set operations use
-the builtin popcount or the WCG scalar implementations. The compiler may (or may
-not) promote them to a vectorized popcount depending on the compiler, the
-architecture, the flags, the alignment of the planets etc. 
+The Wilkes-Wheeler-Gill algorithm is used as default for GPU deployments given
+the straightforward translation into highly efficient GPU code (under -O3).
 
 ## Applications
 

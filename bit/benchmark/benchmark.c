@@ -32,8 +32,8 @@ int64_t bench_Bit_aset(int size, int iterations) {
   struct timespec start_time, end_time;
   int64_t timeElapsed = 0;
   Bit_T bit1 = Bit_new(size);
-  int length_of_index = size / 2 >= 2048 ? 2048 : size/2;
-  int *indices = malloc((length_of_index)  * sizeof(int));
+  int length_of_index = size / 2 >= 2048 ? 2048 : size / 2;
+  int *indices = malloc((length_of_index) * sizeof(int));
   for (int i = 0; i < length_of_index; i++) {
     indices[i] = i;
   }
@@ -44,7 +44,7 @@ int64_t bench_Bit_aset(int size, int iterations) {
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   timeElapsed = timeDiff(&end_time, &start_time);
-  free(bit1);
+  Bit_free(&bit1);
   free(indices);
   return timeElapsed;
 }
@@ -53,8 +53,8 @@ int64_t bench_Bit_aclear(int size, int iterations) {
   struct timespec start_time, end_time;
   int64_t timeElapsed = 0;
   Bit_T bit1 = Bit_new(size);
-  int length_of_index = size / 2 >= 2048 ? 2048 : size/2;
-  int *indices = malloc((length_of_index)  * sizeof(int));
+  int length_of_index = size / 2 >= 2048 ? 2048 : size / 2;
+  int *indices = malloc((length_of_index) * sizeof(int));
   for (int i = 0; i < length_of_index; i++) {
     indices[i] = i;
   }
@@ -65,7 +65,7 @@ int64_t bench_Bit_aclear(int size, int iterations) {
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   timeElapsed = timeDiff(&end_time, &start_time);
-  free(bit1);
+  Bit_free(&bit1);
   free(indices);
   return timeElapsed;
 }
@@ -80,9 +80,10 @@ int64_t bench_Bit_count(int size, int iterations) {
   for (int i = 0; i < iterations; i++) {
     result = Bit_count(bit1);
   }
-
+  
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   timeElapsed = timeDiff(&end_time, &start_time);
+  Bit_free(&bit1);
   return timeElapsed;
 }
 
@@ -101,6 +102,8 @@ int64_t bench_Bit_inter_count(int size, int iterations) {
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   timeElapsed = timeDiff(&end_time, &start_time);
+  Bit_free(&bit1);
+  Bit_free(&bit2);
   return timeElapsed;
 }
 int64_t bench_Bit_inter_count_mem(int size, int iterations) {
@@ -115,11 +118,13 @@ int64_t bench_Bit_inter_count_mem(int size, int iterations) {
   for (int i = 0; i < iterations; i++) {
     Bit_T bit3 = Bit_inter(bit1, bit2);
     result = Bit_count(bit3);
-    Bit_free(bit3);
+    Bit_free(&bit3);
   }
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   timeElapsed = timeDiff(&end_time, &start_time);
+  Bit_free(&bit1);
+  Bit_free(&bit2);
   return timeElapsed;
 }
 
@@ -133,7 +138,7 @@ int64_t bench_Bit_inter(int size, int iterations) {
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   for (int i = 0; i < iterations; i++) {
     Bit_T bit3 = Bit_inter(bit1, bit2);
-    Bit_free(bit3);
+    Bit_free(&bit3);
   }
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -185,20 +190,20 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
   }
   clock_gettime(CLOCK_MONOTONIC, &start_time);
 #if defined(__AVX512__)
-    // AVX512 version - process 8 qwords (512 bits) at once
-    for (int i = 0; i < iterations; i++) {
-        int j = size_in_qwords;
-        // Process 8 qwords at a time
-        for (; j >= 8; j -= 8) {
-        __m512i a = _mm512_loadu_si512((__m512i *)(bit1 + j - 8));
-        __m512i b = _mm512_loadu_si512((__m512i *)(bit2 + j - 8));
-        volatile __m512i c = _mm512_and_si512(a, b);
-        }
-        // Handle remaining elements
-        for (; j > 0; j--) {
-        volatile unsigned long long result = bit1[j - 1] & bit2[j - 1];
-        }
+  // AVX512 version - process 8 qwords (512 bits) at once
+  for (int i = 0; i < iterations; i++) {
+    int j = size_in_qwords;
+    // Process 8 qwords at a time
+    for (; j >= 8; j -= 8) {
+      __m512i a = _mm512_loadu_si512((__m512i *)(bit1 + j - 8));
+      __m512i b = _mm512_loadu_si512((__m512i *)(bit2 + j - 8));
+      volatile __m512i c = _mm512_and_si512(a, b);
     }
+    // Handle remaining elements
+    for (; j > 0; j--) {
+      volatile unsigned long long result = bit1[j - 1] & bit2[j - 1];
+    }
+  }
 #elif defined(__AVX2__)
   // AVX2 version - process 4 qwords (256 bits) at once
   for (int i = 0; i < iterations; i++) {
@@ -249,9 +254,9 @@ int main() {
                       16384, 32768, 65536, 131072, 262144, 524288, 1048576};
   char *test_array[] = {"Count", "Inter Count", "Inter Count Mem",
                         "Inter", "And",         "And_SIMD",
-                      "aset", "aclear"};
+                        "aset",  "aclear"};
 #if defined(__AVX512__)
-    printf("AVX512 detected\n");
+  printf("AVX512 detected\n");
 #elif defined(__AVX2__)
   printf("AVX2 detected\n");
 #elif defined(__SSE2__)
@@ -263,28 +268,29 @@ int main() {
 #ifdef BUILTIN_POPCOUNT
   printf("Using builtin popcount\n");
 #else
-  printf("Using portable WWG popcount\n");
+  printf("Using library popcount\n");
 #endif
   // Array of benchmark functions
   benchmark_func benchmark_funcs[] = {
       bench_Bit_count,       bench_Bit_inter_count, bench_Bit_inter_count_mem,
       bench_Bit_inter_count, bench_Bit_and,         bench_Bit_and_SIMD,
-      bench_Bit_aset,       bench_Bit_aclear,
+      bench_Bit_aset,        bench_Bit_aclear,
   };
   char *test_explantion[] = {
       "Count the number of bits set in the bitset",
       "Count the number of bits set in an intersection",
       ("Count the number of bits set in the intersection by first\n"
-        "\tforming the intersection and then counting"),
+       "\tforming the intersection and then counting"),
       "Intersection of two bitsets",
       "Bitwise AND of two buffers",
       "Bitwise AND of two buffers using SIMD intrinsics",
       "Set an array of bits (up to 2048) in the bitset",
-      "Clear an array of bits (up to 2048) in the bitset",};
+      "Clear an array of bits (up to 2048) in the bitset",
+  };
   // print an one line summary of the tests
   printf("Benchmarking the bit library\n");
   for (size_t i = 0; i < sizeof(test_array) / sizeof(char *); i++) {
-    printf("%s => %s\n",test_array[i], test_explantion[i]);
+    printf("%s => %s\n", test_array[i], test_explantion[i]);
   }
   int iterations = 1000;
   int64_t timeElapsed;

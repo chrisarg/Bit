@@ -1,24 +1,3 @@
-
-/*
-  1. Modifed libpopcnt.h to allow the load of aligned loads for use with
-  the bit library.  C Preprocessor Macros were MM_LOAD_256 and MM_LOAD_512
-  were added to allow the use of aligned loads for AVX2 and AVX512 
-  architectures.
-
-  To DO: 
-  1. Integrate the RiscV architecture into the library.
-  2. Explore optimized setop_count functions for the bit library. Currently
-  the library steps over unsigned long long words (qword) from each of the 
-  bitsets and uses the scalar WCG algorithm to count the number of bits in each.
-  While the WCG scalar algorithm is VERY efficient, it may not be the fastest,
-  and would like to explore combinations of vectorized set operations with 
-  vectorized or hardware popcount (on the AVX512, ARM and RiscV architectures)
-
-  April 20th 2025
-  Author : Christos Argyropoulos
-
-*/
-
 /*
  * libpopcnt.h - C/C++ library for counting the number of 1 bits (bit
  * population count) in an array as quickly as possible using
@@ -461,18 +440,18 @@ static inline uint64_t popcnt_avx2(const __m256i* ptr, uint64_t size)
 
   for(; i < limit; i += 16)
   {
-    CSA256(&twosA, &ones, ones, MM_LOAD_256(ptr + i + 0), MM_LOAD_256(ptr + i + 1));
-    CSA256(&twosB, &ones, ones, MM_LOAD_256(ptr + i + 2), MM_LOAD_256(ptr + i + 3));
+    CSA256(&twosA, &ones, ones, _mm256_loadu_si256(ptr + i + 0), _mm256_loadu_si256(ptr + i + 1));
+    CSA256(&twosB, &ones, ones, _mm256_loadu_si256(ptr + i + 2), _mm256_loadu_si256(ptr + i + 3));
     CSA256(&foursA, &twos, twos, twosA, twosB);
-    CSA256(&twosA, &ones, ones, MM_LOAD_256(ptr + i + 4), MM_LOAD_256(ptr + i + 5));
-    CSA256(&twosB, &ones, ones, MM_LOAD_256(ptr + i + 6), MM_LOAD_256(ptr + i + 7));
+    CSA256(&twosA, &ones, ones, _mm256_loadu_si256(ptr + i + 4), _mm256_loadu_si256(ptr + i + 5));
+    CSA256(&twosB, &ones, ones, _mm256_loadu_si256(ptr + i + 6), _mm256_loadu_si256(ptr + i + 7));
     CSA256(&foursB, &twos, twos, twosA, twosB);
     CSA256(&eightsA, &fours, fours, foursA, foursB);
-    CSA256(&twosA, &ones, ones, MM_LOAD_256(ptr + i + 8), MM_LOAD_256(ptr + i + 9));
-    CSA256(&twosB, &ones, ones, MM_LOAD_256(ptr + i + 10), MM_LOAD_256(ptr + i + 11));
+    CSA256(&twosA, &ones, ones, _mm256_loadu_si256(ptr + i + 8), _mm256_loadu_si256(ptr + i + 9));
+    CSA256(&twosB, &ones, ones, _mm256_loadu_si256(ptr + i + 10), _mm256_loadu_si256(ptr + i + 11));
     CSA256(&foursA, &twos, twos, twosA, twosB);
-    CSA256(&twosA, &ones, ones, MM_LOAD_256(ptr + i + 12), MM_LOAD_256(ptr + i + 13));
-    CSA256(&twosB, &ones, ones, MM_LOAD_256(ptr + i + 14), MM_LOAD_256(ptr + i + 15));
+    CSA256(&twosA, &ones, ones, _mm256_loadu_si256(ptr + i + 12), _mm256_loadu_si256(ptr + i + 13));
+    CSA256(&twosB, &ones, ones, _mm256_loadu_si256(ptr + i + 14), _mm256_loadu_si256(ptr + i + 15));
     CSA256(&foursB, &twos, twos, twosA, twosB);
     CSA256(&eightsB, &fours, fours, foursA, foursB);
     CSA256(&sixteens, &eights, eights, eightsA, eightsB);
@@ -487,7 +466,7 @@ static inline uint64_t popcnt_avx2(const __m256i* ptr, uint64_t size)
   cnt = _mm256_add_epi64(cnt, popcnt256(ones));
 
   for(; i < size; i++)
-    cnt = _mm256_add_epi64(cnt, popcnt256(MM_LOAD_256(ptr + i)));
+    cnt = _mm256_add_epi64(cnt, popcnt256(_mm256_loadu_si256(ptr + i)));
 
   cnt64 = (uint64_t*) &cnt;
 
@@ -516,10 +495,10 @@ static inline uint64_t popcnt_avx512(const uint8_t* ptr8, uint64_t size)
 
     for (; i + 32 <= size64; i += 32)
     {
-      __m512i vec0 = MM_LOAD_512(&ptr64[i + 0]);
-      __m512i vec1 = MM_LOAD_512(&ptr64[i + 8]);
-      __m512i vec2 = MM_LOAD_512(&ptr64[i + 16]);
-      __m512i vec3 = MM_LOAD_512(&ptr64[i + 24]);
+      __m512i vec0 = _mm512_loadu_epi64(&ptr64[i + 0]);
+      __m512i vec1 = _mm512_loadu_epi64(&ptr64[i + 8]);
+      __m512i vec2 = _mm512_loadu_epi64(&ptr64[i + 16]);
+      __m512i vec3 = _mm512_loadu_epi64(&ptr64[i + 24]);
 
       vec0 = _mm512_popcnt_epi64(vec0);
       vec1 = _mm512_popcnt_epi64(vec1);
@@ -534,7 +513,7 @@ static inline uint64_t popcnt_avx512(const uint8_t* ptr8, uint64_t size)
 
     for (; i + 8 <= size64; i += 8)
     {
-      __m512i vec = MM_LOAD_512(&ptr64[i]);
+      __m512i vec = _mm512_loadu_epi64(&ptr64[i]);
       vec = _mm512_popcnt_epi64(vec);
       cnt = _mm512_add_epi64(cnt, vec);
     }
