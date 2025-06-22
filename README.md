@@ -20,18 +20,20 @@ on unions/differences/intersections of sets) and fast population counts (see bel
   offering  multiple implementations of bit counting algorithms ("population
   counts", aka _popcount_ aka _popcnt_) for CPUs including:
   - Hardware POPCNT
-  - Wilkes-Wheeler-Gill algorithm
+  - Wilkes-Wheeler-Gill (WWG) algorithm
   - SIMD-accelerated counting
   The optimal method is chosen by the library during cpuid (invoked once at
-  first use)
+  first use).
+  This can be turned off by setting LIBPOPCNT environment variable to 0 no n
+  false f off during compilation. In that case, we will fall back to the WWG algorithm.
 - **Set Operations**: Union, intersection, difference, and symmetric difference
 - **Comprehensive API**: Based on David Hanson's "C Interfaces and Implementations" design
 - **Thread-Safety**: No global state, all operations are reentrant
 - **Loading of bitset buffers**: This will facilitate integration and coupling
   with scripting languages (under development)
 - **Hardware (GPU) acceleration**: Using OpenMP to offload set operations over
-  bit containers in Graphic Processing Units (under development) and TPUs (e.g.
-  Coral TPU, under development)
+  bit containers in Graphic Processing Units and TPUs (e.g. Coral TPU, under
+  development). Population counts are carried out using the WWG algorithm.  
 - **Perl interface**: Both object oriented and functional (under development)
 
 ## Installation
@@ -118,6 +120,57 @@ int main() {
     Bit_free(&bitset);
     do_otherthings_with(buffer);
     free(buffer);
+
+    //----------------------------------------------------------------
+    // Using the packed containers; based on the openmp_bit.c benchmark
+    int num_of_bits = 65536;
+    int num_of_bits = 1000;
+    int num_of_ref_bitsets = 5000;
+
+    // allocate the bitsets as arrays of Bit_T & put some data in them
+    Bit_T *bits = malloc(num_of_bits * sizeof(Bit_T));
+    Bit_T *bitsets = malloc(num_of_ref_bits * sizeof(Bit_T));
+    for (int i = 0; i < num_of_bits; i++) {
+      bits[i] = Bit_new(size);
+      Bit_set(bits[i], size / 2, size - 1);
+    }
+    for (int i = 0; i < num_of_ref_bits; i++) {
+      bitsets[i] = Bit_new(size);
+      Bit_set(bitsets[i], size / 2, size - 1);
+    }
+
+    // move them to packed containers 
+    Bit_T_DB db1 = BitDB_new(size, num_of_bits);
+    Bit_T_DB db2 = BitDB_new(size, num_of_ref_bits);
+    for (int i = 0; i < num_of_bits; i++)
+      BitDB_put_at(db1, i, bits[i]);
+    for (int i = 0; i < num_of_ref_bits; i++)
+      BitDB_put_at(db2, i, bitsets[i]);
+
+    // These give equivalent results 
+    int *results_CPU_container = 
+      BitDB_inter_count_cpu(db1, db2, 
+      (SETOP_COUNT_OPTS){.num_cpu_threads = num_threads});
+
+    int *results_GPU_container = BitDB_inter_count_gpu(db1, db2,
+                           (SETOP_COUNT_OPTS){.device_id = 0,
+                                              .upd_1st_operand = true,
+                                              .upd_2nd_operand = false,
+                                              .release_1st_operand = true,
+                                              .release_2nd_operand = true,
+                                              .release_counts = true});
+
+    // In case you would like to do intersection counts on Bit_T arrays
+    size_t workload = (size_t)num_of_bits * (size_t)num_of_ref_bits;
+    int *results_CPU_OMP = (int *)calloc(workload, sizeof(int));
+      assert(counts != NULL);
+    omp_set_num_threads(threads);
+    #pragma omp parallel for schedule(guided)
+    for (int i = 0; i < num_of_bits; i++) {
+      for (int j = 0; j < num_of_ref_bits; j++) {
+        counts[i * num_of_ref_bits + j] = Bit_inter_count(bit[i], bitsets[j]);
+      }
+    }
 
     
     return 0;

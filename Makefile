@@ -106,6 +106,7 @@ SRC = src/bit.c
 OBJ = $(BUILD_DIR)/bit.o
 # Change from static to shared library
 TARGET = $(BUILD_DIR)/libbit.so
+TARGET_STATIC = $(BUILD_DIR)/libbit.a
 TEST_SRC = tests/test_bit.c
 TEST_OBJ = $(BUILD_DIR)/test_bit.o
 TEST_EXEC = $(BUILD_DIR)/test_bit
@@ -122,9 +123,8 @@ BENCH_OMP_EXEC = $(BUILD_DIR)/openmp_bit
 
 .PHONY: all clean test bench LIBPOPCNT
 
-# Default target
-all: $(TARGET)
-
+# Default targets are to build the shared and static libraries
+all: $(TARGET) $(TARGET_STATIC)
 
 # Rule to build object files in the build directory
 $(BUILD_DIR)/%.o: src/%.c
@@ -144,7 +144,10 @@ $(BUILD_DIR)/openmp_bit.o: benchmark/openmp_bit.c
 $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) -shared -o $@ $^ $(LDFLAGS)
 
-
+# Build the static library as well
+$(TARGET_STATIC): $(OBJ)
+	$(AR) rcs $@ $^
+	
 # Update test to use shared library
 test: $(TARGET) $(TEST_OBJ)
 	$(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) -L$(BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(BUILD_DIR) -lbit

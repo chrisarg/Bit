@@ -421,7 +421,7 @@ bool test_bitDB_inter_count() {
   int *count = BitDB_count(bit1);
   int *count2 = BitDB_count(bit2);
 
-  int *inter_count = BitDB_inter_count(bit1, bit2, 1, cpu);
+  int *inter_count = BitDB_inter_count(bit1, bit2, (SETOP_COUNT_OPTS){}, cpu);
   bool success = (*inter_count == 1) &&
                  (inter_count[1] == 1 && inter_count[SIZEOF_BITDB] == 1 &&
                   inter_count[SIZEOF_BITDB+1] == 2); 
