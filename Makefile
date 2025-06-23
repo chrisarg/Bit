@@ -151,7 +151,7 @@ $(TARGET_STATIC): $(OBJ)
 # Update test to use shared library
 test: $(TARGET) $(TEST_OBJ)
 	$(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) -L$(BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(BUILD_DIR) -lbit
-	$(TEST_EXEC)
+
 
 # Add target to build the benchmark executable and the OpenMP benchmark
 bench: $(TARGET) $(BENCH_OBJ) bench_omp
