@@ -863,12 +863,12 @@ extern int *BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *counts,
   setop_count_db_gpu(bit, bits, counts, &~, opts)
 }
 
-void BitDB_debug(T_DB set,T_DB* set2)
+void Bit_debug(T set,T* set2)
 {
   assert(set);
   assert(set2);
   uintptr_t p1 = (uintptr_t)set;
-  uintptr_t p2 = (uintptr_t)*set2;
+  uintptr_t p2 = (uintptr_t)(*set2);
   uintptr_t p3 = (uintptr_t)set2;
   printf("set: %p, *set2:  %p, set2: %p\n", (void *)p1, (void *)p2, (void *)p3);
 
