@@ -381,7 +381,7 @@ extern int* BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
 // debugging function
-extern void Bit_debug(T_DB set,T_DB* set2);
+extern void Bit_debug(T set,T *set2);
 #undef T
 #undef T_DB
 #endif
