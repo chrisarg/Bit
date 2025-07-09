@@ -870,7 +870,7 @@ void Bit_debug(T set,T* set2)
   uintptr_t p1 = (uintptr_t)set;
   uintptr_t p2 = (uintptr_t)(*set2);
   uintptr_t p3 = (uintptr_t)set2;
-  printf("set: %p, *set2:  %p, set2: %p\n", (void *)p1, (void *)p2, (void *)p3);
+  printf("set: %p, *set2:  %p, set2: %p\n", p1, p2, p3);
 
 }
 /*---------------------------------------------------------------------------*/
