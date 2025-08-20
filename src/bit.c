@@ -869,7 +869,7 @@ void Bit_debug(T *set)
   uintptr_t p1 = (uintptr_t)(*set);
  // printf("set: %xllu, *set2:  %xllu, set2: %xllu\n", p1, p2, p3);
   printf("set: %llx\n", p1);
-  printf("Count : %d\n", Bit_count(set));
+  printf("Count : %d\n", Bit_count(*set));
 }
 /*---------------------------------------------------------------------------*/
 
