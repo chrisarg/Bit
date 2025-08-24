@@ -33,11 +33,11 @@ void summarize_results(char* test, int64_t timeElapsed, int num_of_threads,
 int main(int argc, char* argv []) {
   if (argc != 5) {
     fprintf(stderr,
-      "Usage: %s <size> <number of reference bitsets> <max threads>\n",
+      "Usage: %s <size> <number of bitsets> <number of reference bitsets> <max threads>\n",
       argv[0]);
     fprintf(stderr, "Example: %s 1024 1000 1000000 4\n", argv[0]);
     fprintf(stderr,
-      "This will create 100 bitsets size 1024, do an intersection count"
+      "This will create 1000 bitsets size 1024, do an intersection count"
       " against another 1000000 bitsets, and run the test for 1-4 "
       "threads.\n");
     fprintf(stderr, "Please ensure that the size is a positive integer.\n");
@@ -57,8 +57,16 @@ int main(int argc, char* argv []) {
     return EXIT_FAILURE;
   }
 
-  assert(max_threads <= MAX_THREADS);
-  assert(size >= MIN_SIZE);
+  // max threads and size assigned to limits
+  if (max_threads > MAX_THREADS) {
+    fprintf(stderr, "Warning: max threads capped to %d\n", MAX_THREADS);
+    max_threads = MAX_THREADS;
+  }
+  if(size < MIN_SIZE) {
+    fprintf(stderr, "Warning: size increased to %d\n", MIN_SIZE);
+    size = MIN_SIZE;
+  }
+
 
 #ifndef NDEBUG
   printf("Debug mode is enabled.\n");
@@ -219,7 +227,10 @@ int database_match(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
   int max = 0, current = 0;
   size_t workload = (size_t)num_of_bits * (size_t)num_of_ref_bits;
   int* counts = (int*)calloc(workload, sizeof(int));
-  assert(counts != NULL);
+  if(counts == NULL) {
+    fprintf(stderr, "Error: Unable to allocate memory for counts array of size %zu in %s\n", workload,__func__);
+    exit(EXIT_FAILURE);
+  }
   for (int i = 0; i < num_of_bits; i++) {
     for (int j = 0; j < num_of_ref_bits; j++) {
       counts[i * num_of_ref_bits + j] = Bit_inter_count(bit[i], bitsets[j]);
@@ -241,7 +252,10 @@ int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
   int max = 0, current = 0;
   size_t workload = (size_t)num_of_bits * (size_t)num_of_ref_bits;
   int* counts = (int*)calloc(workload, sizeof(int));
-  assert(counts != NULL);
+  if(counts == NULL) {
+    fprintf(stderr, "Error: Unable to allocate memory for counts array of size %zu in %s\n", workload,__func__);
+    exit(EXIT_FAILURE);
+  }
   omp_set_num_threads(threads);
 #pragma omp parallel for schedule(guided)
   for (int i = 0; i < num_of_bits; i++) {
