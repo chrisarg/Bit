@@ -18,28 +18,28 @@ OpenMP enabled benchmarks
 #define POPCOUNT(x) (int)count_WWG((x))
 
 #define CONTAINER unsigned long long
-typedef CONTAINER *bitcontainer;
+typedef CONTAINER* bitcontainer;
 static inline unsigned long long count_WWG(unsigned long long x);
-int64_t timeDiff(struct timespec *timeA_p, struct timespec *timeB_p);
-int database_match(Bit_T *bit, Bit_T *bitsets, int num_of_bits,
-                   int num_of_ref_bits);
-int database_match_omp(Bit_T *bit, Bit_T *bitsets, int num_of_bits,
-                       int num_of_ref_bits, int threads);
+int64_t timeDiff(struct timespec* timeA_p, struct timespec* timeB_p);
+int database_match(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
+  int num_of_ref_bits);
+int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
+  int num_of_ref_bits, int threads);
 int database_match_container_omp(Bit_T_DB db1, Bit_T_DB db2, int threads);
 int database_match_GPU(Bit_T_DB db1, Bit_T_DB db2, SETOP_COUNT_OPTS opts);
-void summarize_results(char *test, int64_t timeElapsed, int num_of_threads,
-                       int result, float speedup);
+void summarize_results(char* test, int64_t timeElapsed, int num_of_threads,
+  int result, float speedup);
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv []) {
   if (argc != 5) {
     fprintf(stderr,
-            "Usage: %s <size> <number of reference bitsets> <max threads>\n",
-            argv[0]);
+      "Usage: %s <size> <number of reference bitsets> <max threads>\n",
+      argv[0]);
     fprintf(stderr, "Example: %s 1024 1000 1000000 4\n", argv[0]);
     fprintf(stderr,
-            "This will create 100 bitsets size 1024, do an intersection count"
-            " against another 1000000 bitsets, and run the test for 1-4 "
-            "threads.\n");
+      "This will create 100 bitsets size 1024, do an intersection count"
+      " against another 1000000 bitsets, and run the test for 1-4 "
+      "threads.\n");
     fprintf(stderr, "Please ensure that the size is a positive integer.\n");
     return EXIT_FAILURE;
   }
@@ -50,20 +50,26 @@ int main(int argc, char *argv[]) {
   int max_threads = atoi(argv[4]);
 
   if (size <= 0 || num_of_bits <= 0 || num_of_ref_bits <= 0 ||
-      max_threads <= 0) {
+    max_threads <= 0) {
     fprintf(stderr, "Error: size, number of bits, number of ref bits, and max "
-                    "threads must be "
-                    "positive integers.\n");
+      "threads must be "
+      "positive integers.\n");
     return EXIT_FAILURE;
   }
 
   assert(max_threads <= MAX_THREADS);
   assert(size >= MIN_SIZE);
 
+#ifndef NDEBUG
+  printf("Debug mode is enabled.\n");
+#else
+  printf("Debug mode is disabled.\n");
+#endif
+
   printf("Starting OMP and SIMD benchmarks\n");
   // allocate the bitsets
-  Bit_T *bits = malloc(num_of_bits * sizeof(Bit_T));
-  Bit_T *bitsets = malloc(num_of_ref_bits * sizeof(Bit_T));
+  Bit_T* bits = malloc(num_of_bits * sizeof(Bit_T));
+  Bit_T* bitsets = malloc(num_of_ref_bits * sizeof(Bit_T));
   for (int i = 0; i < num_of_bits; i++) {
     bits[i] = Bit_new(size);
     Bit_set(bits[i], size / 2, size - 1);
@@ -93,7 +99,7 @@ int main(int argc, char *argv[]) {
   struct timespec start_time, end_time;
 
   max = database_match(bits, bitsets, num_of_bits,
-                       num_of_ref_bits); // to warm up the processor
+    num_of_ref_bits); // to warm up the processor
 
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   max = database_match(bits, bitsets, num_of_bits, num_of_ref_bits);
@@ -137,9 +143,11 @@ int main(int argc, char *argv[]) {
   puts("Finished multithreaded match with Bit");
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   max = database_match_GPU(db1, db2,
-                           (SETOP_COUNT_OPTS){.device_id = 0,
-                                              .upd_1st_operand = false,
-                                              .upd_2nd_operand = false});
+    (SETOP_COUNT_OPTS) {
+    .device_id = 0,
+      .upd_1st_operand = false,
+      .upd_2nd_operand = false
+  });
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   duration = timeDiff(&end_time, &start_time);
   timings[2 + 2 * max_threads + 1] = duration;
@@ -147,9 +155,11 @@ int main(int argc, char *argv[]) {
 
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   max = database_match_GPU(db1, db2,
-                           (SETOP_COUNT_OPTS){.device_id = 0,
-                                              .upd_1st_operand = true,
-                                              .upd_2nd_operand = false});
+    (SETOP_COUNT_OPTS) {
+    .device_id = 0,
+      .upd_1st_operand = true,
+      .upd_2nd_operand = false  
+});
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   duration = timeDiff(&end_time, &start_time);
   timings[2 + 2 * max_threads + 2] = duration;
@@ -157,12 +167,14 @@ int main(int argc, char *argv[]) {
 
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   max = database_match_GPU(db1, db2,
-                           (SETOP_COUNT_OPTS){.device_id = 0,
-                                              .upd_1st_operand = true,
-                                              .upd_2nd_operand = false,
-                                              .release_1st_operand = true,
-                                              .release_2nd_operand = true,
-                                              .release_counts = true});
+    (SETOP_COUNT_OPTS) {
+    .device_id = 0,
+      .upd_1st_operand = true,
+      .upd_2nd_operand = false,
+      .release_1st_operand = true,
+      .release_2nd_operand = true,
+      .release_counts = true
+  });
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   duration = timeDiff(&end_time, &start_time);
   timings[2 + 2 * max_threads + 3] = duration;
@@ -171,42 +183,42 @@ int main(int argc, char *argv[]) {
   // Print results
   puts("Results:");
   summarize_results("Single-threaded - Serial - Rep1", timings[0], 1,
-                    results[0], 1.0f);
+    results[0], 1.0f);
   summarize_results("Single-threaded - Serial - Rep2", timings[1], 1,
-                    results[1], (float)timings[0] / timings[1]);
+    results[1], (float)timings[0] / timings[1]);
   summarize_results("Single-threaded - Serial - Rep3", timings[2], 1,
-                    results[2], (float)timings[0] / timings[2]);
+    results[2], (float)timings[0] / timings[2]);
   for (int i = 1; i <= max_threads; i++) {
     summarize_results(" Multi-threaded - OpenMP", timings[2 + i], i,
-                      results[2 + i], (float)timings[0] / timings[2 + i]);
+      results[2 + i], (float)timings[0] / timings[2 + i]);
   }
   for (int i = max_threads + 1; i <= 2 * max_threads; i++) {
     summarize_results("Container - Multi-threaded - OpenMP", timings[2 + i],
-                      i - max_threads, results[2 + i],
-                      (float)timings[0] / timings[2 + i]);
+      i - max_threads, results[2 + i],
+      (float)timings[0] / timings[2 + i]);
   }
   for (int i = 2 * max_threads + 1; i <= 2 * max_threads + 3; i++) {
     summarize_results("Container - GPU - OpenMP", timings[2 + i], -1,
-                      results[2 + i], (float)timings[0] / timings[2 + i]);
+      results[2 + i], (float)timings[0] / timings[2 + i]);
   }
 }
 
-void summarize_results(char *test, int64_t timeElapsed, int num_of_threads,
-                       int result, float speedup) {
+void summarize_results(char* test, int64_t timeElapsed, int num_of_threads,
+  int result, float speedup) {
   printf("Total time for %-35s: %15ld ns\t", test, timeElapsed);
   printf("Searches per second : %0.2f\t", (float)1E9 / timeElapsed);
   num_of_threads > 0 ? printf("Number of threads: %3d \t", num_of_threads)
-                     : printf("Number of threads: GPU \t");
+    : printf("Number of threads: GPU \t");
   printf("Result: %d\t", result);
   printf("Speedup factor: %.2f\n", speedup);
 }
 
-int database_match(Bit_T *bit, Bit_T *bitsets, int num_of_bits,
-                   int num_of_ref_bits) {
+int database_match(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
+  int num_of_ref_bits) {
   // Perform the intersection count
   int max = 0, current = 0;
   size_t workload = (size_t)num_of_bits * (size_t)num_of_ref_bits;
-  int *counts = (int *)calloc(workload, sizeof(int));
+  int* counts = (int*)calloc(workload, sizeof(int));
   assert(counts != NULL);
   for (int i = 0; i < num_of_bits; i++) {
     for (int j = 0; j < num_of_ref_bits; j++) {
@@ -223,12 +235,12 @@ int database_match(Bit_T *bit, Bit_T *bitsets, int num_of_bits,
   return max;
 }
 
-int database_match_omp(Bit_T *bit, Bit_T *bitsets, int num_of_bits,
-                       int num_of_ref_bits, int threads) {
+int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
+  int num_of_ref_bits, int threads) {
   // Perform the intersection count in parallel
   int max = 0, current = 0;
   size_t workload = (size_t)num_of_bits * (size_t)num_of_ref_bits;
-  int *counts = (int *)calloc(workload, sizeof(int));
+  int* counts = (int*)calloc(workload, sizeof(int));
   assert(counts != NULL);
   omp_set_num_threads(threads);
 #pragma omp parallel for schedule(guided)
@@ -249,9 +261,9 @@ int database_match_omp(Bit_T *bit, Bit_T *bitsets, int num_of_bits,
 }
 
 int database_match_container_omp(Bit_T_DB db1, Bit_T_DB db2, int num_threads) {
-  int max = 0, current = 0, *results;
+  int max = 0, current = 0, * results;
   results = BitDB_inter_count_cpu(
-      db1, db2, (SETOP_COUNT_OPTS){.num_cpu_threads = num_threads});
+    db1, db2, (SETOP_COUNT_OPTS) { .num_cpu_threads = num_threads });
   size_t nelem = (size_t)BitDB_nelem(db2) * BitDB_nelem(db1);
   for (size_t i = 0; i < nelem; i++) {
     current = results[i];
@@ -264,7 +276,7 @@ int database_match_container_omp(Bit_T_DB db1, Bit_T_DB db2, int num_threads) {
 }
 
 int database_match_GPU(Bit_T_DB db1, Bit_T_DB db2, SETOP_COUNT_OPTS opts) {
-  int max = 0, current = 0, *results;
+  int max = 0, current = 0, * results;
   results = BitDB_inter_count_gpu(db1, db2, opts);
   size_t nelem = (size_t)BitDB_nelem(db2) * BitDB_nelem(db1);
   for (size_t i = 0; i < nelem; i++) {
@@ -276,9 +288,9 @@ int database_match_GPU(Bit_T_DB db1, Bit_T_DB db2, SETOP_COUNT_OPTS opts) {
   // free(results);
   return (int)max;
 }
-int64_t timeDiff(struct timespec *timeA_p, struct timespec *timeB_p) {
+int64_t timeDiff(struct timespec* timeA_p, struct timespec* timeB_p) {
   return ((timeA_p->tv_sec - timeB_p->tv_sec) * 1000000000 + timeA_p->tv_nsec -
-          timeB_p->tv_nsec);
+    timeB_p->tv_nsec);
 }
 
 static inline unsigned long long count_WWG(unsigned long long x) {

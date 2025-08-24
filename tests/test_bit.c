@@ -11,15 +11,16 @@ typedef struct {
 } TestResults;
 
 // Initialize test results
-TestResults results = {0, 0, 0};
+TestResults results = { 0, 0, 0 };
 
 // Utility function to print test results
-void report_test(const char *test_name, bool passed) {
+void report_test(const char* test_name, bool passed) {
   results.total++;
   if (passed) {
     printf("PASS: %s\n", test_name);
     results.passed++;
-  } else {
+  }
+  else {
     printf("FAIL: %s\n", test_name);
     results.failed++;
   }
@@ -90,8 +91,8 @@ bool test_bit_clear_range() {
   Bit_clear(bit, 2, 5); // Clear bits 2,3,4,5
 
   bool success =
-      (Bit_get(bit, 2) == 0 && Bit_get(bit, 3) == 0 && Bit_get(bit, 4) == 0 &&
-       Bit_get(bit, 5) == 0 && Bit_get(bit, 1) == 1);
+    (Bit_get(bit, 2) == 0 && Bit_get(bit, 3) == 0 && Bit_get(bit, 4) == 0 &&
+      Bit_get(bit, 5) == 0 && Bit_get(bit, 1) == 1);
   for (int index = 6; index < SIZE_OF_TEST_BIT / 2; index++)
     success = success && (Bit_get(bit, index) == 1);
 
@@ -189,8 +190,8 @@ bool test_bit_union() {
   Bit_T union_bit = Bit_union(bit1, bit2);
 
   bool success = (Bit_get(union_bit, 1) == 1 && Bit_get(union_bit, 3) == 1 &&
-                  Bit_get(union_bit, 5) == 1 && Bit_get(union_bit, 0) == 0 &&
-                  Bit_get(union_bit, 2) == 0 && Bit_get(union_bit, 4) == 0);
+    Bit_get(union_bit, 5) == 1 && Bit_get(union_bit, 0) == 0 &&
+    Bit_get(union_bit, 2) == 0 && Bit_get(union_bit, 4) == 0);
 
   report_test(__func__, success);
   Bit_free(&bit1);
@@ -214,7 +215,7 @@ bool test_bit_inter() {
   Bit_T inter_bit = Bit_inter(bit1, bit2);
 
   bool success = (Bit_get(inter_bit, 3) == 1 && Bit_get(inter_bit, 5) == 1 &&
-                  Bit_get(inter_bit, 1) == 0 && Bit_get(inter_bit, 7) == 0);
+    Bit_get(inter_bit, 1) == 0 && Bit_get(inter_bit, 7) == 0);
 
   report_test(__func__, success);
   Bit_free(&bit1);
@@ -238,7 +239,7 @@ bool test_bit_minus() {
   Bit_T minus_bit = Bit_minus(bit1, bit2);
 
   bool success = (Bit_get(minus_bit, 1) == 1 && Bit_get(minus_bit, 3) == 0 &&
-                  Bit_get(minus_bit, 5) == 0 && Bit_get(minus_bit, 7) == 0);
+    Bit_get(minus_bit, 5) == 0 && Bit_get(minus_bit, 7) == 0);
 
   report_test(__func__, success);
   Bit_free(&bit1);
@@ -262,7 +263,7 @@ bool test_bit_diff() {
   Bit_T diff_bit = Bit_diff(bit1, bit2);
 
   bool success = (Bit_get(diff_bit, 1) == 1 && Bit_get(diff_bit, 7) == 1 &&
-                  Bit_get(diff_bit, 3) == 0 && Bit_get(diff_bit, 5) == 0);
+    Bit_get(diff_bit, 3) == 0 && Bit_get(diff_bit, 5) == 0);
 
   report_test(__func__, success);
   Bit_free(&bit1);
@@ -297,8 +298,8 @@ bool test_bit_count_operations() {
   int diff_count = Bit_diff_count(bit1, bit2);
 
   bool success = (union_count == 4 + num_of_final_bits &&
-                  inter_count == 2 + num_of_final_bits && minus_count == 1 &&
-                  diff_count == 2);
+    inter_count == 2 + num_of_final_bits && minus_count == 1 &&
+    diff_count == 2);
 
   report_test(__func__, success);
   Bit_free(&bit1);
@@ -318,8 +319,8 @@ bool test_bit_null_handling() {
   Bit_T minus_result = Bit_minus(bit, NULL);
 
   bool success = (Bit_count(union_result) == Bit_count(bit) &&
-                  Bit_count(inter_result) == 0 &&
-                  Bit_count(minus_result) == Bit_count(bit));
+    Bit_count(inter_result) == 0 &&
+    Bit_count(minus_result) == Bit_count(bit));
 
   Bit_free(&bit);
   Bit_free(&union_result);
@@ -341,7 +342,7 @@ bool test_bitDB_new() {
 bool test_bitDB_properties() {
   Bit_T_DB bit = BitDB_new(SIZE_OF_TEST_BIT, 10);
   bool success =
-      (BitDB_length(bit) == SIZE_OF_TEST_BIT && BitDB_nelem(bit) == 10);
+    (BitDB_length(bit) == SIZE_OF_TEST_BIT && BitDB_nelem(bit) == 10);
 
   BitDB_free(&bit);
   report_test(__func__, success);
@@ -379,14 +380,14 @@ bool test_bitDB_extract_replace() {
   int bytes_written = BitDB_extract_from(bit, 0, buffer);
 
   bool success = (bytes_written == SIZE_OF_TEST_BIT / 8 &&
-                  (buffer[0] == ((1 << 1) | (1 << 3))));
+    (buffer[0] == ((1 << 1) | (1 << 3))));
 
   BitDB_replace_at(bit, 0, buffer);
 
   Bit_T retrieved = BitDB_get_from(bit, 0);
 
   success =
-      success && (Bit_get(retrieved, 1) == 1 && Bit_get(retrieved, 3) == 1);
+    success && (Bit_get(retrieved, 1) == 1 && Bit_get(retrieved, 3) == 1);
 
   Bit_free(&bitset);
   Bit_free(&retrieved);
@@ -418,13 +419,13 @@ bool test_bitDB_inter_count() {
   BitDB_put_at(bit1, 1, bitset1);
   BitDB_put_at(bit2, 1, bitset2);
 
-  int *count = BitDB_count(bit1);
-  int *count2 = BitDB_count(bit2);
+  int* count = BitDB_count(bit1);
+  int* count2 = BitDB_count(bit2);
 
-  int *inter_count = BitDB_inter_count(bit1, bit2, (SETOP_COUNT_OPTS){}, cpu);
+  int* inter_count = BitDB_inter_count(bit1, bit2, (SETOP_COUNT_OPTS) {}, cpu);
   bool success = (*inter_count == 1) &&
-                 (inter_count[1] == 1 && inter_count[SIZEOF_BITDB] == 1 &&
-                  inter_count[SIZEOF_BITDB+1] == 2); 
+    (inter_count[1] == 1 && inter_count[SIZEOF_BITDB] == 1 &&
+      inter_count[SIZEOF_BITDB + 1] == 2);
 
   Bit_free(&bitset1);
   Bit_free(&bitset2);
@@ -479,14 +480,25 @@ void run_tests() {
 }
 
 int main() {
+    // test whether we are in DEBUG mode;
+#ifndef NDEBUG
+  printf("Debug mode is enabled.\n");
+#else
+  printf("Debug mode is disabled.\n");
+#endif
+
   run_tests();
 
   // Return non-zero exit code if any tests failed
   if (results.failed > 0) {
     printf("\nSome tests failed!\n");
     return 1;
-  } else {
+  }
+  else {
     printf("\nAll tests passed!\n");
     return 0;
   }
+
+
+
 }

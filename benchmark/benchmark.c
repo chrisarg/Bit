@@ -255,6 +255,12 @@ int main() {
   char *test_array[] = {"Count", "Inter Count", "Inter Count Mem",
                         "Inter", "And",         "And_SIMD",
                         "aset",  "aclear"};
+#ifndef NDEBUG
+  printf("Debug mode is enabled.\n");
+#else
+  printf("Debug mode is disabled.\n");
+#endif
+
 #if defined(__AVX512__)
   printf("AVX512 detected\n");
 #elif defined(__AVX2__)
