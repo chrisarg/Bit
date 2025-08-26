@@ -84,7 +84,6 @@ The benchmark will run:
  * the same query using OpenMP without containers utilizing 1 to max_threads
  * containerized OpenMP query utilizing 1 to max_threads
  * containerized OpenMP query using GPU offloading  
- A guided schedule is used internally to schedule the OpenMP threads.
 
 ## Usage Example
 
@@ -538,4 +537,4 @@ BSD 2-Clause License. See the LICENSE file for details.
 
 ## Author
 
-Christos Argyropoulos (April 2025)
+Christos Argyropoulos (April - August 2025)
