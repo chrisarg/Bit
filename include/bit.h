@@ -1,7 +1,7 @@
 /*
     Provides an interface to
     1) a BIT_T type and a set of functions to manipulate it.
-    2) Packed containers of Bit_T (Bit_T_DB) that can be used to
+    2) Packed containers of Bit_T (Bit_DB_T) that can be used to
        store multiple bitsets in a contiguous memory region.
 
     * Author : Christos Argyropoulos
@@ -19,8 +19,6 @@
 
     Functions that create, free or load an externally created bitset into a T.
     * Bit_new           : Create a new bitset with a fixed capacity/length
-                          The code uses the best alignment possible for the
-                          platform (e.g. 64 bytes on x86_64)
     * Bit_free          : Free the bitset and zeros the pointer for safe
                           deallocation (if the space for the bit was allocated
                           by the library). Returns the address of the storage
@@ -74,12 +72,12 @@
 
     ===========================================================================
 
-    The Bit_T_DB is a packed container of Bit_T and thus contains only
+    The Bit_DB_T is a packed container of Bit_T and thus contains only
     a few functions to manipulate it.
 
     * BitDB_new         : Create a new packed container of bitsets
     * BitDB_free        : Free the packed container of bitsets
-    * BitDB_length      : Get the number of bitsets in the packed container.
+    * BitDB_length      : Get the length of bitsets in the packed container.
     * BitDB_count_at    : Population count at a given index in the container.
     * BitDB_nelem       : Get the number of bitsets in the packed container.
     * BitDB_count       : Population count of all bitsets in the container.
@@ -147,12 +145,12 @@
 #define T Bit_T
 typedef struct T* T;
 
-#define T_DB Bit_T_DB
+#define T_DB Bit_DB_T
 typedef struct T_DB* T_DB;
 
 typedef struct {
     int num_cpu_threads;  // number of CPU threads
-    int device_id;        // GPU device ID, -1 for CPU
+    int device_id;        // GPU device ID, ignored for CPU
     bool upd_1st_operand; // if true, update the first container in the GPU
     bool upd_2nd_operand; // if true, update the second container in the GPU
     bool release_1st_operand; // if true, release the first container in the GPU
@@ -291,14 +289,19 @@ extern int Bit_union_count(T s, T t); // union of two bitsets
 */
 extern T_DB BitDB_new(int length, int num_of_bitsets);
 extern void* BitDB_free(T_DB* set);
+
+/*
+    Functions that return the properties of a Bit_DB container. 
+
+*/
 extern int BitDB_length(T_DB set);
 extern int BitDB_nelem(T_DB set);
 extern int BitDB_count_at(T_DB set, int index);
 extern int* BitDB_count(T_DB set);
-
 /*
     Functions that manipulate and obtain the contents of a packed
-    container of bitsets (Bit_DB). Note the following error checking:
+    container of bitsets (Bit_DB). One can use either Bits or externally
+    allocated buffers. Note the following error checking:
 
     * BitDB_extract_from  : It is a checked runtime error to pass
                             a NULL buffer
@@ -310,12 +313,14 @@ extern int* BitDB_count(T_DB set);
     less than 0 or greater than the number of bitsets in the container for
     any of these routines.
 */
-extern void BitDB_clear(T_DB set);
-extern void BitDB_clear_at(T_DB set, int index);
 extern T BitDB_get_from(T_DB set, int index);
 extern void BitDB_put_at(T_DB set, int index, T bitset);
 extern int BitDB_extract_from(T_DB set, int index, void* buffer);
 extern void BitDB_replace_at(T_DB set, int index, void* buffer);
+extern void BitDB_clear(T_DB set);
+extern void BitDB_clear_at(T_DB set, int index);
+
+
 
 /*
     Functions that perform SETOP counts between two packed containers
@@ -380,8 +385,7 @@ extern int* BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int* buffer,
 extern int* BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
-// debugging function
-extern void Bit_debug(T *set);
+
 #undef T
 #undef T_DB
 #endif

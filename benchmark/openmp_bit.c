@@ -25,8 +25,8 @@ int database_match(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
   int num_of_ref_bits);
 int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
   int num_of_ref_bits, int threads);
-int database_match_container_omp(Bit_T_DB db1, Bit_T_DB db2, int threads);
-int database_match_GPU(Bit_T_DB db1, Bit_T_DB db2, SETOP_COUNT_OPTS opts);
+int database_match_container_omp(Bit_DB_T db1, Bit_DB_T db2, int threads);
+int database_match_GPU(Bit_DB_T db1, Bit_DB_T db2, SETOP_COUNT_OPTS opts);
 void summarize_results(char* test, int64_t timeElapsed, int num_of_threads,
   int result, float speedup);
 
@@ -92,8 +92,8 @@ int main(int argc, char* argv []) {
   Bit_set(bitsets[0], size / 2, size / 2 + 5);
   printf("Finished allocating bitsets \n");
 
-  Bit_T_DB db1 = BitDB_new(size, num_of_bits);
-  Bit_T_DB db2 = BitDB_new(size, num_of_ref_bits);
+  Bit_DB_T db1 = BitDB_new(size, num_of_bits);
+  Bit_DB_T db2 = BitDB_new(size, num_of_ref_bits);
   for (int i = 0; i < num_of_bits; i++)
     BitDB_put_at(db1, i, bits[i]);
 
@@ -148,7 +148,7 @@ int main(int argc, char* argv []) {
     timings[2 + i] = duration;
     results[2 + i] = max;
   }
-  puts("Finished multithreaded match with Bit");
+  puts("Finished multi-threaded match of containers with OpenMP");
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   max = database_match_GPU(db1, db2,
     (SETOP_COUNT_OPTS) {
@@ -274,7 +274,7 @@ int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
   return max;
 }
 
-int database_match_container_omp(Bit_T_DB db1, Bit_T_DB db2, int num_threads) {
+int database_match_container_omp(Bit_DB_T db1, Bit_DB_T db2, int num_threads) {
   int max = 0, current = 0, * results;
   results = BitDB_inter_count_cpu(
     db1, db2, (SETOP_COUNT_OPTS) { .num_cpu_threads = num_threads });
@@ -289,7 +289,7 @@ int database_match_container_omp(Bit_T_DB db1, Bit_T_DB db2, int num_threads) {
   return (int)max;
 }
 
-int database_match_GPU(Bit_T_DB db1, Bit_T_DB db2, SETOP_COUNT_OPTS opts) {
+int database_match_GPU(Bit_DB_T db1, Bit_DB_T db2, SETOP_COUNT_OPTS opts) {
   int max = 0, current = 0, * results;
   results = BitDB_inter_count_gpu(db1, db2, opts);
   size_t nelem = (size_t)BitDB_nelem(db2) * BitDB_nelem(db1);

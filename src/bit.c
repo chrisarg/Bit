@@ -26,7 +26,7 @@
 #endif
 
 #define T Bit_T
-#define T_DB Bit_T_DB
+#define T_DB Bit_DB_T
 /*---------------------------------------------------------------------------*/
 // Bitset structure
 /*

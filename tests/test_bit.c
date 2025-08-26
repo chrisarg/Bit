@@ -332,7 +332,7 @@ bool test_bit_null_handling() {
 }
 
 bool test_bitDB_new() {
-  Bit_T_DB bit = BitDB_new(SIZE_OF_TEST_BIT, 10);
+  Bit_DB_T bit = BitDB_new(SIZE_OF_TEST_BIT, 10);
   bool success = (bit != NULL);
   report_test(__func__, success);
   BitDB_free(&bit);
@@ -340,7 +340,7 @@ bool test_bitDB_new() {
 }
 
 bool test_bitDB_properties() {
-  Bit_T_DB bit = BitDB_new(SIZE_OF_TEST_BIT, 10);
+  Bit_DB_T bit = BitDB_new(SIZE_OF_TEST_BIT, 10);
   bool success =
     (BitDB_length(bit) == SIZE_OF_TEST_BIT && BitDB_nelem(bit) == 10);
 
@@ -350,7 +350,7 @@ bool test_bitDB_properties() {
 }
 
 bool test_bitDB_get_put() {
-  Bit_T_DB bit = BitDB_new(SIZE_OF_TEST_BIT, 10);
+  Bit_DB_T bit = BitDB_new(SIZE_OF_TEST_BIT, 10);
   Bit_T bitset = Bit_new(SIZE_OF_TEST_BIT);
   Bit_bset(bitset, 1);
   Bit_bset(bitset, 3);
@@ -369,7 +369,7 @@ bool test_bitDB_get_put() {
 }
 
 bool test_bitDB_extract_replace() {
-  Bit_T_DB bit = BitDB_new(SIZE_OF_TEST_BIT, 10);
+  Bit_DB_T bit = BitDB_new(SIZE_OF_TEST_BIT, 10);
   Bit_T bitset = Bit_new(SIZE_OF_TEST_BIT);
   Bit_bset(bitset, 1);
   Bit_bset(bitset, 3);
@@ -399,8 +399,8 @@ bool test_bitDB_extract_replace() {
 
 bool test_bitDB_inter_count() {
 #define SIZEOF_BITDB 45
-  Bit_T_DB bit1 = BitDB_new(SIZE_OF_TEST_BIT, SIZEOF_BITDB);
-  Bit_T_DB bit2 = BitDB_new(SIZE_OF_TEST_BIT, SIZEOF_BITDB);
+  Bit_DB_T bit1 = BitDB_new(SIZE_OF_TEST_BIT, SIZEOF_BITDB);
+  Bit_DB_T bit2 = BitDB_new(SIZE_OF_TEST_BIT, SIZEOF_BITDB);
 
   Bit_T bitset1 = Bit_new(SIZE_OF_TEST_BIT);
   Bit_bset(bitset1, 1);
