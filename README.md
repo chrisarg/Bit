@@ -525,11 +525,12 @@ Bit is particularly useful for:
 - High-performance set operations
 
 ## TO-DO
-- Implement additional set-op operations
+- Implement additional set-op operations (e.g. the Jaccard index)
 - Implement additional, OS agnostic build systems
 - Ensure that clang and icx are fully supported
-- Tests on AMD cards
+- Tests on AMD GPUS
 - TPU support
+
 
 ## License
 
