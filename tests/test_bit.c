@@ -35,6 +35,29 @@ bool test_bit_new() {
   return success;
 }
 
+bool test_bit_extract() {
+  Bit_T bit = Bit_new(SIZE_OF_TEST_BIT);
+  Bit_bset(bit, 2);
+  Bit_bset(bit, 0);
+  unsigned char buffer[Bit_buffer_size(SIZE_OF_TEST_BIT)];
+  Bit_extract(bit, (void*)buffer);
+  bool success = (buffer[0] == 0b00000101);
+  report_test(__func__, success);
+  Bit_free(&bit);
+  return success;
+}
+
+bool test_bit_load()
+{
+  unsigned char buffer[Bit_buffer_size(SIZE_OF_TEST_BIT)];
+  buffer[0] = 0b00000101;
+  Bit_T bit = Bit_load(SIZE_OF_TEST_BIT, buffer);
+  bool success = (Bit_get(bit, 0) == 1 && Bit_get(bit, 2) == 1);
+  report_test(__func__, success);
+  Bit_free(&bit);
+  return success;
+}
+
 bool test_bit_set() {
   Bit_T bit = Bit_new(SIZE_OF_TEST_BIT);
   Bit_bset(bit, 2);
@@ -462,6 +485,10 @@ void run_tests() {
   // Count operations
   test_bit_count_operations();
 
+  // Use external buffers
+  test_bit_extract();
+  test_bit_load();
+
   // Edge cases
   test_bit_null_handling();
 
@@ -480,7 +507,7 @@ void run_tests() {
 }
 
 int main() {
-    // test whether we are in DEBUG mode;
+  // test whether we are in DEBUG mode;
 #ifndef NDEBUG
   printf("Debug mode is enabled.\n");
 #else
