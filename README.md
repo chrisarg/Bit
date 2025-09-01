@@ -38,8 +38,7 @@ on unions/differences/intersections of sets) and fast population counts (see bel
 - **Containerized operations**: These allow operations (e.g. intersect counts)
   between two packed containers of Bits using either the CPU or the GPU. 
   Multithreading in the CPU and GPU offloading requires the presence of OpenMP
-- **Perl interface**: A procedural interface is provided by the Bit::Set 
-  MetaCPAN [package](https://metacpan.org/pod/Bit::Set)
+- **Perl interface**: Interface is provided by the Bit::Set MetaCPAN [package](https://metacpan.org/pod/Bit::Set)
 
 ## Installation
 
