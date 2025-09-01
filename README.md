@@ -30,14 +30,16 @@ on unions/differences/intersections of sets) and fast population counts (see bel
 - **Utilizing externally allocated buffers**: Allows one to store (and extract)
   bitsets in externally allocated buffers.
 - **Hardware (GPU) acceleration**: Using OpenMP to offload set operations over
-  bit containers in Graphic Processing Units. Offloading to TPUs (e.g. Coral
-  TPU) is under development. Population counts are carried out using the WWG
-  algorithm.  
+  bit containers in Graphic Processing Units. The default is to offload to an
+  NVIDIA, but one can turn off offloading, in which case the GPU functionality
+  will default to CPUs. Offloading to TPUs (e.g. Coral TPU) is under
+  development. 
+  Population counts in GPUs are carried out using the WWG algorithm.  
 - **Containerized operations**: These allow operations (e.g. intersect counts)
   between two packed containers of Bits using either the CPU or the GPU. 
   Multithreading in the CPU and GPU offloading requires the presence of OpenMP
-- **Perl interface**: Object Oriented Interface is provided by the Bit::Set 
-  MetaCPAN package
+- **Perl interface**: A procedural interface is provided by the Bit::Set 
+  MetaCPAN [package](https://metacpan.org/pod/Bit::Set)
 
 ## Installation
 
@@ -57,6 +59,11 @@ cd Bit
 # Build the library
 make
 
+# Build the library without GPU support
+make GPU=NONE
+
+# Build the library for an AMD GPU
+make GPU=AMD
 
 # Run tests
 make test
@@ -350,6 +357,7 @@ Consider for example the scenario in which one has 3 containers, each of size N
 that must be matched against a single container of size M. The device has enough
 memory to fit a single container of size N, another one of size N, and the
 results of size N * M. In this case,
+
 ```c
 SETOP_COUNT_OPTS opts_1to2 = {
     .device_id = -1,
@@ -360,8 +368,10 @@ SETOP_COUNT_OPTS opts_1to2 = {
     .release_counts = false
 };
 ```
+
 instructs the mapper to update the first operand in the GPU when iterating over
 the first two containers of size N. To process the final container, one can use
+
 ```c
 SETOP_COUNT_OPTS opts_3 = {
     .device_id = -1,
@@ -372,6 +382,7 @@ SETOP_COUNT_OPTS opts_3 = {
     .release_counts = true
 };
 ```
+
 which will update the first operand in the GPU and *release* all the buffers
 on the device upon exit. Since OpenMP manages device memory regions using
 reference counting, releasing of the regions amounts to decreasing the reference
@@ -499,6 +510,7 @@ int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
   return max;
 }
 ```
+
 The container versions fully leverage the capabilities of OpenMP to generate
 code for either CPU or GPU environments. In the absence of a functional OpenMP
 installation, the build will simply fail because of the failure to compile the
@@ -538,4 +550,4 @@ BSD 2-Clause License. See the LICENSE file for details.
 
 ## Author
 
-Christos Argyropoulos (April - August 2025)
+Christos Argyropoulos (April - September 2025)

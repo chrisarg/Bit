@@ -28,6 +28,9 @@ else
 $(error CC=$(CC) is not one of the supported compilers (gcc, clang, icx))
 endif
 
+## additional flags
+DEFINES ?=
+
 # Set the appropriate OpenMP flag based on compiler
 ifeq ($(CC),gcc)
 OPENMP_FLAG = -fopenmp
@@ -42,7 +45,10 @@ endif
 
 $(info GPU is set to $(GPU))
 #Set the appropriate offload flag based on GPU type
-ifeq ($(GPU),NVIDIA)
+ifeq ($(GPU),NONE)
+OFFLOAD_FL = -foffload=disable
+DEFINES += -DNOGPU
+else ifeq ($(GPU),NVIDIA)
 ifeq ($(CC),gcc)
 OFFLOAD_FL = -fno-stack-protector -fcf-protection=none -foffload=nvptx-none
 else ifeq ($(CC),clang)
@@ -79,8 +85,7 @@ $(shell mkdir -p $(BUILD_DIR))
 CFLAGS0 = -Wall -Wextra -Iinclude -std=c11 -fPIC -O3 -march=native \
 -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable
 
-## additional flags - may be removed at some point
-DEFINES ?=
+
 CFLAGS += $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0)
 
 
@@ -167,4 +172,3 @@ clean:
     
 # Additional target to clean everything including dependencies
 distclean: clean
-
