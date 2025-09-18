@@ -301,7 +301,7 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
         for (unsigned int j = 0; j < bit_size_in_qwords; j++) {                \
           unsigned long long x =                                               \
               bit_qwords[shift_k + j] op bits_qwords[shift_i + j];             \
-          total_sum_for_i += (uint32_t)count_WWG(x);                           \
+          total_sum_for_i += (uint32_t)POPCOUNT_GPU(x);                        \
         }                                                                      \
         counts[k * n + i] = total_sum_for_i;                                   \
       }                                                                        \
@@ -370,8 +370,31 @@ static inline uint64_t count_WWG(unsigned long long x) {
   return (x >> 56);
 }
 
+// Tree adder implementation found in https://metacpan.org/pod/Bit::Fast 
+#define  C1_TRADD UINT64_C(0xAAAAAAAAAAAAAAAA)
+#define  C2_TRADD UINT64_C(0xCCCCCCCCCCCCCCCC)
+#define  C3_TRADD UINT64_C(0xF0F0F0F0F0F0F0F0)
+#define  C4_TRADD UINT64_C(0xFF00FF00FF00FF00)
+#define  C5_TRADD UINT64_C(0x00FF00FF00FF00FF)
+#define  C6_TRADD UINT64_C(0xFF00FF00FF00FF00)
+#define  C7_TRADD UINT64_C(0x0000FFFF0000FFFF)
+#define  C8_TRADD UINT64_C(0xFFFF0000FFFF0000)
+#define  C9_TRADD UINT64_C(0x00000000FFFFFFFF)
+#define C10_TRADD UINT64_C(0xFFFFFFFF00000000)
+static inline uint64_t tree_adder(unsigned long long v) {
+  v = (v & C1_WWG) + ((v & C1_TRADD) >> 1);
+  v = (v & C2_WWG) + ((v & C2_TRADD) >> 2);
+  v = (v & C3_WWG) + ((v & C3_TRADD) >> 4);
+  v = (v & C5_TRADD) + ((v & C6_TRADD) >> 8);
+  v = (v & C7_TRADD) + ((v & C8_TRADD) >> 16);
+  v = (v & C9_TRADD) + ((v & C10_TRADD) >> 32);
+  return v;
+}
+
 // create it at the device as well
 #pragma omp declare target(count_WWG)
+#pragma omp declare target(tree_adder)
+#define POPCOUNT_GPU count_WWG           // used to change GPU implementation
 /*---------------------------------------------------------------------------*/
 
 // Functions that create, free and obtain the properties of the bitset.
