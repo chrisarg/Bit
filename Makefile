@@ -126,6 +126,10 @@ BENCH_OMP_SRC = benchmark/openmp_bit.c
 BENCH_OMP_OBJ = $(BUILD_DIR)/openmp_bit.o
 BENCH_OMP_EXEC = $(BUILD_DIR)/openmp_bit
 
+BENCH_OMP_NO_GPU_SRC = benchmark/openmp_bit_nogpu.c
+BENCH_OMP_GPU_OBJ = $(BUILD_DIR)/openmp_bit_nogpu.o
+BENCH_OMP_GPU_EXEC = $(BUILD_DIR)/openmp_bit_nogpu
+
 .PHONY: all clean test bench LIBPOPCNT
 
 # Default targets are to build the shared and static libraries
@@ -145,6 +149,9 @@ $(BUILD_DIR)/%.o: benchmark/%.c
 $(BUILD_DIR)/openmp_bit.o: benchmark/openmp_bit.c
 	$(CC) $(CFLAGS)  $(OPENMP_FLAG) -c $< -o $@
 
+$(BUILD_DIR)/openmp_bit_nogpu.o: benchmark/openmp_bit_nogpu.c
+	$(CC) $(CFLAGS)  $(OPENMP_FLAG) -c $< -o $@
+
 # Change from static to shared library compilation
 $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) -shared -o $@ $^ $(LDFLAGS)
@@ -162,8 +169,15 @@ test: $(TARGET) $(TEST_OBJ)
 bench: $(TARGET) $(BENCH_OBJ) bench_omp
 	$(CC) $(CFLAGS) -o $(BENCH_EXEC) $(BENCH_OBJ) -L$(BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(BUILD_DIR) -lbit -lrt
 
-bench_omp: $(BENCH_OMP_OBJ)
+# Conditional bench_omp target based on GPU setting
+ifeq ($(GPU),NONE)
+bench_omp: $(BENCH_OMP_GPU_OBJ)
+	$(CC) $(CFLAGS) -o $(BENCH_OMP_GPU_EXEC) $(BENCH_OMP_GPU_OBJ) -L$(BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(BUILD_DIR) -lbit $(OPENMP_FLAG) -lrt
+else
+bench_omp: $(BENCH_OMP_OBJ) $(BENCH_OMP_GPU_OBJ)
 	$(CC) $(CFLAGS) -o $(BENCH_OMP_EXEC) $(BENCH_OMP_OBJ) -L$(BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(BUILD_DIR) -lbit $(OPENMP_FLAG) -lrt
+	$(CC) $(CFLAGS) -o $(BENCH_OMP_GPU_EXEC) $(BENCH_OMP_GPU_OBJ) -L$(BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(BUILD_DIR) -lbit $(OPENMP_FLAG) -lrt
+endif
 
 
 clean:

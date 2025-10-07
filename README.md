@@ -70,7 +70,8 @@ make test
 # Make the benchmark (this will also build the OpenMP benchmark)
 make bench
 
-# Make the open-mp benchmark
+# Make the open-mp benchmarks: with and without GPU support if GPU is not set to NONE
+# or without GPU support otherwise
 make bench_omp
 ```
 ### Benchmarking
