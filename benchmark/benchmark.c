@@ -2,7 +2,9 @@
 #define _POSIX_C_SOURCE 199309L
 #include "bit.h"
 #include <assert.h>
+#if defined(__AVX512__) || defined(__AVX2__) || defined(__SSE2__)
 #include <immintrin.h> // For AVX, AVX2, SSE2 intrinsics
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -540,7 +540,7 @@ Bit is particularly useful for:
 - Implement additional set-op operations (e.g. the Jaccard index)
 - Implement additional, OS agnostic build systems
 - Ensure that clang and icx are fully supported
-- Tests on AMD GPUS
+- Test (including the build system!) on AMD and Intel GPUs
 - TPU support
 
 
