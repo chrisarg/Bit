@@ -184,7 +184,7 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
 
   unsigned long long *bit1 = malloc(size_in_bytes);
   unsigned long long *bit2 = malloc(size_in_bytes);
-  unsigned long long volatile result;
+  volatile unsigned long long result;
   // Initialize with some data pattern
   for (size_t i = 0; i < size_in_qwords; i++) {
     bit1[i] = i + 1;
@@ -238,7 +238,6 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
   }
 #else
   // Scalar version (fallback)
-  volatile unsigned long long result;
   for (int i = 0; i < iterations; i++) {
     for (int j = size_in_qwords; --j >= 0;) {
       result = bit1[j] & bit2[j];
@@ -270,7 +269,7 @@ int main() {
 #elif defined(__SSE2__)
   printf("SSE2 detected\n");
 #else
-  printf("ENIAC detected\n")
+  printf("ENIAC detected\n");
 #endif
 
 #ifdef BUILTIN_POPCOUNT
