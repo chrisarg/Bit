@@ -539,9 +539,10 @@ Bit is particularly useful for:
 ## TO-DO
 - Implement additional set-op operations (e.g. the Jaccard index)
 - Implement additional, OS agnostic build systems
-- Ensure that clang and icx are fully supported
+- Code the setop functions (e.g. and, not, xor etc) using SIMD directives
+- Ensure that clang and icx are fully tested and supported
 - Test (including the build system!) on AMD and Intel GPUs
-- TPU support
+- TPU & NPU support (low priority but will be cool with all the new chips)
 
 
 ## License
