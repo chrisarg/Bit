@@ -210,7 +210,7 @@ Create (de novo or from an external buffer) and free a _Bitset container_ aka a 
 ```C
 extern Bit_T_DB BitDB_new(int length, int num_of_bitsets);
 extern void* BitDB_free(T_DB* set);
-extern Bit_T_DB BitDB_load
+extern Bit_T_DB BitDB_load(int length, int num_of_bitsets, void* buffer);
 ```
 
 ### Bitset and Bitset container properties
