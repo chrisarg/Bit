@@ -417,20 +417,19 @@ T Bit_new(int length) {
   return set;
 }
 
+  // return a pointer to the original buffer (if externally loaded) or NULL otherwise
 void* Bit_free(T* set) {
-
   assert(set && *set);
-  void* original_location = NULL;
+  void* original_location = (void*)(*set)->qwords;
   if ((*set)->is_Bit_T_allocated) {
-    original_location = (void*)(*set)->qwords;
+    original_location = NULL; 
     free((*set)->qwords);
     (*set)->qwords = NULL;
     (*set)->bytes = NULL; // set bytes to NULL after freeing qwords
   }
   free(*set);
   *set = NULL;
-  return original_location; // return the original location of the buffer or
-  // NULL
+  return original_location; 
 }
 
 T Bit_load(int length, void* buffer) {
@@ -673,19 +672,19 @@ T Bit_inter(T s, T t) {
     set->is_Bit_T_allocated = true; // allocated by the library
     return set;
   }
-  
+
+  // return a pointer to the original buffer (if externally loaded) or NULL otherwise
   void* BitDB_free(T_DB* set) {
     assert(set && *set);
-    void* original_location = NULL;
+    void* original_location = (void*)(*set)->qwords;
     if ((*set)->is_Bit_T_allocated) {
-      original_location = (void*)(*set)->qwords;
+      original_location = NULL;
       free((*set)->qwords);
       (*set)->qwords = NULL;
       (*set)->bytes = NULL; // set bytes to NULL after freeing qwords
     }
     free(*set);
     *set = NULL;
-    // return the original location of the buffer or NULL
     return original_location;
   }
 

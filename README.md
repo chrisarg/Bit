@@ -213,6 +213,9 @@ extern void* BitDB_free(T_DB* set);
 extern Bit_T_DB BitDB_load(int length, int num_of_bitsets, void* buffer);
 ```
 
+Both free functions return the NULL pointer if the buffer was allocated by the
+library, or the pointer to the buffer that was loaded externally.
+
 ### Bitset and Bitset container properties
 
 Return the length (capacity) of the _Bitset_, the current population count of the
