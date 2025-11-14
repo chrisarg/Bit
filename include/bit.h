@@ -76,6 +76,8 @@
     a few functions to manipulate it.
 
     * BitDB_new         : Create a new packed container of bitsets
+    * BitDB_load        : Load a packed container of bitsets from an
+                          externally allocated buffer
     * BitDB_free        : Free the packed container of bitsets
     * BitDB_length      : Get the length of bitsets in the packed container.
     * BitDB_count_at    : Population count at a given index in the container.
@@ -92,7 +94,7 @@
    index into an externally allocated buffer. Returns the number of bytes
    written. The buffer must be large enough to hold the bitset (so please ensure
    that you use Bit_buffer_size(BitDB_length(set)) to obtain the size of the
-   buffer you need).
+   buffer you need if you don't already know this information).
 
     * BitDB_replace_at   : Replace a bitset in the packed container at a given
    index with the contents of a buffer.
