@@ -270,13 +270,15 @@ extern int Bit_union_count(T s, T t); // union of two bitsets
 /*
     BitDB operations on packed containers of bitsets
 
-    Functions that create, free and obtain the properties of a packed
-    container of bitsets (a Bit Database, Bit_DB).
+    Functions that create, free, load from an external buffer and obtain the properties of a packed  container of bitsets (a Bit Database, Bit_DB).
     Note the following error checking
     * BitDB_new          : Checked runtime error if length or size is less
                           than 0 or greater than INT_MAX.L.
     * BitDB_free         : It is a checked runtime error to try to free a Bit_DB
                           that was not allocated by the library.
+    * BitDB_load         : Checked runtime error if length or size is less
+                          than 0 or greater than INT_MAX. Also checks if buffer
+                          is NULL
     * BitDB_length       : It is a checked runtime error to a non-positive
    length or a length greater than INT_MAX.
     * BitDB_nelem        : See footnote
@@ -288,6 +290,7 @@ extern int Bit_union_count(T s, T t); // union of two bitsets
     It is a checked runtime error to pass a NULL set to any of these routines.
 */
 extern T_DB BitDB_new(int length, int num_of_bitsets);
+extern T_DB BitDB_load(int length, int num_of_bitsets, void* buffer);
 extern void* BitDB_free(T_DB* set);
 
 /*

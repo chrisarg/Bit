@@ -673,6 +673,7 @@ T Bit_inter(T s, T t) {
     set->is_Bit_T_allocated = true; // allocated by the library
     return set;
   }
+  
   void* BitDB_free(T_DB* set) {
     assert(set && *set);
     void* original_location = NULL;
@@ -688,6 +689,27 @@ T Bit_inter(T s, T t) {
     return original_location;
   }
 
+ T_DB BitDB_load(int length, int num_of_bitsets, void* buffer) {
+    assert(length > 0);
+    assert(num_of_bitsets > 0);
+    assert(num_of_bitsets < INT_MAX); // limit to 2^30 bitsets
+    assert(length < INT_MAX);         // limit to 2^30 bits
+    assert(buffer != NULL);
+
+    T_DB set = malloc(sizeof(*set));
+    set->length = length;
+    set->nelem = num_of_bitsets;
+
+    set->size_in_qwords = nqwords(length);
+    set->size_in_bytes = set->size_in_qwords * BPQW / BPB;
+
+    set->bytes = (unsigned char*)buffer;
+    set->qwords =
+      (unsigned long long*)buffer; // set qwords to point to the buffer
+    set->is_Bit_T_allocated = false;  // not allocated by the library
+    return set;
+
+  }
   extern int BitDB_length(T_DB set) {
     assert(set);
     return set->length;

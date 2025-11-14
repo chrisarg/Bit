@@ -205,11 +205,12 @@ extern int Bit_extract(Bit_T set, void* buffer);
 
 ```
 
-Create and free a _Bitset container_ aka a _BitDB_
+Create (de novo or from an external buffer) and free a _Bitset container_ aka a _BitDB_
 
 ```C
 extern Bit_T_DB BitDB_new(int length, int num_of_bitsets);
 extern void* BitDB_free(T_DB* set);
+extern Bit_T_DB BitDB_load
 ```
 
 ### Bitset and Bitset container properties
