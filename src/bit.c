@@ -854,7 +854,7 @@ T Bit_inter(T s, T t) {
 
     int* counts = (int*)calloc(bit->nelem * bits->nelem, sizeof(int));
     assert(counts != NULL);
-    return BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+    return BitDB_union_count_store_cpu(bit, bits, counts, opts);
   }
 
   extern int* BitDB_union_count_store_cpu(T_DB bit, T_DB bits, int* counts,
@@ -867,9 +867,9 @@ T Bit_inter(T s, T t) {
     int* counts = (int*)calloc(bit->nelem * bits->nelem, sizeof(int));
     assert(counts != NULL);
 #ifndef NOGPU
-    return BitDB_inter_count_store_gpu(bit, bits, counts, opts);
+    return BitDB_union_count_store_gpu(bit, bits, counts, opts);
 #else
-    return BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+    return BitDB_union_count_store_cpu(bit, bits, counts, opts);
 #endif
   }
 
@@ -884,7 +884,7 @@ T Bit_inter(T s, T t) {
 
     int* counts = (int*)calloc(bit->nelem * bits->nelem, sizeof(int));
     assert(counts != NULL);
-    return BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+    return BitDB_diff_count_store_cpu(bit, bits, counts, opts);
   }
 
   extern int* BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, int* counts,
@@ -897,9 +897,9 @@ T Bit_inter(T s, T t) {
     int* counts = (int*)calloc(bit->nelem * bits->nelem, sizeof(int));
     assert(counts != NULL);
 #ifndef NOGPU
-    return BitDB_inter_count_store_gpu(bit, bits, counts, opts);
+    return BitDB_diff_count_store_gpu(bit, bits, counts, opts);
 #else
-    return BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+    return BitDB_diff_count_store_cpu(bit, bits, counts, opts);
 #endif
   }
 
@@ -914,7 +914,7 @@ T Bit_inter(T s, T t) {
 
     int* counts = (int*)calloc(bit->nelem * bits->nelem, sizeof(int));
     assert(counts != NULL);
-    return BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+    return BitDB_minus_count_store_cpu(bit, bits, counts, opts);
   }
 
   extern int* BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int* counts,
@@ -927,9 +927,9 @@ T Bit_inter(T s, T t) {
     int* counts = (int*)calloc(bit->nelem * bits->nelem, sizeof(int));
     assert(counts != NULL);
 #ifndef NOGPU
-    return BitDB_inter_count_store_gpu(bit, bits, counts, opts);
+    return BitDB_minus_count_store_gpu(bit, bits, counts, opts);
 #else
-    return BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+    return BitDB_minus_count_store_cpu(bit, bits, counts, opts);
 #endif
   }
 
