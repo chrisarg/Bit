@@ -437,30 +437,6 @@ extern int* BitDB_minus_count_cpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS 
 extern int* BitDB_minus_count_gpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
 ```
 
-## Mathematical Definitions
-
-### Jaccard Index
-
-The Jaccard index (also known as Jaccard similarity coefficient) is a statistic used for gauging the similarity between two sets. For two bitsets $A$ and $B$, the Jaccard index is defined as:
-
-$$J(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{|A \cap B|}{|A| + |B| - |A \cap B|}$$
-
-where:
-- $|A \cap B|$ is the size of the intersection (number of bits set in both $A$ and $B$)
-- $|A \cup B|$ is the size of the union (number of bits set in either $A$ or $B$)
-- $|A|$ and $|B|$ are the sizes (population counts) of sets $A$ and $B$
-
-The Jaccard index ranges from 0 (no overlap) to 1 (identical sets). In the context of this library:
-- $|A \cap B|$ can be computed using `Bit_inter_count(A, B)`
-- $|A \cup B|$ can be computed using `Bit_union_count(A, B)`
-- $|A|$ can be computed using `Bit_count(A)`
-- $|B|$ can be computed using `Bit_count(B)`
-
-**LaTeX code for the Jaccard index (math mode):**
-```latex
-J(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{|A \cap B|}{|A| + |B| - |A \cap B|}
-```
-
 ## Error checking for functions in the interface
 
 C's assert is used to validate input parameters, memory allocations and internal
