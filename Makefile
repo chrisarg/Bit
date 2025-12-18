@@ -21,6 +21,9 @@ $(info Default GPU offload not set, will set to NVIDIA)
 GPU=NVIDIA
 endif
 
+# Convert GPU to uppercase for case-insensitive comparison
+GPU := $(shell echo $(GPU) | tr a-z A-Z)
+
 # check to see if the CC is one of icx, clang, or gcc
 ifneq ($(filter $(CC),gcc clang icx),)
 $(info CC is set to $(CC), which is a supported compiler)
@@ -65,13 +68,10 @@ else ifeq ($(CC),icx)
 OFFLOAD_FL = -foffload=amdgcn-amd-amdhsa
 endif
 else ifeq ($(GPU),INTEL)
-ifeq ($(CC),gcc)
-OFFLOAD_FL = -foffload=spir64-unknown-unknown
-else ifeq ($(CC),clang)
-OFFLOAD_FL = -foffload=spir64-unknown-unknown
-else ifeq ($(CC),icx)	
-OFFLOAD_FL = -foffload=spir64-unknown-unknown
-endif
+$(info GPU is set to INTEL, so will use Intel oneAPI icx Compiler)
+CC=icx
+OPENMP_FLAG = -qopenmp
+OFFLOAD_FL = -fopenmp-targets=spir64
 else
 $(error GPU = $(GPU) is not one of the supported GPUs (NVIDIA, AMD, INTEL))
 endif
