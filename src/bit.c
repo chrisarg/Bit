@@ -245,7 +245,7 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
                        opts.device_id)                                         \
     }                                                                          \
   } else {                                                                     \
-    TARGET_GPU_ARRAY(enter, tofrom, bit->qwords, 0,                            \
+    TARGET_GPU_ARRAY(enter, to, bit->qwords, 0,                            \
                      bit->size_in_qwords * bit->nelem, opts.device_id)         \
   }                                                                            \
   if (omp_target_is_present(bits->qwords, opts.device_id)) {                   \
@@ -253,11 +253,11 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
       UPDATE_GPU_ARRAY(to, bits->qwords, 0,                                    \
                        bits->size_in_qwords * bits->nelem, opts.device_id)     \
     } else {                                                                   \
-      TARGET_GPU_ARRAY(enter, tofrom, bits->qwords, 0,                         \
+      TARGET_GPU_ARRAY(enter, to, bits->qwords, 0,                         \
                        bits->size_in_qwords * bits->nelem, opts.device_id)     \
     }                                                                          \
   } else {                                                                     \
-    TARGET_GPU_ARRAY(enter, tofrom, bits->qwords, 0,                           \
+    TARGET_GPU_ARRAY(enter, to, bits->qwords, 0,                           \
                      bits->size_in_qwords * bits->nelem, opts.device_id)       \
   }                                                                            \
   if (!omp_target_is_present(counts, opts.device_id)) {                        \

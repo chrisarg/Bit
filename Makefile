@@ -70,7 +70,7 @@ endif
 else ifeq ($(GPU),INTEL)
 $(info GPU is set to INTEL, so will use Intel oneAPI icx Compiler)
 CC=icx
-OPENMP_FLAG = -qopenmp
+OPENMP_FLAG = -fiopenmp
 OFFLOAD_FL = -fopenmp-targets=spir64
 else
 $(error GPU = $(GPU) is not one of the supported GPUs (NVIDIA, AMD, INTEL))

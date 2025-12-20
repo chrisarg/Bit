@@ -17,7 +17,7 @@ on unions/differences/intersections of sets) and fast population counts (see bel
   offering multiple implementations of bit counting algorithms ("population
   counts", aka _popcount_ aka _popcnt_) for CPUs including:
   - Hardware POPCNT
-  - Wilkes-Wheeler-Gill (WWG) algorithm
+  - Wilkes-Wheeler-Gill (WWG) method[^1]
   - SIMD-accelerated popcounting based on AVX, AVX2 or AVX512 instructions
     The optimal method is chosen by the library during cpuid (invoked once at
     first use). 
@@ -32,7 +32,9 @@ on unions/differences/intersections of sets) and fast population counts (see bel
 - **Hardware (GPU) acceleration**: Using OpenMP to offload set operations over
   bit containers in Graphic Processing Units. The default is to offload to an
   NVIDIA, but one can turn off offloading, in which case the GPU functionality
-  will default to CPUs. Offloading to TPUs (e.g. Coral TPU) is under
+  will default to CPUs. The software can offload to integrated GPUs (tested with
+  Intel iGPUs) but peformance gains appear to be minimal (though Unified Shared
+  Memory has not been exploted yet). Offloading to TPUs (e.g. Coral TPU) is under
   development.
   Population counts in GPUs are carried out using the WWG algorithm.
 - **Containerized operations**: These allow operations (e.g. intersect counts)
@@ -554,7 +556,8 @@ Bit is particularly useful for:
 - Implement additional, OS agnostic build systems 
 - Code the setop functions (e.g. and, not, xor etc) using SIMD directives
 - Ensure that clang and icx are fully tested and supported
-- Test (including the build system!) on AMD and Intel GPUs
+- Test (including the build system!) on AMD and Intel discrete GPUs
+- Utilize Unified Shared Memory if available in the system
 - TPU & NPU support (low priority but will be cool with all the new chips)
 
 ## License
@@ -564,3 +567,9 @@ BSD 2-Clause License. See the LICENSE file for details.
 ## Author
 
 Christos Argyropoulos (April - September 2025)
+
+[^1]: Historical Trivia: The method is identified as the ”Gillies-Miller sideways addition” in the original reference (Maurice V. Wilkes, David J. Wheeler, and Stanley Gill. 
+_The Preparation of Programs for an Electronic Digital Computer_, chapter Gillies–Miller method for sideways addition, pages 191–193. Addison-Wesley Publishing
+Company, Reading, Mass., 2nd edition, 1957.) but it was named the ”Wilkes-Wheeler-Gill function in C” by Mula, Kurz and Lemire (Faster population counts using avx2 instructions. 
+_The Computer Journal_, 61(1):111–120, May 2017.), leaving some confusion about who originated the method, though
+the first implementation may had been written by Wilkes, Wheeler andGill in support of their 1957 book.
