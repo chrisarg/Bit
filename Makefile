@@ -1,7 +1,10 @@
+IS_CLEAN_GOAL := $(filter clean distclean,$(MAKECMDGOALS))
+
 # Check for available compilers if user hasn't specified one
 ifeq ($(origin CC),default)
+ifeq ($(IS_CLEAN_GOAL),)
 $(info Default compiler not set, checking for available compilers...)
-# Check for icx first
+# Check for gcc first
 ifneq ($(shell which gcc 2>/dev/null),)
 $(info Using gcc to compile)
 CC=gcc
@@ -14,21 +17,33 @@ else ifneq ($(shell which icx 2>/dev/null),)
 $(info Using icx to compile)
 CC=icx
 endif
+else
+# For clean-only invocations we don't need compiler discovery.
+CC=gcc
+endif
 endif
 
 ifeq ($(origin GPU),undefined)
+ifeq ($(IS_CLEAN_GOAL),)
 $(info Default GPU offload not set, will set to NVIDIA)
 GPU=NVIDIA
+else
+# For clean-only invocations, pick a quiet, valid default.
+GPU=NONE
+endif
 endif
 
 # Convert GPU to uppercase for case-insensitive comparison
 GPU := $(shell echo $(GPU) | tr a-z A-Z)
 
 # check to see if the CC is one of icx, clang, or gcc
+# Skip validation/messages for clean-only invocations.
+ifeq ($(IS_CLEAN_GOAL),)
 ifneq ($(filter $(CC),gcc clang icx),)
 $(info CC is set to $(CC), which is a supported compiler)
 else
 $(error CC=$(CC) is not one of the supported compilers (gcc, clang, icx))
+endif
 endif
 
 ## additional flags
@@ -46,10 +61,16 @@ else
 OPENMP_FLAG = -qopenmp
 endif
 
+ifeq ($(IS_CLEAN_GOAL),)
 $(info GPU is set to $(GPU))
+endif
 #Set the appropriate offload flag based on GPU type
 ifeq ($(GPU),NONE)
+ifeq ($(CC),gcc)
 OFFLOAD_FL = -foffload=disable
+else
+OFFLOAD_FL =
+endif
 DEFINES += -DNOGPU
 else ifeq ($(GPU),NVIDIA)
 ifeq ($(CC),gcc)
@@ -87,6 +108,26 @@ CFLAGS0 = -Wall -Wextra -Iinclude -std=c11 -fPIC -O3 -march=native \
 
 
 CFLAGS += $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0)
+
+# Rebuild objects when toolchain/config changes.
+# Make does not automatically notice changes to variables like GPU/CC/CFLAGS,
+# so without this you can get a stale $(BUILD_DIR)/bit.o built with offload
+# flags from a previous invocation.
+.PHONY: FORCE
+CONFIG_STAMP := $(BUILD_DIR)/.config.stamp
+
+$(CONFIG_STAMP): FORCE
+	@mkdir -p $(BUILD_DIR)
+	@{ \
+		echo "CC=$(CC)"; \
+		echo "GPU=$(GPU)"; \
+		echo "DEFINES=$(DEFINES)"; \
+		echo "OPENMP_FLAG=$(OPENMP_FLAG)"; \
+		echo "OFFLOAD_FL=$(OFFLOAD_FL)"; \
+		echo "CFLAGS=$(CFLAGS)"; \
+	} > $(CONFIG_STAMP).tmp
+	@cmp -s $(CONFIG_STAMP).tmp $(CONFIG_STAMP) 2>/dev/null || mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP)
+	@rm -f $(CONFIG_STAMP).tmp
 
 
 # Default to enabled
@@ -136,21 +177,21 @@ BENCH_OMP_GPU_EXEC = $(BUILD_DIR)/openmp_bit_nogpu
 all: $(TARGET) $(TARGET_STATIC)
 
 # Rule to build object files in the build directory
-$(BUILD_DIR)/%.o: src/%.c
-	$(CC) $(CFLAGS) $(OPENMP_FLAG) -c $< -o $@
+$(BUILD_DIR)/%.o: src/%.c $(CONFIG_STAMP)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/%.o: tests/%.c
+$(BUILD_DIR)/%.o: tests/%.c $(CONFIG_STAMP)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Add pattern rule for benchmark source files
-$(BUILD_DIR)/%.o: benchmark/%.c
+$(BUILD_DIR)/%.o: benchmark/%.c $(CONFIG_STAMP)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/openmp_bit.o: benchmark/openmp_bit.c
-	$(CC) $(CFLAGS)  $(OPENMP_FLAG) -c $< -o $@
+$(BUILD_DIR)/openmp_bit.o: benchmark/openmp_bit.c $(CONFIG_STAMP)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/openmp_bit_nogpu.o: benchmark/openmp_bit_nogpu.c
-	$(CC) $(CFLAGS)  $(OPENMP_FLAG) -c $< -o $@
+$(BUILD_DIR)/openmp_bit_nogpu.o: benchmark/openmp_bit_nogpu.c $(CONFIG_STAMP)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 # Change from static to shared library compilation
 $(TARGET): $(OBJ)
@@ -171,18 +212,17 @@ bench: $(TARGET) $(BENCH_OBJ) bench_omp
 
 # Conditional bench_omp target based on GPU setting
 ifeq ($(GPU),NONE)
-bench_omp: $(BENCH_OMP_GPU_OBJ)
+bench_omp: $(TARGET) $(BENCH_OMP_GPU_OBJ)
 	$(CC) $(CFLAGS) -o $(BENCH_OMP_GPU_EXEC) $(BENCH_OMP_GPU_OBJ) -L$(BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(BUILD_DIR) -lbit $(OPENMP_FLAG) -lrt
 else
-bench_omp: $(BENCH_OMP_OBJ) $(BENCH_OMP_GPU_OBJ)
+bench_omp: $(TARGET) $(BENCH_OMP_OBJ) $(BENCH_OMP_GPU_OBJ)
 	$(CC) $(CFLAGS) -o $(BENCH_OMP_EXEC) $(BENCH_OMP_OBJ) -L$(BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(BUILD_DIR) -lbit $(OPENMP_FLAG) -lrt
 	$(CC) $(CFLAGS) -o $(BENCH_OMP_GPU_EXEC) $(BENCH_OMP_GPU_OBJ) -L$(BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(BUILD_DIR) -lbit $(OPENMP_FLAG) -lrt
 endif
 
 
 clean:
-	@echo "Cleaning up build directory..."
-	rm -rf $(BUILD_DIR)
+	@rm -rf $(BUILD_DIR)
     
 # Additional target to clean everything including dependencies
 distclean: clean

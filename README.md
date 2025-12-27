@@ -60,7 +60,7 @@ cd Bit
 # Build the library
 make
 
-# Build the library without GPU support
+# Build the library without GPU support (the corresponding functions point to the CPU versions)
 make GPU=NONE
 
 # Build the library for an AMD GPU
@@ -95,6 +95,9 @@ The benchmark will run:
 - the same query using OpenMP without containers utilizing 1 to max_threads
 - containerized OpenMP query utilizing 1 to max_threads
 - containerized OpenMP query using GPU offloading
+
+The repository [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits) contains benchmarks
+against other bitset/bitvector/bitmaps in C and Perl.
 
 ## Usage Example
 
