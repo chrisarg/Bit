@@ -1,5 +1,8 @@
 IS_CLEAN_GOAL := $(filter clean distclean,$(MAKECMDGOALS))
 
+# Ensure plain `make` builds the libraries (not the first internal target).
+.DEFAULT_GOAL := all
+
 # Check for available compilers if user hasn't specified one
 ifeq ($(origin CC),default)
 ifeq ($(IS_CLEAN_GOAL),)
@@ -115,6 +118,10 @@ CFLAGS += $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0)
 # flags from a previous invocation.
 .PHONY: FORCE
 CONFIG_STAMP := $(BUILD_DIR)/.config.stamp
+
+# Treat the config stamp as a temporary build artifact.
+# This keeps `build/` clean; note it will be regenerated on the next `make`.
+.INTERMEDIATE: $(CONFIG_STAMP)
 
 $(CONFIG_STAMP): FORCE
 	@mkdir -p $(BUILD_DIR)
