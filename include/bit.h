@@ -362,30 +362,30 @@ extern void BitDB_clear_at(T_DB set, int index);
 #define BitDB_minus_count_store(bit, bits, opts, results, TARGET)              \
   BitDB_minus_count_store_##TARGET((bit), (bits), (opts), (results))
 
-extern int* BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, int* buffer,
+extern void BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, int* buffer,
     SETOP_COUNT_OPTS opts);
-extern int* BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int* buffer,
+extern void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int* buffer,
     SETOP_COUNT_OPTS opts);
 extern int* BitDB_inter_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
-extern int* BitDB_union_count_store_cpu(T_DB bit, T_DB bits, int* buffer,
+extern void BitDB_union_count_store_cpu(T_DB bit, T_DB bits, int* buffer,
     SETOP_COUNT_OPTS opts);
-extern int* BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int* buffer,
+extern void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int* buffer,
     SETOP_COUNT_OPTS opts);
 extern int* BitDB_union_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
-extern int* BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, int* buffer,
+extern void BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, int* buffer,
     SETOP_COUNT_OPTS opts);
-extern int* BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int* buffer,
+extern void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int* buffer,
     SETOP_COUNT_OPTS opts);
 extern int* BitDB_diff_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
-extern int* BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int* buffer,
+extern void BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int* buffer,
     SETOP_COUNT_OPTS opts);
-extern int* BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int* buffer,
+extern void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int* buffer,
     SETOP_COUNT_OPTS opts);
 extern int* BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);

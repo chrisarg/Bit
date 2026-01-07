@@ -378,7 +378,7 @@ results of size N \* M. In this case,
 
 ```c
 SETOP_COUNT_OPTS opts_1to2 = {
-    .device_id = -1,
+    .device_id = 0,
     .upd_1st_operand = true,
     .upd_2nd_operand = false,
     .release_1st_operand = false,
@@ -392,7 +392,7 @@ the first two containers of size N. To process the final container, one can use
 
 ```c
 SETOP_COUNT_OPTS opts_3 = {
-    .device_id = -1,
+    .device_id = 0,
     .upd_1st_operand = true,
     .upd_2nd_operand = false,
     .release_1st_operand = true,
@@ -415,28 +415,28 @@ Those are the following:
 ```c
 extern int* BitDB_inter_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
     SETOP_COUNT_OPTS opts);
-extern int* BitDB_inter_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
+extern void BitDB_inter_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
     SETOP_COUNT_OPTS opts);
 extern int* BitDB_inter_count_cpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_inter_count_gpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
 
-extern int* BitDB_union_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
+extern void BitDB_union_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
     SETOP_COUNT_OPTS opts);
-extern int* BitDB_union_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
+extern void BitDB_union_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
     SETOP_COUNT_OPTS opts);
 extern int* BitDB_union_count_cpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_union_count_gpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
 
-extern int* BitDB_diff_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
+extern void BitDB_diff_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
     SETOP_COUNT_OPTS opts);
-extern int* BitDB_diff_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
+extern void BitDB_diff_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
     SETOP_COUNT_OPTS opts);
 extern int* BitDB_diff_count_cpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_diff_count_gpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
 
-extern int* BitDB_minus_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
+extern void BitDB_minus_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
     SETOP_COUNT_OPTS opts);
-extern int* BitDB_minus_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
+extern void BitDB_minus_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
     SETOP_COUNT_OPTS opts);
 extern int* BitDB_minus_count_cpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
 extern int* BitDB_minus_count_gpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);

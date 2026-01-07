@@ -223,8 +223,8 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
       setop_count_db_cpu_kernel(bits, bit_qwords, bits_qwords,                 \
                                 bit_size_in_qwords, counts, op, n)             \
     }                                                                          \
-  }                                                                            \
-  return counts;
+  }                                                                            
+
 
 // Macros for GPU operations
 #ifndef NOGPU
@@ -245,7 +245,7 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
                        opts.device_id)                                         \
     }                                                                          \
   } else {                                                                     \
-    TARGET_GPU_ARRAY(enter, to, bit->qwords, 0,                            \
+    TARGET_GPU_ARRAY(enter, to, bit->qwords, 0,                                \
                      bit->size_in_qwords * bit->nelem, opts.device_id)         \
   }                                                                            \
   if (omp_target_is_present(bits->qwords, opts.device_id)) {                   \
@@ -253,11 +253,11 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
       UPDATE_GPU_ARRAY(to, bits->qwords, 0,                                    \
                        bits->size_in_qwords * bits->nelem, opts.device_id)     \
     } else {                                                                   \
-      TARGET_GPU_ARRAY(enter, to, bits->qwords, 0,                         \
+      TARGET_GPU_ARRAY(enter, to, bits->qwords, 0,                             \
                        bits->size_in_qwords * bits->nelem, opts.device_id)     \
     }                                                                          \
   } else {                                                                     \
-    TARGET_GPU_ARRAY(enter, to, bits->qwords, 0,                           \
+    TARGET_GPU_ARRAY(enter, to, bits->qwords, 0,                               \
                      bits->size_in_qwords * bits->nelem, opts.device_id)       \
   }                                                                            \
   if (!omp_target_is_present(counts, opts.device_id)) {                        \
@@ -318,8 +318,7 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
   }                                                                            \
   if (opts.release_counts) {                                                   \
     SETOP_FINALIZE_GPU(release, counts, 0, num_targets *n, opts.device_id)     \
-  }                                                                            \
-  return counts;
+  }                                                                            
 
 #endif
 /*---------------------------------------------------------------------------*/
@@ -819,11 +818,12 @@ extern int *BitDB_inter_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
   assert(counts != NULL);
-  return BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+  BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+  return counts;
 }
 
-extern int *BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, int *counts,
-                                        SETOP_COUNT_OPTS opts) {
+void BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, int *counts,
+                                 SETOP_COUNT_OPTS opts) {
 
   setop_count_db_cpu(bit, bits, counts, &, opts)
 }
@@ -833,14 +833,15 @@ extern int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
   assert(counts != NULL);
 #ifndef NOGPU
-  return BitDB_inter_count_store_gpu(bit, bits, counts, opts);
+  BitDB_inter_count_store_gpu(bit, bits, counts, opts);
 #else
-  return BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+  BitDB_inter_count_store_cpu(bit, bits, counts, opts);
 #endif
+  return counts;
 }
 
-extern int *BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                        SETOP_COUNT_OPTS opts) {
+void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+                                 SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, &, opts)
 #else
@@ -852,11 +853,12 @@ extern int *BitDB_union_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
   assert(counts != NULL);
-  return BitDB_union_count_store_cpu(bit, bits, counts, opts);
+   BitDB_union_count_store_cpu(bit, bits, counts, opts);
+  return counts;
 }
 
-extern int *BitDB_union_count_store_cpu(T_DB bit, T_DB bits, int *counts,
-                                        SETOP_COUNT_OPTS opts) {
+void BitDB_union_count_store_cpu(T_DB bit, T_DB bits, int *counts,
+                                 SETOP_COUNT_OPTS opts) {
   setop_count_db_cpu(bit, bits, counts, |, opts);
 }
 
@@ -865,14 +867,15 @@ extern int *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
   assert(counts != NULL);
 #ifndef NOGPU
-  return BitDB_union_count_store_gpu(bit, bits, counts, opts);
+  BitDB_union_count_store_gpu(bit, bits, counts, opts);
 #else
-  return BitDB_union_count_store_cpu(bit, bits, counts, opts);
+  BitDB_union_count_store_cpu(bit, bits, counts, opts);
 #endif
+  return counts;
 }
 
-extern int *BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                        SETOP_COUNT_OPTS opts) {
+void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+                                 SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, |, opts)
 #else
@@ -884,11 +887,12 @@ extern int *BitDB_diff_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
   assert(counts != NULL);
-  return BitDB_diff_count_store_cpu(bit, bits, counts, opts);
+   BitDB_diff_count_store_cpu(bit, bits, counts, opts);
+  return counts;
 }
 
-extern int *BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, int *counts,
-                                       SETOP_COUNT_OPTS opts) {
+void BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, int *counts,
+                                SETOP_COUNT_OPTS opts) {
   setop_count_db_cpu(bit, bits, counts, ^, opts)
 }
 
@@ -897,14 +901,15 @@ extern int *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
   assert(counts != NULL);
 #ifndef NOGPU
-  return BitDB_diff_count_store_gpu(bit, bits, counts, opts);
+   BitDB_diff_count_store_gpu(bit, bits, counts, opts);
 #else
-  return BitDB_diff_count_store_cpu(bit, bits, counts, opts);
+   BitDB_diff_count_store_cpu(bit, bits, counts, opts);
 #endif
+  return counts;
 }
 
-extern int *BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                       SETOP_COUNT_OPTS opts) {
+void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+                                SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, ^, opts)
 #else
@@ -916,11 +921,12 @@ extern int *BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
   assert(counts != NULL);
-  return BitDB_minus_count_store_cpu(bit, bits, counts, opts);
+  BitDB_minus_count_store_cpu(bit, bits, counts, opts);
+  return counts;
 }
 
-extern int *BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int *counts,
-                                        SETOP_COUNT_OPTS opts) {
+void BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int *counts,
+                                  SETOP_COUNT_OPTS opts) {
   setop_count_db_cpu(bit, bits, counts, &~, opts)
 }
 
@@ -929,14 +935,15 @@ extern int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
   assert(counts != NULL);
 #ifndef NOGPU
-  return BitDB_minus_count_store_gpu(bit, bits, counts, opts);
+  BitDB_minus_count_store_gpu(bit, bits, counts, opts);
 #else
-  return BitDB_minus_count_store_cpu(bit, bits, counts, opts);
+  BitDB_minus_count_store_cpu(bit, bits, counts, opts);
 #endif
+  return counts;
 }
 
-extern int *BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                        SETOP_COUNT_OPTS opts) {
+void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+                                 SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, &~, opts)
 #else
