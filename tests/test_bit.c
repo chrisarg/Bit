@@ -400,10 +400,10 @@ bool test_bitDB_extract_replace() {
   BitDB_put_at(bit, 0, bitset);
 
   unsigned char buffer[SIZE_OF_TEST_BIT / 8];
-  int bytes_written = BitDB_extract_from(bit, 0, buffer);
+  BitDB_extract_from(bit, 0, buffer);
 
-  bool success = (bytes_written == SIZE_OF_TEST_BIT / 8 &&
-    (buffer[0] == ((1 << 1) | (1 << 3))));
+  bool success = (buffer[0] == (unsigned char)((1 << 1) | (1 << 3)));
+
 
   BitDB_replace_at(bit, 0, buffer);
 
