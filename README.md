@@ -277,7 +277,7 @@ particular index in the container.
 ```c
 extern Bit_T BitDB_get_from(Bit_DB_T set, int index);
 extern void BitDB_put_at(Bit_DB_T set, int index, T bitset);
-extern int BitDB_extract_from(Bit_DB_T set, int index, void* buffer);
+extern void BitDB_extract_from(Bit_DB_T set, int index, void* buffer);
 extern void BitDB_replace_at(Bit_DB_T set, int index, void* buffer);
 extern void BitDB_clear(Bit_DB_T set);
 extern void BitDB_clear_at(Bit_DB_T set, int index);

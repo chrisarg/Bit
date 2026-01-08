@@ -787,7 +787,7 @@ extern void BitDB_put_at(T_DB set, int index, T bitset) {
   memcpy(set->bytes + shift, bitset->bytes, set->size_in_bytes);
 }
 
-extern int BitDB_extract_from(T_DB set, int index, void *buffer) {
+extern void BitDB_extract_from(T_DB set, int index, void *buffer) {
   assert(set);
   assert(index >= 0 && index < set->nelem);
   assert(buffer != NULL);
@@ -795,7 +795,6 @@ extern int BitDB_extract_from(T_DB set, int index, void *buffer) {
   size_t shift = (size_t)index;
   shift *= set->size_in_bytes; // calculate the offset
   memcpy(buffer, set->bytes + shift, set->size_in_bytes);
-  return set->size_in_bytes; // return the length of the bitset
 }
 
 extern void BitDB_replace_at(T_DB set, int index, void *buffer) {

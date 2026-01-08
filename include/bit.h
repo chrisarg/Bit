@@ -320,7 +320,7 @@ extern int* BitDB_count(T_DB set);
 */
 extern T BitDB_get_from(T_DB set, int index);
 extern void BitDB_put_at(T_DB set, int index, T bitset);
-extern int BitDB_extract_from(T_DB set, int index, void* buffer);
+extern void BitDB_extract_from(T_DB set, int index, void* buffer);
 extern void BitDB_replace_at(T_DB set, int index, void* buffer);
 extern void BitDB_clear(T_DB set);
 extern void BitDB_clear_at(T_DB set, int index);
