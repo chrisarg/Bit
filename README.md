@@ -837,7 +837,10 @@ BSD 2-Clause License. See the LICENSE file for details.
 
 ## Author
 
-Christos Argyropoulos (April - September 2025)
+Christos Argyropoulos (April 2025 -  May 2026)
+
+## AI disclosure
+Github Copilot has been very helpful when it comes to generating the makefile. For sure there is bload, but my technical skills in writing Makefiles is horrendous and I appreciate all the help I could get. 
 
 [^1]: Historical Trivia: The method is identified as the ”Gillies-Miller sideways addition” in the original reference (Maurice V. Wilkes, David J. Wheeler, and Stanley Gill. 
 _The Preparation of Programs for an Electronic Digital Computer_, chapter Gillies–Miller method for sideways addition, pages 191–193. Addison-Wesley Publishing
