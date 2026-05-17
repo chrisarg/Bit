@@ -225,7 +225,15 @@ ROCR_VISIBLE_DEVICES=0 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 4096 0
 If `make` reports that no OpenMP AMD device runtime exists for a selected
 `AMD_ARCH`, rebuild with a supported target for your installed LLVM/ROCm stack.
 
-
+If you are building for an architecture that is not supported (e.g. due to AMD's aggressive planned obsolescence),
+you may be able to use the following workaround (tested with AMD Radeon Pro W5500 and llvm 18):
+1. pick a supported architecture that is "close" to what you want to build for (e.g. use gfx1010 or 1030 for gfx1012)
+and compile with that architecture.
+2. In the shell you will be executing, fake the supported architecture by:
+```bash
+export HSA_OVERRIDE_GFX_VERSION=10.1.0
+```
+3. Run normally
 
 #### NVIDIA GPU remediation (OpenMP offload)
 
@@ -819,7 +827,7 @@ Bit is particularly useful for:
 - Implement additional, OS agnostic build systems 
 - Code the setop functions (e.g. and, not, xor etc) using SIMD directives
 - Ensure that clang and icx are fully tested and supported
-- Test (including the build system!) on AMD and Intel discrete GPUs
+- CUDA and HIP implementations (use AI to generate those from the manually coded OpenMP path)
 - Utilize Unified Shared Memory if available in the system
 - TPU & NPU support (low priority but will be cool with all the new chips)
 
