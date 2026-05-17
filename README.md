@@ -167,6 +167,32 @@ the GPU benchmark suite:
 ./build/test_offload 100000 0 100
 ```
 
+#### libomptarget diagnostics defaults (overrideable)
+
+The `Makefile` sets runtime diagnostics to quiet mode by default:
+
+- `LIBOMPTARGET_INFO=0`
+- `LIBOMPTARGET_DEBUG=0`
+
+This avoids verbose `omptarget device ... info` logs unless explicitly requested.
+You can override either variable at build time and they will be exported to
+subprocesses spawned by `make`:
+
+```bash
+# Enable verbose runtime diagnostics
+make LIBOMPTARGET_INFO=16 LIBOMPTARGET_DEBUG=1 test_offload CC=clang GPU=AMD AMD_ARCH=gfx900
+
+# Keep default quiet mode explicitly
+make LIBOMPTARGET_INFO=0 LIBOMPTARGET_DEBUG=0 test_offload CC=clang GPU=AMD AMD_ARCH=gfx900
+```
+
+If you run binaries directly from the shell (outside `make`), you can override
+at runtime in the same way:
+
+```bash
+LIBOMPTARGET_INFO=16 LIBOMPTARGET_DEBUG=1 ./build/test_offload 100000 0
+```
+
 #### AMD Remediation (OpenMP Offload)
 Common AMD GPU architectures that you can use as arguments:
 

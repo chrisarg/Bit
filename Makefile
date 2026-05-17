@@ -3,6 +3,14 @@ IS_CLEAN_GOAL := $(filter clean distclean,$(MAKECMDGOALS))
 # Ensure plain `make` builds the libraries (not the first internal target).
 .DEFAULT_GOAL := all
 
+# Keep libomptarget runtime diagnostics quiet by default.
+# Users can override when invoking make, e.g.:
+#   make LIBOMPTARGET_INFO=16 LIBOMPTARGET_DEBUG=1 ...
+LIBOMPTARGET_INFO ?= 0
+LIBOMPTARGET_DEBUG ?= 0
+export LIBOMPTARGET_INFO
+export LIBOMPTARGET_DEBUG
+
 # Check for available compilers if user hasn't specified one
 ifeq ($(origin CC),default)
 ifeq ($(IS_CLEAN_GOAL),)
