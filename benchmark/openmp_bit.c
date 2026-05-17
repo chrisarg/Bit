@@ -31,15 +31,15 @@ void summarize_results(char* test, int64_t timeElapsed, int num_of_threads,
   int result, float speedup);
 
 int main(int argc, char* argv []) {
-  if (argc != 5) {
+  if (argc != 5 && argc != 6) {
     fprintf(stderr,
-      "Usage: %s <size> <number of bitsets> <number of reference bitsets> <max threads>\n",
+      "Usage: %s <size> <number of bitsets> <number of reference bitsets> <max threads> [<gpu_id>]\n",
       argv[0]);
-    fprintf(stderr, "Example: %s 1024 1000 1000000 4\n", argv[0]);
+    fprintf(stderr, "Example: %s 1024 1000 1000000 4 1\n", argv[0]);
     fprintf(stderr,
       "This will create 1000 bitsets size 1024, do an intersection count"
       " against another 1000000 bitsets, and run the test for 1-4 "
-      "threads.\n");
+      "threads on GPU 1 (if GPU not specified, the 0th device will be used).\n");
     fprintf(stderr, "Please ensure that the size is a positive integer.\n");
     return EXIT_FAILURE;
   }
@@ -48,6 +48,10 @@ int main(int argc, char* argv []) {
   int num_of_bits = atoi(argv[2]);
   int num_of_ref_bits = atoi(argv[3]);
   int max_threads = atoi(argv[4]);
+  int gpu_id = 0;
+  if (argc == 6) {
+    gpu_id = atoi(argv[5]);
+  }
 
   if (size <= 0 || num_of_bits <= 0 || num_of_ref_bits <= 0 ||
     max_threads <= 0) {
@@ -152,7 +156,7 @@ int main(int argc, char* argv []) {
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   max = database_match_GPU(db1, db2,
     (SETOP_COUNT_OPTS) {
-    .device_id = 0,
+    .device_id =    gpu_id,
       .upd_1st_operand = false,
       .upd_2nd_operand = false
   });
@@ -164,7 +168,7 @@ int main(int argc, char* argv []) {
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   max = database_match_GPU(db1, db2,
     (SETOP_COUNT_OPTS) {
-    .device_id = 0,
+    .device_id =    gpu_id,
       .upd_1st_operand = true,
       .upd_2nd_operand = false  
 });
@@ -176,7 +180,7 @@ int main(int argc, char* argv []) {
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   max = database_match_GPU(db1, db2,
     (SETOP_COUNT_OPTS) {
-    .device_id = 0,
+    .device_id =    gpu_id,
       .upd_1st_operand = true,
       .upd_2nd_operand = false,
       .release_1st_operand = true,

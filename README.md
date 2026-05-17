@@ -52,39 +52,95 @@ on unions/differences/intersections of sets) and fast population counts (see bel
 
 ### Building
 
+This assumes that you have CUDA and ROCm installed and working in your system.
+
 ```bash
 # Clone the repository
 git clone https://github.com/username/Bit.git
 cd Bit
 
-# Build the library
+# Build the library for NVIDIA
 make
 
 # Build the library without GPU support (the corresponding functions point to the CPU versions)
 make GPU=NONE
 
-# Build the library for an AMD GPU
-make GPU=AMD
+# Build for NVIDIA
+make GPU=NVIDIA
 
-# Run tests
-make test
+# Build for NVIDIA with clang (default NVIDIA architectures listed below)
+make CC=clang GPU=NVIDIA
 
-# Make the benchmark (this will also build the OpenMP benchmark)
-make bench
+# Build for one specific NVIDIA architecture
+make CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_75
 
-# Make the open-mp benchmarks: with and without GPU support if GPU is not set to NONE
-# or without GPU support otherwise
-make bench_omp
+# Build for an explicit list of NVIDIA architectures
+make CC=clang GPU=NVIDIA NVIDIA_ARCHES='sm_50 sm_52 sm_53 sm_60 sm_61 sm_62 sm_70 sm_72 sm_75'
+
+# Build for NVIDIA using a specific CUDA toolkit location
+make CC=clang GPU=NVIDIA CUDA_PATH=/usr/local/cuda-11.8
+
+# Combine both: custom CUDA location + one architecture
+make CC=clang GPU=NVIDIA CUDA_PATH=/usr/local/cuda-11.8 NVIDIA_ARCH=sm_70
+
+
+# Build the library for an AMD GPU with clang/ROCm offload
+make CC=clang GPU=AMD
+
+# Override the AMD target architecture when needed
+make CC=clang GPU=AMD AMD_ARCH=gfx90a
 ```
 
+For `CC=clang GPU=NVIDIA`, the Makefile defaults to a fatbinary targeting:
+`sm_50 sm_52 sm_53 sm_60 sm_61 sm_62 sm_70 sm_72 sm_75`.
+
+NVIDIA build variables:
+
+- `NVIDIA_ARCHES`: space-separated list of NVIDIA SM targets to include in the build.
+- `NVIDIA_ARCH`: single SM target; when set, it overrides `NVIDIA_ARCHES`.
+- `CUDA_PATH`: path to the CUDA toolkit used by clang offload (default: `/usr/lib/cuda`).
+
+Now you are ready to run the tests and build the benchmarks. These invocation of make take the
+same arguments used to build the library. If you use different arguments, prepare for a poor experience.
+
+```bash
+# Run tests
+make test  # assumes NVIDIA
+
+# Make the benchmark (this will also build the OpenMP benchmark)
+make bench 
+
+# Make the OpenMP benchmarks: with and without GPU support if GPU is not set to NONE
+# or without GPU support otherwise
+make bench_omp  # NVIDIA
+make bench_omp GPU=NVIDIA
+make bench_omp GPU=NONE  # No GPU
+make CC=clang GPU=AMD AMD_ARCH=gfx90a
+```
+
+
+Common AMD GPU architectures:
+- `gfx900` - Vega
+- `gfx906` - Vega 20
+- `gfx908` - CDNA 1 / MI100
+- `gfx90a` - CDNA 2 / MI200
+
+Of some interest, the code works even with AMD architectures that are not supported by ROCm. 
+I tested this with a  Radeon Pro W5500 and ROCm 6.1 by telling the compiler it is a supported card, e.g.  by passing GPU_ARCH=gfx1036. 
 ### Benchmarking
 
 ```bash
 # Runs various benchmarks
 ./build/benchmark
 
-# OpenMP benchmark
-Usage: ./build/openmp_bit <size> <number of bitsets> <number of reference bitsets> <max threads>
+# Mixed CPU/GPU OpenMP benchmark
+Usage: ./build/openmp_bit <size> <number of bitsets> <number of reference bitsets> <max threads> [<gpu_id>]
+
+# CPU-only OpenMP benchmark
+Usage: ./build/openmp_bit_nogpu <size> <number of bitsets> <number of reference bitsets> <max threads>
+
+# GPU-only OpenMP benchmark
+Usage: ./build/openmp_bit_nocpu <size> <number of bitsets> <number of reference bitsets> <gpu iterations> [<gpu_id>]
 ```
 
 The OpenMP benchmark assesses the scaling of searching (intersection count) of a
@@ -96,8 +152,67 @@ The benchmark will run:
 - containerized OpenMP query utilizing 1 to max_threads
 - containerized OpenMP query using GPU offloading
 
+The GPU-only benchmark (`openmp_bit_nocpu`) runs only containerized GPU
+offloaded intersection counts. Its 4th argument uses the same CLI position as
+`max threads`, but is interpreted as the number of GPU iterations.
+
 The repository [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits) contains benchmarks
 against other bitset/bitvector/bitmaps in C and Perl.
+
+### Compiler Bug Reports
+
+The `Makefile` provides a `bug_report` target that captures compiler diagnostics,
+build logs, and a preprocessed source file in `bug_reports/`.
+
+By default:
+
+- `BUG_REPORT_DIR=bug_reports`
+- `BUG_TARGET=bench_omp`
+- `BUG_REPORT_TAG=$(notdir CC)-GPU-<arch-tag>` (used in output file names; defaults to `AMD_ARCH` for AMD and `NVIDIA_ARCH`/first `NVIDIA_ARCHES` entry for NVIDIA)
+
+Each invocation creates a new report subdirectory:
+
+- `bug_reports/<timestamp>-<BUG_REPORT_TAG>/`
+
+The target automatically applies compiler-specific reporting flags:
+
+- GCC: `-freport-bug`
+- Clang: `-gen-reproducer -fcrash-diagnostics-dir=<report-subdir>`
+
+Examples:
+
+```bash
+# GCC AMD offload bug report
+make bug_report CC=gcc GPU=AMD AMD_ARCH=gfx900 BUG_TARGET=bench_omp
+
+# Clang AMD offload bug report
+make bug_report CC=clang GPU=AMD AMD_ARCH=gfx90a BUG_TARGET=bench_omp
+
+# Clang NVIDIA offload bug report
+make bug_report CC=clang GPU=NVIDIA BUG_TARGET=bench_omp
+```
+
+After completion, inspect files in the new per-run report directory, especially:
+
+- `build.log`
+- `config.txt`
+- `backtrace.txt`
+- `src-bit.preprocessed.i`
+
+For `CC=gcc`, the report also includes GCC-specific files aligned with
+`https://gcc.gnu.org/bugs/` guidance:
+
+- `gcc-v.txt` (exact GCC version, target system type, and configure options from `gcc -v`)
+- `gcc-repro-command.txt` (complete reproduction compile command)
+- `gcc-save-temps.log` (compiler output from `-v -save-temps` reproduction run)
+
+If Clang emits crash reproducers, they will also be written in the same report
+subdirectory. The `bug_report` target removes temporary debug artifacts
+(`*.i`, `*.ii`, `*.s`, `*.bc`, `*.cui`) from `build/` after report collection.
+
+When a build fails, `bug_report` automatically reruns the failing target under
+`gdb` and writes a full stack trace to `backtrace.txt`. If `gdb` is not
+available, `backtrace.txt` records that limitation.
 
 ## Usage Example
 
