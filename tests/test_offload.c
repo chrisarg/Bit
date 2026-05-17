@@ -229,14 +229,9 @@ int main(int argc, char* argv []) {
   printf("OpenMP target devices found: %d\n", num_devices);
   printf("Requested problem size: %d\n", n);
 
-  if (num_devices <= 0) {
-    fprintf(stderr, "FAIL: No OpenMP target devices available.\n");
-    return EXIT_FAILURE;
-  }
-
   int device_id;
   if (requested_device_id >= 0) {
-    if (requested_device_id >= num_devices) {
+    if (num_devices > 0 && requested_device_id >= num_devices) {
       fprintf(stderr,
         "FAIL: requested device_id=%d is out of range [0, %d].\n",
         requested_device_id, num_devices - 1);
@@ -246,16 +241,29 @@ int main(int argc, char* argv []) {
     printf("Using user-specified device_id: %d\n", device_id);
   }
   else {
-    device_id = omp_get_default_device();
-    if (device_id < 0 || device_id >= num_devices) {
-      printf("OpenMP default device %d is invalid; falling back to device 0.\n",
-        device_id);
-      device_id = 0;
+    if (num_devices > 0) {
+      device_id = omp_get_default_device();
+      if (device_id < 0 || device_id >= num_devices) {
+        printf(
+          "OpenMP default device %d is invalid; falling back to device 0.\n",
+          device_id);
+        device_id = 0;
+      }
+      printf("Using OpenMP default device_id: %d\n", device_id);
     }
-    printf("Using OpenMP default device_id: %d\n", device_id);
+    else {
+      device_id = 0;
+      printf("No devices reported by omp_get_num_devices(); probing device_id: 0\n");
+    }
   }
 
   if (!verify_target_device(device_id)) {
+    fprintf(stderr,
+      "Hint: ensure the binary was built for the correct GPU architecture and "
+      "that OpenMP offload runtime plugins are available.\n");
+    fprintf(stderr,
+      "Hint: try running with OMP_TARGET_OFFLOAD=MANDATORY and "
+      "LIBOMPTARGET_INFO=16 for runtime diagnostics.\n");
     return EXIT_FAILURE;
   }
 
