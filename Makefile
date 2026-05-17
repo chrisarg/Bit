@@ -51,7 +51,10 @@ endif
 
 ## additional flags
 DEFINES ?=
-AMD_ARCH ?= gfx900
+AMD_ARCH ?= $(shell rocminfo 2>/dev/null | grep -Eo 'gfx[0-9]+' | head -n 1)
+ifeq ($(strip $(AMD_ARCH)),)
+AMD_ARCH := gfx900
+endif
 ROCM_PATH ?= /opt/rocm
 ROCM_DEVICE_LIB_PATH ?= $(ROCM_PATH)/amdgcn/bitcode
 ROCM_LLVM_BIN ?= $(ROCM_PATH)/lib/llvm/bin
@@ -123,8 +126,15 @@ OFFLOAD_FL = -fno-stack-protector -fcf-protection=none \
              -foffload=amdgcn-amdhsa \
              -foffload-options=amdgcn-amdhsa="-march=$(AMD_ARCH)"
 else ifeq ($(notdir $(CC)),clang)
-CC_ENV = PATH=$(ROCM_LLVM_BIN):$$PATH
 OFFLOAD_FL = -fopenmp-targets=amdgcn-amd-amdhsa --rocm-path=$(ROCM_PATH) --rocm-device-lib-path=$(ROCM_DEVICE_LIB_PATH) -Xopenmp-target=amdgcn-amd-amdhsa -march=$(AMD_ARCH)
+AMD_DEVICE_RTL_FILE := $(firstword \
+	$(wildcard /usr/lib/llvm-*/lib/libomptarget-amdgpu-$(AMD_ARCH).bc) \
+	$(wildcard $(ROCM_PATH)/lib/llvm/lib/libomptarget-amdgpu-$(AMD_ARCH).bc) \
+	$(wildcard $(ROCM_PATH)/lib/llvm/lib/libomptarget-500-amdgpu-$(AMD_ARCH).bc) \
+)
+ifeq ($(strip $(AMD_DEVICE_RTL_FILE)),)
+$(error No OpenMP AMD device runtime was found for AMD_ARCH=$(AMD_ARCH). Install LLVM/ROCm support for this gfx target or override AMD_ARCH to a supported value)
+endif
 else
 $(error GPU=AMD is not supported with CC=$(CC); use gcc or clang)
 endif
@@ -282,6 +292,8 @@ $(TARGET_STATIC): $(OBJ)
 test: $(TARGET) $(TEST_OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) -L$(BUILD_DIR) $(BUILD_RPATH_FLAG) $(OMPTARGET_RPATH_FLAG) -lbit
 
+# test_offload uses the same offload flags as the main library
+# You can pass NVIDIA_ARCH, NVIDIA_ARCHES, or AMD_ARCH when invoking test_offload
 test_offload: $(TEST_OFFLOAD_OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_OFFLOAD_EXEC) $(TEST_OFFLOAD_OBJ) $(OPENMP_FLAG) -lm
 

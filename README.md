@@ -46,13 +46,14 @@ on unions/differences/intersections of sets) and fast population counts (see bel
 
 ### Prerequisites
 
-- C compiler (GCC, Clang, or Intel ICX) : GCC extensively tested, Clang and ICX
-  support still experimental
+- C compiler (GCC, Clang, or Intel ICX) : GCC extensively tested, ICX and Clang 
+  support still experimental (see offload testing later on)
 - GNU Make
 
 ### Building
 
-This assumes that you have CUDA and ROCm installed and working in your system.
+This assumes that you have CUDA and ROCm installed and working in your system. If you do not want
+to build for GPU, ignore all GPU sections. 
 
 ```bash
 # Clone the repository
@@ -100,64 +101,129 @@ NVIDIA build variables:
 - `NVIDIA_ARCH`: single SM target; when set, it overrides `NVIDIA_ARCHES`.
 - `CUDA_PATH`: path to the CUDA toolkit used by clang offload (default: `/usr/lib/cuda`).
 
-Now you are ready to run the tests and build the benchmarks. These invocation of make take the
-same arguments used to build the library. If you use different arguments, prepare for a poor experience.
 
+### GPU Troubleshoooting and Benchmarking
+
+Building of the library should happen without issues, in the absence of GPU offloading. 
+While GPU offloading should work mostly out of the box, compiler and runtime incompatibilities may surface.
+Furthermore, the code relies heavily on preprocessor directives, and complex OpenMP directives which may not
+be supported by your runtime. To isolate general GPU offloading issues from the use of the complex directives, 
+you can use the `test_offload` binary which checks offloading through three classes of benchmarks:
+
+- **[MEMORY-BOUND]**: Transfer data from host to device and back in each iteration.
+  Measures GPU throughput for data-parallel elementwise operations.
+  
+- **[HYBRID-COMPUTE]**: Performs compute-heavy work per element but still transfers
+  the entire output array to the host after each iteration.
+  Partially isolates computation from memory I/O but does not fully eliminate
+  PCIe/bus overhead.
+  
+- **[COMPUTE-BOUND][DEVICE-RESIDENT]**: Transfers input data once at the start,
+  computes entirely on the GPU for all iterations, and returns only a single
+  checksum result.
+  This benchmark isolates pure GPU compute performance from host-device bus overhead,
+  enabling measurement of sustained flop/ops rates without PCIe transfer bottlenecks.
+
+Use the device-resident benchmark to profile GPU peak compute throughput. Compare
+it against the hybrid-compute benchmark to quantify the cost of data movement
+on your specific hardware. This benchmark uses simpler GPU kernels than the ones used
+by the bit library and can help isolate compile/runtime issues and/or mismathces
+
+#### Building `test_offload` with Custom Architectures
+
+The `test_offload` binary inherits all compiler and GPU offload flags from the library build.
+You can pass `NVIDIA_ARCH`, `NVIDIA_ARCHES`, or `AMD_ARCH` when invoking `make test_offload`:
+
+**NVIDIA:**
 ```bash
-# Run tests
-make test  # assumes NVIDIA
+# Build for a specific NVIDIA architecture
+make test_offload CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_70
 
-# Make the benchmark (this will also build the OpenMP benchmark)
-make bench 
+# Build for multiple NVIDIA architectures
+make test_offload CC=clang GPU=NVIDIA NVIDIA_ARCHES='sm_50 sm_70 sm_75'
 
-# Make the OpenMP benchmarks: with and without GPU support if GPU is not set to NONE
-# or without GPU support otherwise
-make bench_omp  # NVIDIA
-make bench_omp GPU=NVIDIA
-make bench_omp GPU=NONE  # No GPU
-make CC=clang GPU=AMD AMD_ARCH=gfx90a
+# Default (uses all default NVIDIA architectures)
+make test_offload
 ```
 
+**AMD:**
+```bash
+# Build for a specific AMD architecture
+make test_offload CC=clang GPU=AMD AMD_ARCH=gfx900
 
-Common AMD GPU architectures:
+# Build for a different AMD architecture
+make test_offload CC=clang GPU=AMD AMD_ARCH=gfx90a
+```
+
+The `test_offload` binary can then be used to run correctness tests and benchmarks
+with the chosen architecture. Pass benchmark iterations as the third argument to run
+the GPU benchmark suite:
+
+```bash
+# Correctness tests only
+./build/test_offload 100000 0
+
+# Correctness tests + benchmarks with 100 iterations
+./build/test_offload 100000 0 100
+```
+
+#### AMD Remediation (OpenMP Offload)
+Common AMD GPU architectures that you can use as arguments:
+
 - `gfx900` - Vega
 - `gfx906` - Vega 20
 - `gfx908` - CDNA 1 / MI100
 - `gfx90a` - CDNA 2 / MI200
 
-Of some interest, the code works even with AMD architectures that are not supported by ROCm. 
-I tested this with a  Radeon Pro W5500 and ROCm 6.1 by telling the compiler it is a supported card, e.g.  by passing GPU_ARCH=gfx1036. 
-### Benchmarking
+If AMD offload does not initialize, use this remediation flow:
 
 ```bash
-# Runs various benchmarks
-./build/benchmark
+# 1) Confirm your detected AMD gfx target
+rocminfo | grep -Eo 'gfx[0-9]+' | sort -u
 
-# Mixed CPU/GPU OpenMP benchmark
-Usage: ./build/openmp_bit <size> <number of bitsets> <number of reference bitsets> <max threads> [<gpu_id>]
+# 2) Build explicitly for the detected target
+make clean
+make test_offload CC=clang GPU=AMD AMD_ARCH=<gfx_target>
 
-# CPU-only OpenMP benchmark
-Usage: ./build/openmp_bit_nogpu <size> <number of bitsets> <number of reference bitsets> <max threads>
-
-# GPU-only OpenMP benchmark
-Usage: ./build/openmp_bit_nocpu <size> <number of bitsets> <number of reference bitsets> <gpu iterations> [<gpu_id>]
+# 3) Run with mandatory offload
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 4096 0
 ```
 
-The OpenMP benchmark assesses the scaling of searching (intersection count) of a
-number of bits of given size(capacity) against a database of reference bitsets.
-The benchmark will run:
+If your system has multiple accelerators and AMD visibility is ambiguous, pin
+the AMD device explicitly:
 
-- 3 repetitions of a single threaded search
-- the same query using OpenMP without containers utilizing 1 to max_threads
-- containerized OpenMP query utilizing 1 to max_threads
-- containerized OpenMP query using GPU offloading
+```bash
+ROCR_VISIBLE_DEVICES=0 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 4096 0
+```
 
-The GPU-only benchmark (`openmp_bit_nocpu`) runs only containerized GPU
-offloaded intersection counts. Its 4th argument uses the same CLI position as
-`max threads`, but is interpreted as the number of GPU iterations.
+If `make` reports that no OpenMP AMD device runtime exists for a selected
+`AMD_ARCH`, rebuild with a supported target for your installed LLVM/ROCm stack.
 
-The repository [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits) contains benchmarks
-against other bitset/bitvector/bitmaps in C and Perl.
+
+
+#### NVIDIA GPU remediation (OpenMP offload)
+
+On a multi-GPU NVIDIA system, the most reliable way to choose which card to
+test is to use `CUDA_VISIBLE_DEVICES` and keep the OpenMP device index at `0`.
+That makes the chosen physical GPU the only visible device, so the program sees
+it as logical device `0`.
+
+Examples:
+
+```bash
+# Test physical GPU 0
+CUDA_VISIBLE_DEVICES=0 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 1000000 0 1
+
+# Test physical GPU 1
+CUDA_VISIBLE_DEVICES=1 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 1000000 0 1
+```
+
+If you expose both NVIDIA GPUs at once, current LLVM/OpenMP offload builds in
+this environment can report zero devices or fail to initialize correctly.
+That looks like a `libomptarget`/runtime quirk rather than a Bit issue, because
+the same binary works when each GPU is tested individually. In practice, the
+safe workaround is to run one GPU at a time.
+
 
 ### Compiler Bug Reports
 
@@ -213,6 +279,59 @@ subdirectory. The `bug_report` target removes temporary debug artifacts
 When a build fails, `bug_report` automatically reruns the failing target under
 `gdb` and writes a full stack trace to `backtrace.txt`. If `gdb` is not
 available, `backtrace.txt` records that limitation.
+
+
+
+### Benchmarking Bit
+
+Now you are ready to run the tests and build the benchmarks. These invocation of make take the
+same arguments used to build the library. If you use different arguments to make and test, prepare for a poor experience.
+
+```bash
+# Run tests
+make test  # assumes NVIDIA
+
+# Make the benchmark (this will also build the OpenMP benchmark)
+make bench 
+
+# Make the OpenMP benchmarks: with and without GPU support if GPU is not set to NONE
+# or without GPU support otherwise
+make bench_omp  # NVIDIA
+make bench_omp GPU=NVIDIA
+make bench_omp GPU=NONE  # No GPU
+make CC=clang GPU=AMD AMD_ARCH=gfx90a
+```
+
+```bash
+# Runs various benchmarks
+./build/benchmark
+
+# Mixed CPU/GPU OpenMP benchmark
+Usage: ./build/openmp_bit <size> <number of bitsets> <number of reference bitsets> <max threads> [<gpu_id>]
+
+# CPU-only OpenMP benchmark
+Usage: ./build/openmp_bit_nogpu <size> <number of bitsets> <number of reference bitsets> <max threads>
+
+# GPU-only OpenMP benchmark
+Usage: ./build/openmp_bit_nocpu <size> <number of bitsets> <number of reference bitsets> <gpu iterations> [<gpu_id>]
+```
+
+The OpenMP benchmark assesses the scaling of searching (intersection count) of a
+number of bits of given size(capacity) against a database of reference bitsets.
+The benchmark will run:
+
+- 3 repetitions of a single threaded search
+- the same query using OpenMP without containers utilizing 1 to max_threads
+- containerized OpenMP query utilizing 1 to max_threads
+- containerized OpenMP query using GPU offloading
+
+The GPU-only benchmark (`openmp_bit_nocpu`) runs only containerized GPU
+offloaded intersection counts. Its 4th argument uses the same CLI position as
+`max threads`, but is interpreted as the number of GPU iterations.
+
+The repository [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits) contains benchmarks
+against other bitset/bitvector/bitmaps in C and Perl.
+
 
 ## Usage Example
 
