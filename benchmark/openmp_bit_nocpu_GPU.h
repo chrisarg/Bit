@@ -39,7 +39,7 @@ static uint64_t tree_adder_GPU(unsigned long long v);
  *   FLAT_COLLAPSE
  */
 #if !defined(OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD) &&                            \
-    !defined(OPENMP_GPU_IMPL_FLAT_COLLAPSE)
+    !defined(OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD)
 #define OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD
 #endif
 
@@ -55,28 +55,59 @@ static uint64_t tree_adder_GPU(unsigned long long v);
   int num_targets = bit->nelem;                                                \
   int n = bits->nelem;
 
-#if defined(OPENMP_GPU_IMPL_FLAT_COLLAPSE)
+#define TILE_J 1024
+#if defined(OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD)
 #define setop_count_db_gpu_instrument(bit, bits, counts, op, opts, instr)      \
   SETOP_DB_CHECKS(bit, bits)                                                   \
   SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
                  num_targets, n)                                               \
   SETOP_INIT_GPU(bit, bits, counts, opts)                                      \
+                                                                               \
+  /* --- 1. ALLOCATE AND MAP TRANSPOSE BUFFER --- */                           \
+  size_t t_elements = (size_t)n * bit_size_in_qwords;                          \
+  uint64_t *bits_qwords_T = (uint64_t *)malloc(t_elements * sizeof(uint64_t)); \
+  _Pragma(STRINGIFY(omp target enter data map(                                 \
+      alloc : bits_qwords_T [0:t_elements]) device(opts.device_id)))           \
+                                                                               \
+  /* --- 2. EXECUTE GPU TRANSPOSE KERNEL --- */                                \
+  _Pragma(STRINGIFY(omp target teams distribute parallel for collapse(2)       \
+                        device(opts.device_id)))                               \
+  for (unsigned int i = 0; i < n; i++) {                                       \
+    for (unsigned int j = 0; j < bit_size_in_qwords; j++) {                    \
+      bits_qwords_T[j * n + i] = bits_qwords[i * bit_size_in_qwords + j];      \
+    }                                                                          \
+  }                                                                            \
+                                                                               \
+  /* --- 3. MAIN COMPUTE KERNEL --- */                                         \
   clock_gettime(CLOCK_MONOTONIC, &instr->start_time);                          \
-  OMP_GPU_FLAT(opts.device_id)                                                 \
+  OMP_GPU_TEAMS(num_targets, opts.device_id)                                   \
   for (int k = 0; k < num_targets; k++) {                                      \
-    for (unsigned int i = 0; i < n; i++) {                                     \
-      int total_sum_for_i = 0;                                                 \
-      uint64_t shift_k = k * bit_size_in_qwords;                               \
-      uint64_t shift_i = i * bit_size_in_qwords;                               \
-      for (unsigned int j = 0; j < bit_size_in_qwords; j++) {                  \
-        unsigned long long x =                                                 \
-            bit_qwords[shift_k + j] op bits_qwords[shift_i + j];               \
-        total_sum_for_i += (uint32_t)POPCOUNT_GPU(x);                          \
+    OMP_GPU_PARALLEL(n) {                                                      \
+      OMP_GPU_FOR_NOWAIT                                                       \
+      for (unsigned int i = 0; i < n; i++) {                                   \
+        uint64_t shift_k = k * bit_size_in_qwords;                             \
+        int total_sum_for_i = 0;                                               \
+        const uint64_t *__restrict__ ptr_k = &bit_qwords[shift_k];             \
+        const uint64_t *__restrict__ ptr_i = &bits_qwords_T[i];                \
+        OMP_GPU_SIMD_REDUCTION(+, total_sum_for_i)                             \
+        UNROLL(2)                                                              \
+        for (unsigned int j = 0; j < bit_size_in_qwords; j++) {                \
+          /* Note the new Column-Major index for the second operand */         \
+          unsigned long long x = ptr_k[j] op ptr_i[j * n];                     \
+          total_sum_for_i += POPCOUNT(x);                                      \
+        }                                                                      \
+        counts[k * n + i] = total_sum_for_i;                                   \
       }                                                                        \
-      counts[k * n + i] = total_sum_for_i;                                     \
     }                                                                          \
   }                                                                            \
   clock_gettime(CLOCK_MONOTONIC, &instr->end_time);                            \
+                                                                               \
+  /* --- 4. CLEANUP TRANSPOSE BUFFER --- */                                    \
+  _Pragma(STRINGIFY(omp target exit data map(                                  \
+      delete : bits_qwords_T [0:t_elements]) device(opts.device_id)))          \
+      free(bits_qwords_T);                                                     \
+                                                                               \
+  /* --- 5. STANDARD FINALIZE --- */                                           \
   _Pragma(STRINGIFY(omp target exit data map(                                  \
       from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
     SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
@@ -90,6 +121,7 @@ static uint64_t tree_adder_GPU(unsigned long long v);
     SETOP_FINALIZE_GPU(release, counts, 0, num_targets * n, opts.device_id)    \
   }
 #endif
+
 #if defined(OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD)
 #define setop_count_db_gpu_instrument(bit, bits, counts, op, opts, instr)      \
   SETOP_DB_CHECKS(bit, bits)                                                   \
@@ -99,20 +131,19 @@ static uint64_t tree_adder_GPU(unsigned long long v);
   clock_gettime(CLOCK_MONOTONIC, &instr->start_time);                          \
   OMP_GPU_TEAMS(num_targets, opts.device_id)                                   \
   for (int k = 0; k < num_targets; k++) {                                      \
-    const uint64_t *bit_row = bit_qwords + (uint64_t)k * bit_size_in_qwords;   \
-    int *counts_row = counts + (size_t)k * n;                                  \
+    uint64_t shift_k = k * bit_size_in_qwords;                                 \
     OMP_GPU_PARALLEL(n) {                                                      \
       OMP_GPU_FOR_NOWAIT                                                       \
       for (unsigned int i = 0; i < n; i++) {                                   \
-        const uint64_t *bits_row =                                             \
-            bits_qwords + (uint64_t)i * bit_size_in_qwords;                    \
+        uint64_t shift_i = i * bit_size_in_qwords;                             \
         int total_sum_for_i = 0;                                               \
         OMP_GPU_SIMD_REDUCTION(+, total_sum_for_i)                             \
         for (unsigned int j = 0; j < bit_size_in_qwords; j++) {                \
-          unsigned long long x = bit_row[j] op bits_row[j];                    \
-          total_sum_for_i += POPCOUNT_GPU(x);                    \
+          unsigned long long x =                                               \
+              bit_qwords[shift_k + j] op bits_qwords[shift_i + j];             \
+          total_sum_for_i += (uint32_t)POPCOUNT_GPU(x);                        \
         }                                                                      \
-        counts_row[i] = total_sum_for_i;                                       \
+        counts[k * n + i] = total_sum_for_i;                                   \
       }                                                                        \
     }                                                                          \
   }                                                                            \
@@ -175,24 +206,52 @@ static uint64_t tree_adder_GPU(unsigned long long v);
 
 // Flat 2-level collapse: exposes num_targets*n work items to the runtime,
 // letting it choose team/thread counts for optimal GPU occupancy.
-// Replaces the old 3-level: OMP_GPU_TEAMS -> OMP_GPU_PARALLEL ->
-// OMP_GPU_FOR_NOWAIT
 #define OMP_GPU_FLAT(dev_id)                                                   \
   _Pragma(STRINGIFY(omp target teams distribute parallel for                   \
-                        collapse(2) schedule(static) device(dev_id)))
+                        collapse(2) device(dev_id)))
 
-// Legacy macros retained for reference / alternative experimentation
-#define OMP_GPU_TEAMS(num_targets, dev_id)                                     \
-  _Pragma(STRINGIFY(omp target teams distribute num_teams(num_targets)         \
-                        device(dev_id)))
+// Collapses over specific loop levels, giving more control over team/thread
+// counts at the cost of potentially less flexible scheduling.
+#define OMP_GPU_FLAT_LEVEL(level, n_of_teams, dev_id)                          \
+  _Pragma(STRINGIFY(omp target teams distribute parallel for collapse(level) \
+  num_teams(n_of_teams) device(dev_id)))
+
+#define OMP_GPU_FLAT_LEVEL_ALLOCATE(level, scratchpad, dev_id)                 \
+  _Pragma(STRINGIFY(omp target uses_allocators(omp_pteam_mem_alloc)            \
+                        device(dev_id)))                                       \
+      _Pragma(STRINGIFY(omp teams distribute collapse(level) allocate(         \
+          omp_pteam_mem_alloc : scratchpad) private(scratchpad)))
+
+#define OMP_GPU_FLAT_TILED(n_of_teams, thread_limit, dev_id)                         \
+  _Pragma(STRINGIFY(omp target teams distribute parallel for                   \
+                        collapse(2) num_teams(n_of_teams) thread_limit(thread_limit)\
+                        schedule(static) device(dev_id)))
+
+#define OMP_GPU_TEAMS_LEVEL(level, n_of_teams, dev_id)                         \
+  _Pragma(STRINGIFY(omp target teams distribute num_teams(n_of_teams)          \
+                        collapse(level) device(dev_id)))
+
+#define OMP_GPU_TEAMS(n_of_teams, dev_id)                                      \
+  _Pragma(STRINGIFY(omp target teams distribute num_teams(n_of_teams)          \
+                        thread_limit(256) device(dev_id)))
 
 #define OMP_GPU_PARALLEL(n) _Pragma(STRINGIFY(omp parallel num_threads(n)))
 
 #define OMP_GPU_SIMD_REDUCTION(reduction_type, reduction_var)                  \
   _Pragma(STRINGIFY(omp simd reduction(reduction_type : reduction_var)))
 
-#define OMP_GPU_FOR_NOWAIT \
-  _Pragma(STRINGIFY(omp for nowait schedule(static)))
+#define OMP_GPU_FOR_REDUCTION(reduction_type, reduction_var)                   \
+  _Pragma(STRINGIFY(omp for reduction(reduction_type : reduction_var)))
+
+#define OMP_GPU_PARFOR_REDUCTION(reduction_type, reduction_var)                \
+  _Pragma(STRINGIFY(omp parallel for simd simdlen(32) reduction(reduction_type : reduction_var)))
+
+#define OMP_GPU_FOR_NOWAIT                                                     \
+  _Pragma(STRINGIFY(omp for nowait schedule(static,1)))
+
+#define OMP_BARRIER _Pragma(STRINGIFY(omp barrier))
+
+#define UNROLL(factor) _Pragma(STRINGIFY(unroll(factor)))
 
 #define SETOP_FINALIZE_GPU(action, buffer, index1, index2, dev_id)             \
   if (omp_target_is_present(buffer, dev_id)) {                                 \
@@ -212,6 +271,19 @@ static inline uint64_t count_WWG_GPU(unsigned long long x) {
   x *= C4_WWG;
 
   return (x >> 56);
+}
+
+#define C1_WWG32 UINT32_C(0x55555555)
+#define C2_WWG32 UINT32_C(0x33333333)
+#define C3_WWG32 UINT32_C(0x0F0F0F0F)
+#define C4_WWG32 UINT32_C(0x01010101)
+
+static inline uint32_t count_WWG_GPU32(uint32_t x) {
+  x -= (x >> 1) & C1_WWG32;
+  x = ((x >> 2) & C2_WWG32) + (x & C2_WWG32);
+  x = (x + (x >> 4)) & C3_WWG32;
+  x *= C4_WWG32;
+  return x >> 24;
 }
 
 // Tree adder implementation found in https://metacpan.org/pod/Bit::Fast
@@ -235,6 +307,7 @@ static inline uint64_t tree_adder_GPU(unsigned long long v) {
   return v;
 }
 #pragma omp declare target(count_WWG_GPU)
+#pragma omp declare target(count_WWG_GPU32)
 #pragma omp declare target(tree_adder_GPU)
 
 #pragma omp declare target
@@ -311,6 +384,110 @@ static void _BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
   }
 
 
+#define TILE_J 1024
+#if defined(OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD)
+#define setop_count_db_gpu_instrument(bit, bits, counts, op, opts, instr)      \
+  SETOP_DB_CHECKS(bit, bits)                                                   \
+  SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
+                 num_targets, n)                                               \
+  SETOP_INIT_GPU(bit, bits, counts, opts)                                      \
+  clock_gettime(CLOCK_MONOTONIC, &instr->start_time);                          \
+  OMP_GPU_FLAT(opts.device_id)                                                 \
+  for (int k = 0; k < num_targets; k++) {                                      \
+    for (int i = 0; i < n; i++) {                                              \
+      uint64_t shift_k = (uint64_t)k * bit_size_in_qwords;                     \
+      uint64_t shift_i = (uint64_t)i * bit_size_in_qwords;                     \
+      const uint64_t *bit_row = bit_qwords + shift_k;                          \
+      const uint64_t *bits_row = bits_qwords + shift_i;                        \
+      int total_sum_for_i = 0;                                                 \
+      int *counts_kn = counts + (size_t)k * n;                                 \
+      for (int jj = 0; jj < bit_size_in_qwords; jj += TILE_J) {                \
+        OMP_GPU_SIMD_REDUCTION(+, total_sum_for_i)                             \
+        for (int j = jj; j < jj + TILE_J; j++) {                               \
+          unsigned long long x = bit_row[j] op bits_row[j];                    \
+          total_sum_for_i += (uint32_t)POPCOUNT_GPU(x);                        \
+        }                                                                      \
+      }                                                                        \
+      counts_kn[i] = total_sum_for_i;                                          \
+    }                                                                          \
+  }                                                                            \
+  clock_gettime(CLOCK_MONOTONIC, &instr->end_time);                            \
+  _Pragma(STRINGIFY(omp target exit data map(                                  \
+      from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+    SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
+                       bit_size_in_qwords * num_targets, opts.device_id)       \
+  }                                                                            \
+  if (opts.release_2nd_operand) {                                              \
+    SETOP_FINALIZE_GPU(release, bits->qwords, 0, bit_size_in_qwords * n,       \
+                       opts.device_id)                                         \
+  }                                                                            \
+  if (opts.release_counts) {                                                   \
+    SETOP_FINALIZE_GPU(release, counts, 0, num_targets * n, opts.device_id)    \
+  }
+#endif
 
 
      */
+#if defined(LOLOPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD)
+#define setop_count_db_gpu_instrument(bit, bits, counts, op, opts, instr)      \
+  SETOP_DB_CHECKS(bit, bits)                                                   \
+  SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
+                 num_targets, n)                                               \
+  SETOP_INIT_GPU(bit, bits, counts, opts)                                      \
+                                                                               \
+  /* --- 1. ALLOCATE AND MAP TRANSPOSE BUFFER --- */                           \
+  size_t t_elements = (size_t)n * bit_size_in_qwords;                          \
+  uint64_t *bits_qwords_T = (uint64_t *)malloc(t_elements * sizeof(uint64_t)); \
+  _Pragma(STRINGIFY(omp target enter data map(                                 \
+      alloc : bits_qwords_T [0:t_elements]) device(opts.device_id)))           \
+                                                                               \
+  /* --- 2. EXECUTE GPU TRANSPOSE KERNEL --- */                                \
+  _Pragma(STRINGIFY(omp target teams distribute parallel for collapse(2)       \
+                        device(opts.device_id)))                               \
+  for (unsigned int i = 0; i < n; i++) {                                       \
+    for (unsigned int j = 0; j < bit_size_in_qwords; j++) {                    \
+      bits_qwords_T[j * n + i] = bits_qwords[i * bit_size_in_qwords + j];      \
+    }                                                                          \
+  }                                                                            \
+                                                                               \
+  /* --- 3. MAIN COMPUTE KERNEL --- */                                         \
+  clock_gettime(CLOCK_MONOTONIC, &instr->start_time);                          \
+  OMP_GPU_TEAMS(num_targets, opts.device_id)                                   \
+  for (int k = 0; k < num_targets; k++) {                                      \
+    OMP_GPU_PARALLEL(n) {                                                      \
+      OMP_GPU_FOR_NOWAIT                                                       \
+      for (unsigned int i = 0; i < n; i++) {                                   \
+        uint64_t shift_k = k * bit_size_in_qwords;                             \
+        int total_sum_for_i = 0;                                               \
+        OMP_GPU_SIMD_REDUCTION(+, total_sum_for_i)                             \
+        for (unsigned int j = 0; j < bit_size_in_qwords; j++) {                \
+          /* Note the new Column-Major index for the second operand */         \
+          unsigned long long x =                                               \
+              bit_qwords[shift_k + j] op bits_qwords_T[j * n + i];             \
+          total_sum_for_i += POPCOUNT(x);                                      \
+        }                                                                      \
+        counts[k * n + i] = total_sum_for_i;                                   \
+      }                                                                        \
+    }                                                                          \
+  }                                                                            \
+  clock_gettime(CLOCK_MONOTONIC, &instr->end_time);                            \
+                                                                               \
+  /* --- 4. CLEANUP TRANSPOSE BUFFER --- */                                    \
+  _Pragma(STRINGIFY(omp target exit data map(                                  \
+      delete : bits_qwords_T [0:t_elements]) device(opts.device_id)))          \
+      free(bits_qwords_T);                                                     \
+                                                                               \
+  /* --- 5. STANDARD FINALIZE --- */                                           \
+  _Pragma(STRINGIFY(omp target exit data map(                                  \
+      from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+    SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
+                       bit_size_in_qwords * num_targets, opts.device_id)       \
+  }                                                                            \
+  if (opts.release_2nd_operand) {                                              \
+    SETOP_FINALIZE_GPU(release, bits->qwords, 0, bit_size_in_qwords * n,       \
+                       opts.device_id)                                         \
+  }                                                                            \
+  if (opts.release_counts) {                                                   \
+    SETOP_FINALIZE_GPU(release, counts, 0, num_targets * n, opts.device_id)    \
+  }
+#endif

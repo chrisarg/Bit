@@ -1,3 +1,8 @@
+# ----------------------------------------------------------------------------
+# HELPER FUNCTIONS
+
+# ----------------------------------------------------------------------------
+
 IS_CLEAN_GOAL := $(filter clean distclean,$(MAKECMDGOALS))
 
 # Ensure plain `make` builds the libraries (not the first internal target).
@@ -24,23 +29,11 @@ else ifneq ($(shell which clang 2>/dev/null),)
 $(info Using clang to compile)
 CC=clang
 endif
-else
-# For clean-only invocations we don't need compiler discovery.
-CC=gcc
-endif
-endif
-
-ifeq ($(origin GPU),undefined)
-ifeq ($(IS_CLEAN_GOAL),)
-$(info Default GPU offload not set, will set to NONE)
-GPU=NONE
-else
-# For clean-only invocations, pick a quiet, valid default.
-GPU=NONE
 endif
 endif
 
 # Convert GPU to uppercase for case-insensitive comparison
+GPU ?= NONE
 override GPU := $(shell printf '%s' '$(GPU)' | tr 'a-z' 'A-Z' \
 	| tr -d '[:space:]')
 
@@ -216,10 +209,8 @@ $(info NVIDIA device images ($(NVIDIA_SELECTION_MODE)): \
 	$(NVIDIA_EFFECTIVE_ARCHES))
 ifneq ($(strip $(NVIDIA_ARCH)),)
 ifneq ($(strip $(NVIDIA_MISSING_VISIBLE_ARCHES)),)
-$(warning Explicit NVIDIA_ARCH=$(NVIDIA_ARCH) omits visible GPU \
-architectures $(subst $(space),$(comma),$(NVIDIA_MISSING_VISIBLE_ARCHES)); \
-running on those GPUs can fail with 'No images found compatible'. \
-Include all required SMs or set CUDA_VISIBLE_DEVICES to a compatible GPU)
+$(warning Explicit NVIDIA_ARCH=$(NVIDIA_ARCH) omits visible GPU architectures $(subst $(space),$(comma),$(NVIDIA_MISSING_VISIBLE_ARCHES)); \
+running on those GPUs can fail with 'No images found compatible'. Include all required SMs or set CUDA_VISIBLE_DEVICES to a compatible GPU)
 endif
 endif
 else
@@ -262,6 +253,7 @@ endif
 endif
 
 # Set the appropriate OpenMP flag based on compiler
+ifeq ($(IS_CLEAN_GOAL),)
 ifeq ($(notdir $(CC)),gcc)
 OPENMP_FLAG = -fopenmp
 OPENMP_LINK_LIBS = -lgomp
@@ -269,9 +261,13 @@ OPENMP_LINK_PRE = -Wl,--no-as-needed
 OPENMP_LINK_POST = -Wl,--as-needed
 else ifeq ($(notdir $(CC)),clang)
 OPENMP_FLAG = -fopenmp
+OPENMP_HELPER_CC = gcc
 else
 $(error Unsupported compiler $(CC); use gcc or clang)
 endif
+endif
+
+OPENMP_HELPER_CC ?= $(CC)
 
 ifeq ($(IS_CLEAN_GOAL),)
 $(info GPU is set to $(GPU))
@@ -339,6 +335,7 @@ endif
 else
 $(error GPU=AMD is not supported with CC=$(CC); use gcc or clang)
 endif
+# End of GPU/arch selection logic
 else
 $(error GPU=$(GPU) is not one of the supported GPUs (NONE, NVIDIA, AMD))
 endif
@@ -483,31 +480,32 @@ BENCH_OMP_NO_CPU_OBJ = $(BUILD_DIR)/openmp_bit_nocpu.o
 BENCH_OMP_NO_CPU_BIT_OBJ = $(BUILD_DIR)/bit_nocpu_host.o
 BENCH_OMP_NO_CPU_EXEC = $(BUILD_DIR)/openmp_bit_nocpu
 
-UNIFIED_GPU_BENCH_SRC = benchmark/unified_gpu_benchmark.c
-UNIFIED_GPU_BENCH_OBJ = $(BUILD_DIR)/unified_gpu_benchmark.o
-UNIFIED_GPU_BENCH_EXEC = $(BUILD_DIR)/unified_gpu_benchmark
-
 COMPARE_SIZE ?= 1024
-CUDA_BENCH_SRC = benchmark/cuda_gpu_benchmark.cu
+CUDA_BENCH_SRC = benchmark/native_device_code.cpp
 CUDA_BENCH_EXEC = $(BUILD_DIR)/cuda_gpu_benchmark
+CUDA_BENCH_OBJ = $(BUILD_DIR)/cuda_gpu_benchmark.o
 NVCC ?= nvcc
 NVCC_ARCH ?= sm_70
-NVCC_FLAGS ?= -O3 -std=c++14 -I./include -I./src
+NVCC_FLAGS ?= -O3 -std=c++14 -x cu -I./include -I./src
 
-HIP_BENCH_SRC = benchmark/hip_gpu_benchmark.cpp
+HIP_BENCH_SRC = benchmark/native_device_code.cpp
 HIP_BENCH_EXEC = $(BUILD_DIR)/hip_gpu_benchmark
+HIP_BENCH_OBJ = $(BUILD_DIR)/hip_gpu_benchmark.o
 HIPCC ?= hipcc
-HIPCC_FLAGS ?= -O3 -std=c++17 -I./include -I./src
+HIPCC_FLAGS ?= -O3 -std=c++17 -x hip -I./include -I./src
 
-USE_BUILTIN_POPCOUNT ?= 0
+USE_BUILTIN_POPCOUNT ?= $(BUILTIN_POPCOUNT)
+USE_BUILTIN_POPCOUNT := $(strip $(USE_BUILTIN_POPCOUNT))
 GPU_OCCUPANCY_TUNING ?= 1
 ## OpenMP Offload GPU implementation selection for openmp_bit_nocpu
 ## Mode options:
 ##   TEAM_PARALLEL_SIMD - current hierarchical teams -> parallel -> simd path
-##   FLAT_COLLAPSE      - current flat collapse(2) path using OMP_GPU_FLAT
+##   TRANSPOSED_TEAM_PARALLEL_SIMD - 
+VALID_OPENMP_GPU_IMPLS := TEAM_PARALLEL_SIMD TRANSPOSED_TEAM_PARALLEL_SIMD
 OPENMP_GPU_IMPL ?= TEAM_PARALLEL_SIMD
 
 ifeq ($(strip $(USE_BUILTIN_POPCOUNT)),1)
+CFLAGS += -DUSE_BUILTIN_POPCOUNT
 NVCC_FLAGS += -DUSE_BUILTIN_POPCOUNT
 HIPCC_FLAGS += -DUSE_BUILTIN_POPCOUNT
 endif
@@ -517,13 +515,12 @@ NVCC_FLAGS += -DGPU_OCCUPANCY_TUNING
 HIPCC_FLAGS += -DGPU_OCCUPANCY_TUNING
 endif
 
-ifeq ($(strip $(OPENMP_GPU_IMPL)),TEAM_PARALLEL_SIMD)
-CFLAGS += -DOPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD
-else ifeq ($(strip $(OPENMP_GPU_IMPL)),FLAT_COLLAPSE)
-CFLAGS += -DOPENMP_GPU_IMPL_FLAT_COLLAPSE
-else
-$(error OPENMP_GPU_IMPL must be TEAM_PARALLEL_SIMD or FLAT_COLLAPSE)
+# Validate OPENMP_GPU_IMPL value
+ifeq ($(filter $(OPENMP_GPU_IMPL),$(VALID_OPENMP_GPU_IMPLS)),)
+  $(error OPENMP_GPU_IMPL must be one of $(VALID_OPENMP_GPU_IMPLS); \
+  	got '$(OPENMP_GPU_IMPL)')
 endif
+CFLAGS += $(addprefix -DOPENMP_GPU_IMPL_, $(OPENMP_GPU_IMPL))
 
 # Keep compare_nocpu architecture behavior aligned with bench_omp logic.
 NVCC_ARCH_EFFECTIVE := $(if $(strip $(NVIDIA_ARCH_LIST)),$(firstword $(NVIDIA_ARCH_LIST)),$(NVCC_ARCH))
@@ -585,7 +582,7 @@ else
 COMPARE_BACKEND_TARGETS += $(CUDA_BENCH_EXEC) $(HIP_BENCH_EXEC)
 endif
 
-.PHONY: all clean test test_offload bench compare_nocpu unified_gpu_bench LIBPOPCNT bug_report
+.PHONY: all clean test test_offload bench compare_nocpu LIBPOPCNT bug_report
 .PHONY: cuda_gpu_bench hip_gpu_bench
 
 # Default targets are to build the shared and static libraries
@@ -610,6 +607,10 @@ $(BENCH_OBJ): $(BENCH_SRC) $(CONFIG_STAMP)
 $(BENCH_OMP_OBJ): $(BENCH_OMP_SRC) $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
+$(BENCH_OMP_EXEC): $(TARGET) $(BENCH_OMP_OBJ)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_OBJ) \
+		$(BIT_OPENMP_LINK_LIBS) -lrt
+
 $(BENCH_OMP_GPU_OBJ): $(BENCH_OMP_NO_GPU_SRC) $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
@@ -619,32 +620,34 @@ $(BENCH_OMP_NO_CPU_OBJ): $(BENCH_OMP_NO_CPU_SRC) $(CONFIG_STAMP)
 $(BENCH_OMP_NO_CPU_BIT_OBJ): $(SRC) $(CONFIG_STAMP)
 	$(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
 
-$(UNIFIED_GPU_BENCH_OBJ): $(UNIFIED_GPU_BENCH_SRC) $(CONFIG_STAMP)
-	$(COMPILE_CMD)
-
-$(BENCH_OMP_EXEC): $(TARGET) $(BENCH_OMP_OBJ)
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_OBJ) \
-		$(BIT_OPENMP_LINK_LIBS) -lrt
-
 $(BENCH_OMP_GPU_EXEC): $(TARGET) $(BENCH_OMP_GPU_OBJ)
 	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_GPU_OBJ) \
 		$(BIT_OPENMP_LINK_LIBS) -lrt
 
-$(BENCH_OMP_NO_CPU_EXEC): $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ)
+
+# Single helper object for both OpenMP benchmarks
+OPENMP_BIT_HELPERS_OBJ = $(BUILD_DIR)/openmp_bit_helpers.o
+
+$(OPENMP_BIT_HELPERS_OBJ): benchmark/openmp_bit_helpers.c $(CONFIG_STAMP)
+	$(CC_ENV) $(OPENMP_HELPER_CC) $(HOST_ONLY_CFLAGS) -c $< -o $@
+
+$(BENCH_OMP_NO_CPU_EXEC): $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
-		$(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) \
+		$(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
 		$(OMPTARGET_RPATH_FLAG) $(OPENMP_FLAG) $(HOST_OPENMP_LIBS) \
-		$(BENCH_OMP_NO_CPU_EXTRA_LINK_LIBS) -lrt
+		$(BENCH_OMP_NO_CPU_EXTRA_LINK_LIBS) -lrt -lm
 
-$(UNIFIED_GPU_BENCH_EXEC): $(OBJ) $(UNIFIED_GPU_BENCH_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $@ $(UNIFIED_GPU_BENCH_OBJ) $(OBJ) \
-		$(OMPTARGET_RPATH_FLAG) $(OPENMP_FLAG) $(HOST_OPENMP_LIBS) -lrt
+$(CUDA_BENCH_OBJ): $(CUDA_BENCH_SRC) $(CONFIG_STAMP)
+	$(NVCC) $(NVCC_FLAGS) $(NVCC_ARCH_FLAGS) -c $< -o $@
 
-$(CUDA_BENCH_EXEC): $(CUDA_BENCH_SRC)
-	$(NVCC) $(NVCC_FLAGS) $(NVCC_ARCH_FLAGS) -o $@ $< -lm
+$(CUDA_BENCH_EXEC): $(CUDA_BENCH_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
+	$(NVCC) $(NVCC_ARCH_FLAGS) -o $@ $^ -lgomp -lm
 
-$(HIP_BENCH_EXEC): $(HIP_BENCH_SRC)
-	$(HIPCC) $(HIPCC_FLAGS) $(HIPCC_ARCH_FLAGS) -o $@ $< -lm
+$(HIP_BENCH_OBJ): $(HIP_BENCH_SRC) $(CONFIG_STAMP)
+	$(HIPCC) $(HIPCC_FLAGS) $(HIPCC_ARCH_FLAGS) -c $< -o $@
+
+$(HIP_BENCH_EXEC): $(HIP_BENCH_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
+	$(HIPCC) $(HIPCC_ARCH_FLAGS) -o $@ $^ -lgomp -lm
 
 # Change from static to shared library compilation
 $(TARGET): $(OBJ)
@@ -683,10 +686,6 @@ compare_nocpu: $(BENCH_OMP_NO_CPU_EXEC) $(COMPARE_BACKEND_TARGETS)
 		$(COMPARE_VISIBLE_DEVICE_ENV) $(COMPARE_RUN_ENV) ./$(BENCH_OMP_NO_CPU_EXEC) \
 		$(COMPARE_SIZE) $(COMPARE_NUM_BITS) $(COMPARE_NUM_REF_BITS) \
 		$(COMPARE_GPU_ITERATIONS) $(COMPARE_GPU_ID)
-
-unified_gpu_bench: $(UNIFIED_GPU_BENCH_EXEC)
-	$(COMPARE_VISIBLE_DEVICE_ENV) $(COMPARE_RUN_ENV) ./$(UNIFIED_GPU_BENCH_EXEC) \
-		1024 1024 1024 5 $(COMPARE_GPU_ID)
 cuda_gpu_bench: $(CUDA_BENCH_EXEC)
 	./$(CUDA_BENCH_EXEC) 1024 1024 1024 5 0
 

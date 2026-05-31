@@ -34,40 +34,35 @@ static __device__ __forceinline__ unsigned int count_WWG_gpu(unsigned long long 
     x *= C4_WWG_GPU;
     return static_cast<unsigned int>(x >> 56);
 }
-
+static __device__ __forceinline__ unsigned int popcount_uint32(uint32_t x) {
 #ifdef USE_BUILTIN_POPCOUNT
-#define GPU_POPCOUNT(x) \
-    static_cast<unsigned int>(__builtin_popcountll(static_cast<unsigned long long>(x)))
+    return static_cast<unsigned int>(__builtin_popcount(x));
 #else
-#define GPU_POPCOUNT(x) count_WWG_gpu(static_cast<unsigned long long>(x))
+    return count_WWG_gpu(static_cast<unsigned long long>(x));
 #endif
+}
+
+static __device__ __forceinline__ unsigned int popcount_uint64(uint64_t x) {
+#ifdef USE_BUILTIN_POPCOUNT
+    return static_cast<unsigned int>(__builtin_popcountll(static_cast<unsigned long long>(x)));
+#else
+    return count_WWG_gpu(static_cast<unsigned long long>(x));
+#endif
+}
+
+static __device__ __forceinline__ unsigned int popcount_pair_word(
+    uint32_t lhs, uint32_t rhs)
+{
+    return popcount_uint32(lhs & rhs);
+}
 
 static __device__ __forceinline__ unsigned int popcount_pair_word(
     uint64_t lhs, uint64_t rhs)
 {
-    return GPU_POPCOUNT(lhs & rhs);
+    return popcount_uint64(lhs & rhs);
 }
 
 template <typename T>
-GPU_KERNEL void transpose_refs_kernel(
-    const T *src,
-    T *dst,
-    unsigned int num_refs,
-    unsigned int words_per_ref)
-{
-    const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    const unsigned int stride = blockDim.x * gridDim.x;
-    const unsigned int total = num_refs * words_per_ref;
-
-    for (unsigned int linear = idx; linear < total; linear += stride) {
-        const unsigned int ref_idx = linear / words_per_ref;
-        const unsigned int word_idx = linear % words_per_ref;
-        dst[word_idx * num_refs + ref_idx] =
-            src[ref_idx * words_per_ref + word_idx];
-    }
-}
-
-template <typename T, bool TransposedRef = false>
 GPU_KERNEL void popcount_intersection_matrix_wwg_kernel(
     const T *queries,
     const T *refs,
@@ -80,7 +75,8 @@ GPU_KERNEL void popcount_intersection_matrix_wwg_kernel(
     unsigned int word_tile,
     uint32_t *results)
 {
-    extern __shared__ uint64_t q_shared[];
+    extern __shared__ unsigned char q_shared_raw[];
+    T *q_shared = reinterpret_cast<T *>(q_shared_raw);
     const unsigned int tid = threadIdx.x;
     const unsigned int block_q = blockIdx.x * query_tile;
     const unsigned int block_r = blockIdx.y * ref_tile;
@@ -96,8 +92,8 @@ GPU_KERNEL void popcount_intersection_matrix_wwg_kernel(
     const unsigned int pair_stride = blockDim.x;
 
     for (unsigned int pair = tid; pair < pair_count; pair += pair_stride) {
-        const unsigned int local_q = pair % q_limit;
         const unsigned int local_r = pair / q_limit;
+        const unsigned int local_q = pair % q_limit;
         const unsigned int query_idx = block_q + local_q;
         const unsigned int ref_idx = block_r + local_r;
         uint32_t count = 0;
@@ -117,15 +113,11 @@ GPU_KERNEL void popcount_intersection_matrix_wwg_kernel(
             }
             __syncthreads();
 
-            const T *q_tile = reinterpret_cast<const T *>(
-                q_shared + local_q * current_tile);
-            const unsigned int r_step = TransposedRef ? num_refs : 1u;
-            const T *r_data = refs + (TransposedRef
-                ? word_start * num_refs + ref_idx
-                : ref_idx * words_per_ref + word_start);
+            const T *q_tile = q_shared + local_q * current_tile;
+            const T *r_data = refs + ref_idx * words_per_ref + word_start;
             const T *r_tile = r_data;
             for (unsigned int w = 0; w < current_tile; ++w) {
-                count += popcount_pair_word(q_tile[w], r_tile[w * r_step]);
+                count += popcount_pair_word(q_tile[w], r_tile[w]);
             }
             __syncthreads();
         }
@@ -133,7 +125,7 @@ GPU_KERNEL void popcount_intersection_matrix_wwg_kernel(
     }
 }
 
-template <typename T, bool TransposedRef = false>
+template <typename T>
 GPU_KERNEL void popcount_intersection_builtin_kernel(
     const T *queries,
     const T *refs,
@@ -146,7 +138,8 @@ GPU_KERNEL void popcount_intersection_builtin_kernel(
     unsigned int word_tile,
     uint32_t *results)
 {
-    extern __shared__ uint64_t q_shared[];
+    extern __shared__ unsigned char q_shared_raw[];
+    T *q_shared = reinterpret_cast<T *>(q_shared_raw);
     const unsigned int tid = threadIdx.x;
     const unsigned int block_q = blockIdx.x * query_tile;
     const unsigned int block_r = blockIdx.y * ref_tile;
@@ -162,8 +155,8 @@ GPU_KERNEL void popcount_intersection_builtin_kernel(
     const unsigned int pair_stride = blockDim.x;
 
     for (unsigned int pair = tid; pair < pair_count; pair += pair_stride) {
-        const unsigned int local_q = pair % q_limit;
         const unsigned int local_r = pair / q_limit;
+        const unsigned int local_q = pair % q_limit;
         const unsigned int query_idx = block_q + local_q;
         const unsigned int ref_idx = block_r + local_r;
         uint32_t count = 0;
@@ -183,15 +176,11 @@ GPU_KERNEL void popcount_intersection_builtin_kernel(
             }
             __syncthreads();
 
-            const T *q_tile = reinterpret_cast<const T *>(
-                q_shared + local_q * current_tile);
-            const unsigned int r_step = TransposedRef ? num_refs : 1u;
-            const T *r_data = refs + (TransposedRef
-                ? word_start * num_refs + ref_idx
-                : ref_idx * words_per_ref + word_start);
+            const T *q_tile = q_shared + local_q * current_tile;
+            const T *r_data = refs + ref_idx * words_per_ref + word_start;
             const T *r_tile = r_data;
             for (unsigned int w = 0; w < current_tile; ++w) {
-                count += popcount_pair_word(q_tile[w], r_tile[w * r_step]);
+                count += popcount_pair_word(q_tile[w], r_tile[w]);
             }
             __syncthreads();
         }

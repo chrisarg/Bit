@@ -37,6 +37,7 @@ typedef cudaDeviceProp gpu_device_prop_t;
 #define GPU_GET_LAST_ERROR cudaGetLastError
 #define GPU_GET_DEVICE cudaGetDevice
 #define GPU_GET_DEVICE_PROPERTIES cudaGetDeviceProperties
+#define GPU_SET_DEVICE cudaSetDevice
 #elif defined(__HIPCC__)
 #include <hip/hip_runtime.h>
 typedef hipEvent_t gpu_event_t;
@@ -62,6 +63,7 @@ typedef hipDeviceProp_t gpu_device_prop_t;
 #define GPU_GET_LAST_ERROR hipGetLastError
 #define GPU_GET_DEVICE hipGetDevice
 #define GPU_GET_DEVICE_PROPERTIES hipGetDeviceProperties
+#define GPU_SET_DEVICE hipSetDevice
 #else
 #error "gpu_harness.h requires CUDA or HIP"
 #endif
@@ -101,9 +103,17 @@ struct GPUBenchmarkResult {
 };
 
 enum class RefLayout {
-    RowMajor,
-    Transposed
+    RowMajor
 };
+
+enum class WordBits {
+    Bits32 = 32,
+    Bits64 = 64
+};
+
+static inline size_t word_bytes(WordBits word_bits) {
+    return (word_bits == WordBits::Bits32) ? 4u : 8u;
+}
 
 inline unsigned int choose_dynamic_threads_per_block(size_t words_per_bitset) {
     int device_id = 0;
@@ -132,7 +142,6 @@ inline unsigned int choose_dynamic_threads_per_block(size_t words_per_bitset) {
 
     unsigned int rounded_threads =
         ((desired_threads + warp_size - 1u) / warp_size) * warp_size;
-
     if (rounded_threads > max_threads) {
         rounded_threads = (max_threads / warp_size) * warp_size;
     }
@@ -168,7 +177,8 @@ inline unsigned int choose_gpu_tile_size(
     unsigned int &query_tile,
     unsigned int &ref_tile,
     unsigned int &word_tile,
-    unsigned int &threads_per_block)
+    unsigned int &threads_per_block,
+    unsigned int bytes_per_word)
 {
     const unsigned int warp_size = (props.warpSize > 0)
         ? static_cast<unsigned int>(props.warpSize)
@@ -177,7 +187,7 @@ inline unsigned int choose_gpu_tile_size(
         ? static_cast<unsigned int>(props.maxThreadsPerBlock)
         : 256u;
     const unsigned int max_shared_words = static_cast<unsigned int>(
-        props.sharedMemPerBlock / sizeof(uint64_t));
+        props.sharedMemPerBlock / bytes_per_word);
 
         auto align_up = [](unsigned int value, unsigned int align) {
             if (align == 0u) return value;
@@ -254,7 +264,7 @@ inline unsigned int choose_gpu_tile_size(
             word_tile = 1u;
         }
 
-        const size_t shared_bytes = static_cast<size_t>(query_tile) * word_tile * sizeof(uint64_t);
+        const size_t shared_bytes = static_cast<size_t>(query_tile) * word_tile * bytes_per_word;
         unsigned int candidate_threads = best_threads;
         #ifdef GPU_OCCUPANCY_TUNING
         candidate_threads = choose_occupancy_block_size(shared_bytes);
@@ -288,45 +298,39 @@ inline unsigned int choose_gpu_tile_size(
 
 }
 
-inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
-    const uint64_t *h_queries,
-    const uint64_t *h_refs,
-    const uint32_t *cpu_results,    // optional verification data
+template <typename T>
+inline GPUBenchmarkResult benchmark_popcount_intersection_gpu_impl(
+    const T *h_queries,
+    const T *h_refs,
+    const uint32_t *cpu_results,
     size_t bitset_bits,
     size_t num_queries,
     size_t num_refs,
     int iterations,
     const char *method_label,
-    RefLayout ref_layout = RefLayout::RowMajor)
+    RefLayout ref_layout,
+    WordBits word_bits)
 {
     GPUBenchmarkResult result = {};
 
-    const size_t words_per_bitset = (bitset_bits + 63) / 64;
-    const size_t queries_bytes = words_per_bitset * num_queries * sizeof(uint64_t);
-    const size_t refs_bytes = words_per_bitset * num_refs * sizeof(uint64_t);
+    const size_t words_per_bitset = (bitset_bits + (sizeof(T) * 8 - 1)) / (sizeof(T) * 8);
+    const size_t queries_bytes = words_per_bitset * num_queries * sizeof(T);
+    const size_t refs_bytes = words_per_bitset * num_refs * sizeof(T);
     const size_t results_bytes = num_queries * num_refs * sizeof(uint32_t);
 
-    // Payload (OpenMP definition): queries + results, refs resident
-    const double payload_per_iter_gb = 
+    const double payload_per_iter_gb =
         (queries_bytes + results_bytes) / (1024.0 * 1024.0 * 1024.0);
 
-    // Allocate GPU memory
-    uint64_t *d_queries = nullptr;
-    uint64_t *d_refs = nullptr;
-    uint64_t *d_refs_transposed = nullptr;
+    T *d_queries = nullptr;
+    T *d_refs = nullptr;
     uint32_t *d_results = nullptr;
 
     GPU_CHECK(GPU_MALLOC(&d_queries, queries_bytes));
     GPU_CHECK(GPU_MALLOC(&d_refs, refs_bytes));
-    if (ref_layout == RefLayout::Transposed) {
-        GPU_CHECK(GPU_MALLOC(&d_refs_transposed, refs_bytes));
-    }
     GPU_CHECK(GPU_MALLOC(&d_results, results_bytes));
 
-    // Upload refs (resident, upload once before benchmark)
     GPU_CHECK(GPU_MEMCPY(d_refs, h_refs, refs_bytes, GPU_MEMCPY_H2D));
 
-    // Set up timing
     gpu_event_t start_event = nullptr;
     gpu_event_t stop_event = nullptr;
     GPU_CHECK(GPU_EVENT_CREATE(&start_event));
@@ -334,16 +338,14 @@ inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
 
     if (num_refs > static_cast<size_t>(std::numeric_limits<unsigned int>::max()) ||
         num_queries > static_cast<size_t>(std::numeric_limits<unsigned int>::max())) {
-        fprintf(stderr, "Error: num_refs/num_queries exceed GPU grid dimension limits.
-");
+        fprintf(stderr, "Error: num_refs/num_queries exceed GPU grid dimension limits.\n");
         GPU_CHECK(GPU_FREE(d_results));
         GPU_CHECK(GPU_FREE(d_refs));
         GPU_CHECK(GPU_FREE(d_queries));
         return result;
     }
     if (words_per_bitset > static_cast<size_t>(std::numeric_limits<unsigned int>::max())) {
-        fprintf(stderr, "Error: words_per_bitset exceeds kernel parameter range.
-");
+        fprintf(stderr, "Error: words_per_bitset exceeds kernel parameter range.\n");
         GPU_CHECK(GPU_FREE(d_results));
         GPU_CHECK(GPU_FREE(d_refs));
         GPU_CHECK(GPU_FREE(d_queries));
@@ -354,19 +356,11 @@ inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
     const unsigned int num_refs_u = static_cast<unsigned int>(num_refs);
     const unsigned int max_gpu_blocks = 65535u;
 
-    if (ref_layout == RefLayout::Transposed) {
-        const unsigned int transpose_threads = 256u;
-        const unsigned int transpose_total = num_refs_u * words_per_bitset_u;
-        const unsigned int transpose_blocks =
-            (transpose_total + transpose_threads - 1u) / transpose_threads;
-        transpose_refs_kernel<uint64_t><<<transpose_blocks, transpose_threads>>>(
-            d_refs, d_refs_transposed,
-            num_refs_u, words_per_bitset_u);
-        GPU_CHECK(GPU_GET_LAST_ERROR());
-    }
 
+    int device_id = 0;
+    GPU_CHECK(GPU_GET_DEVICE(&device_id));
     gpu_device_prop_t props;
-    GPU_CHECK(GPU_GET_DEVICE_PROPERTIES(&props, 0));
+    GPU_CHECK(GPU_GET_DEVICE_PROPERTIES(&props, device_id));
 
     unsigned int query_tile = 0u;
     unsigned int ref_tile = 0u;
@@ -374,7 +368,7 @@ inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
     unsigned int threads_per_block = 0u;
     choose_gpu_tile_size(num_queries_u, num_refs_u, words_per_bitset_u,
                          props, query_tile, ref_tile, word_tile,
-                         threads_per_block);
+                         threads_per_block, static_cast<unsigned int>(sizeof(T)));
 
     unsigned int blocks_x = (num_queries_u + query_tile - 1u) / query_tile;
     unsigned int blocks_y = (num_refs_u + ref_tile - 1u) / ref_tile;
@@ -387,51 +381,28 @@ inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
         blocks_y = (num_refs_u + ref_tile - 1u) / ref_tile;
     }
 
-    const size_t shared_bytes = static_cast<size_t>(query_tile) * word_tile * sizeof(uint64_t);
+    const size_t shared_bytes = static_cast<size_t>(query_tile) * word_tile * sizeof(T);
 
-    const uint64_t *d_refs_used =
-        (ref_layout == RefLayout::Transposed) ? d_refs_transposed : d_refs;
+    const T *d_refs_used = d_refs;
     auto launch_kernel = [&]() {
         if (strcmp(method_label, "WWG") == 0) {
-            if (ref_layout == RefLayout::Transposed) {
-                popcount_intersection_matrix_wwg_kernel<uint64_t, true><<<dim3(blocks_x, blocks_y),
-                                                              threads_per_block,
-                                                              shared_bytes>>>(
-                    d_queries, d_refs_used,
-                    words_per_bitset_u, words_per_bitset_u,
-                    num_queries_u, num_refs_u,
-                    query_tile, ref_tile, word_tile,
-                    d_results);
-            } else {
-                popcount_intersection_matrix_wwg_kernel<uint64_t, false><<<dim3(blocks_x, blocks_y),
-                                                              threads_per_block,
-                                                              shared_bytes>>>(
-                    d_queries, d_refs_used,
-                    words_per_bitset_u, words_per_bitset_u,
-                    num_queries_u, num_refs_u,
-                    query_tile, ref_tile, word_tile,
-                    d_results);
-            }
+            popcount_intersection_matrix_wwg_kernel<T><<<dim3(blocks_x, blocks_y),
+                                                         threads_per_block,
+                                                         shared_bytes>>>(
+                d_queries, d_refs_used,
+                words_per_bitset_u, words_per_bitset_u,
+                num_queries_u, num_refs_u,
+                query_tile, ref_tile, word_tile,
+                d_results);
         } else {
-            if (ref_layout == RefLayout::Transposed) {
-                popcount_intersection_builtin_kernel<uint64_t, true><<<dim3(blocks_x, blocks_y),
-                                                              threads_per_block,
-                                                              shared_bytes>>>(
-                    d_queries, d_refs_used,
-                    words_per_bitset_u, words_per_bitset_u,
-                    num_queries_u, num_refs_u,
-                    query_tile, ref_tile, word_tile,
-                    d_results);
-            } else {
-                popcount_intersection_builtin_kernel<uint64_t, false><<<dim3(blocks_x, blocks_y),
-                                                              threads_per_block,
-                                                              shared_bytes>>>(
-                    d_queries, d_refs_used,
-                    words_per_bitset_u, words_per_bitset_u,
-                    num_queries_u, num_refs_u,
-                    query_tile, ref_tile, word_tile,
-                    d_results);
-            }
+            popcount_intersection_builtin_kernel<T><<<dim3(blocks_x, blocks_y),
+                                                       threads_per_block,
+                                                       shared_bytes>>>(
+                d_queries, d_refs_used,
+                words_per_bitset_u, words_per_bitset_u,
+                num_queries_u, num_refs_u,
+                query_tile, ref_tile, word_tile,
+                d_results);
         }
         GPU_CHECK(GPU_GET_LAST_ERROR());
     };
@@ -516,15 +487,10 @@ inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
     result.per_iter_cpu_overhead_ms = std::move(cpu_overhead_times);
     result.per_iter_results = std::move(iteration_results);
 
-    // Compute average metrics
     const double cpu_overhead_ms = total_avg_ms - kernel_avg_ms;
     const double kernel_ns = kernel_avg_ms * 1.0e6;
     const double total_ns = total_avg_ms * 1.0e6;
     const double cpu_ns = cpu_overhead_ms * 1.0e6;
-    const double pairs = (double)num_queries * (double)num_refs;
-    
-    // Compute metrics
-    
     
     result.num_pairs = num_queries * num_refs;
     result.kernel_time_ns = kernel_ns;
@@ -533,7 +499,6 @@ inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
     result.compute_gbps = payload_per_iter_gb / (kernel_ns / 1e9);
     result.total_gbps = payload_per_iter_gb / (total_ns / 1e9);
     
-    // Verify results
     result.checksum = 0;
     result.agreements = 0;
     result.disagreements = 0;
@@ -553,15 +518,57 @@ inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
         }
     }
     
-    // Cleanup
     GPU_CHECK(GPU_EVENT_DESTROY(start_event));
     GPU_CHECK(GPU_EVENT_DESTROY(stop_event));
     GPU_CHECK(GPU_FREE(d_results));
     GPU_CHECK(GPU_FREE(d_refs));
-    if (d_refs_transposed) {
-        GPU_CHECK(GPU_FREE(d_refs_transposed));
-    }
     GPU_CHECK(GPU_FREE(d_queries));
     
     return result;
+}
+
+inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
+    const void *h_queries,
+    const void *h_refs,
+    const uint32_t *cpu_results,
+    size_t bitset_bits,
+    size_t num_queries,
+    size_t num_refs,
+    int iterations,
+    const char *method_label,
+    RefLayout ref_layout,
+    unsigned int word_bits)
+{
+    if (word_bits == 32u) {
+        return benchmark_popcount_intersection_gpu_impl<uint32_t>(
+            static_cast<const uint32_t *>(h_queries),
+            static_cast<const uint32_t *>(h_refs),
+            cpu_results, bitset_bits, num_queries, num_refs,
+            iterations, method_label, ref_layout,
+            WordBits::Bits32);
+    }
+    return benchmark_popcount_intersection_gpu_impl<uint64_t>(
+        static_cast<const uint64_t *>(h_queries),
+        static_cast<const uint64_t *>(h_refs),
+        cpu_results, bitset_bits, num_queries, num_refs,
+        iterations, method_label, ref_layout,
+        WordBits::Bits64);
+}
+
+inline GPUBenchmarkResult benchmark_popcount_intersection_gpu(
+    const uint64_t *h_queries,
+    const uint64_t *h_refs,
+    const uint32_t *cpu_results,
+    size_t bitset_bits,
+    size_t num_queries,
+    size_t num_refs,
+    int iterations,
+    const char *method_label,
+    RefLayout ref_layout)
+{
+    return benchmark_popcount_intersection_gpu(
+        static_cast<const void *>(h_queries),
+        static_cast<const void *>(h_refs),
+        cpu_results, bitset_bits, num_queries, num_refs,
+        iterations, method_label, ref_layout, 64u);
 }
