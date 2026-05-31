@@ -23,10 +23,6 @@ CC=gcc
 else ifneq ($(shell which clang 2>/dev/null),)
 $(info Using clang to compile)
 CC=clang
-# Check for icx
-else ifneq ($(shell which icx 2>/dev/null),)
-$(info Using icx to compile)
-CC=icx
 endif
 else
 # For clean-only invocations we don't need compiler discovery.
@@ -36,8 +32,8 @@ endif
 
 ifeq ($(origin GPU),undefined)
 ifeq ($(IS_CLEAN_GOAL),)
-$(info Default GPU offload not set, will set to NVIDIA)
-GPU=NVIDIA
+$(info Default GPU offload not set, will set to NONE)
+GPU=NONE
 else
 # For clean-only invocations, pick a quiet, valid default.
 GPU=NONE
@@ -45,73 +41,243 @@ endif
 endif
 
 # Convert GPU to uppercase for case-insensitive comparison
-GPU := $(shell echo $(GPU) | tr a-z A-Z)
+override GPU := $(shell printf '%s' '$(GPU)' | tr 'a-z' 'A-Z' \
+	| tr -d '[:space:]')
 
-# check to see if the CC is one of icx, clang, or gcc
+# check to see if the CC is one of clang or gcc
 # Skip validation/messages for clean-only invocations.
 ifeq ($(IS_CLEAN_GOAL),)
-ifneq ($(filter $(notdir $(CC)),gcc clang icx),)
+ifneq ($(filter $(notdir $(CC)),gcc clang),)
 $(info CC is set to $(CC), which is a supported compiler)
 else
-$(error CC=$(CC) is not one of the supported compilers (gcc, clang, icx))
+$(error CC=$(CC) is not one of the supported compilers (gcc, clang))
 endif
 endif
 
 ## additional flags
 DEFINES ?=
-AMD_ARCH ?= $(shell rocminfo 2>/dev/null | grep -Eo 'gfx[0-9]+' | head -n 1)
-ifeq ($(strip $(AMD_ARCH)),)
-AMD_ARCH := gfx900
-endif
 ROCM_PATH ?= /opt/rocm
 ROCM_DEVICE_LIB_PATH ?= $(ROCM_PATH)/amdgcn/bitcode
 ROCM_LLVM_BIN ?= $(ROCM_PATH)/lib/llvm/bin
 CC_ENV :=
-NVIDIA_ARCHES ?= sm_50 sm_52 sm_53 sm_60 sm_61 sm_62 sm_70 sm_72 sm_75
 NVIDIA_ARCH ?=
+NVIDIA_ARCH_POLICY ?= A
+AMD_ARCH ?=
 CUDA_PATH ?= /usr/lib/cuda
 BUG_REPORT ?= 0
 BUG_REPORT_DIR ?= bug_reports
 BUG_REPORT_OUT ?= $(BUG_REPORT_DIR)
 BUG_TARGET ?= bench_omp
-ifeq ($(GPU),AMD)
-BUG_GPU_ARCH_TAG := $(AMD_ARCH)
-else ifeq ($(GPU),NVIDIA)
+
+empty :=
+space := $(empty) $(empty)
+comma := ,
+
+override NVIDIA_ARCH := $(shell printf '%s' '$(NVIDIA_ARCH)' | tr 'A-Z' 'a-z' \
+	| tr -d '[:space:]')
+override NVIDIA_ARCH_POLICY := $(shell printf '%s' '$(NVIDIA_ARCH_POLICY)' \
+	| tr 'a-z' 'A-Z' | tr -d '[:space:]')
+override AMD_ARCH := $(shell printf '%s' '$(AMD_ARCH)' | tr 'A-Z' 'a-z' \
+	| tr -d '[:space:]')
+
+# Preserve order while removing duplicate architectures.
+dedup_words = $(strip $(shell \
+	printf '%s\n' "$(strip $(1))" | tr ' ' '\n' | sed '/^$$/d' | awk '!seen[$$0]++'))
+
+# Probe a list of NVIDIA SM archs and return the supported subset.
+probe_nvidia_archs = $(strip $(shell for arch in $(1); do \
+	if [ "$(notdir $(CC))" = "gcc" ]; then \
+		printf 'int main(void){return 0;}\n' \
+		| $(CC) -x c - -fPIC -shared -fopenmp -foffload=nvptx-none \
+		-foffload-options=nvptx-none=-march=$$arch -c -o /dev/null \
+		>/dev/null 2>&1 && printf '%s ' $$arch; \
+	elif [ "$(notdir $(CC))" = "clang" ]; then \
+		printf 'int main(void){return 0;}\n' \
+		| $(CC) -x c - -fPIC -shared -fopenmp \
+		-fopenmp-targets=nvptx64-nvidia-cuda \
+		--cuda-path=$(CUDA_PATH) --offload-arch=$$arch -c -o /dev/null \
+		>/dev/null 2>&1 && printf '%s ' $$arch; \
+	fi; \
+done))
+
+$(if $(filter-out A B C,$(NVIDIA_ARCH_POLICY)), \
+	$(error NVIDIA_ARCH_POLICY must be one of A, B, or C; \
+	got '$(NVIDIA_ARCH_POLICY)'))
+
+NVIDIA_SYSTEM_ARCHES := $(shell \
+	nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null \
+	| awk -F'.' '{gsub(/ /, "", $$1); gsub(/ /, "", $$2); \
+	print "sm_" $$1 $$2}' \
+	| awk '!seen[$$0]++' \
+	| paste -sd, -)
+NVIDIA_SYSTEM_ARCH_LIST := $(strip $(subst $(comma), ,$(NVIDIA_SYSTEM_ARCHES)))
+NVIDIA_KNOWN_ARCH_LIST := sm_35 sm_37 sm_50 sm_52 sm_53 sm_60 sm_61 sm_62 \
+	sm_70 sm_72 sm_75 sm_80 sm_86 sm_87 sm_89 sm_90 sm_100 sm_101 sm_103 \
+	sm_110 sm_120
+NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST :=
+NVIDIA_COMPILER_SUPPORTED_ARCH_LIST :=
+NVIDIA_SELECTION_MODE := explicit-override
 ifneq ($(strip $(NVIDIA_ARCH)),)
-BUG_GPU_ARCH_TAG := $(NVIDIA_ARCH)
+NVIDIA_EFFECTIVE_ARCHES := $(NVIDIA_ARCH)
+NVIDIA_ARCH_LIST := $(strip $(subst $(comma), ,$(NVIDIA_EFFECTIVE_ARCHES)))
+NVIDIA_ARCH_LIST := $(call dedup_words,$(NVIDIA_ARCH_LIST))
+NVIDIA_EFFECTIVE_ARCHES := \
+	$(strip $(subst $(space),$(comma),$(NVIDIA_ARCH_LIST)))
 else
-BUG_GPU_ARCH_TAG := $(firstword $(NVIDIA_ARCHES))
+NVIDIA_SELECTION_MODE := policy-implicit
+NVIDIA_ARCH_LIST :=
+ifeq ($(GPU),NVIDIA)
+NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST := \
+	$(call probe_nvidia_archs,$(NVIDIA_SYSTEM_ARCH_LIST))
+NVIDIA_COMPILER_SUPPORTED_ARCH_LIST := \
+	$(call probe_nvidia_archs,$(NVIDIA_KNOWN_ARCH_LIST))
+NVIDIA_EARLIEST_VISIBLE_SUPPORTED_ARCH := $(shell \
+	if [ -n "$(strip $(NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST))" ]; then \
+		printf '%s\n' '$(NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST)' \
+		| tr ' ' '\n' | sed '/^$$/d' | sed 's/^sm_//' | sort -n \
+		| head -n 1 | awk '{print "sm_" $$1}'; \
+	fi)
+NVIDIA_EARLIEST_COMPILER_SUPPORTED_ARCH := $(shell \
+	if [ -n "$(strip $(NVIDIA_COMPILER_SUPPORTED_ARCH_LIST))" ]; then \
+		printf '%s\n' '$(NVIDIA_COMPILER_SUPPORTED_ARCH_LIST)' \
+		| tr ' ' '\n' | sed '/^$$/d' | sed 's/^sm_//' | sort -n \
+		| head -n 1 | awk '{print "sm_" $$1}'; \
+	fi)
+ifneq ($(strip $(NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST)),)
+ifeq ($(notdir $(CC)),gcc)
+NVIDIA_ARCH_LIST := $(NVIDIA_EARLIEST_COMPILER_SUPPORTED_ARCH)
+else
+NVIDIA_ARCH_LIST := $(NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST)
 endif
-else ifeq ($(GPU),INTEL)
-BUG_GPU_ARCH_TAG := spir64
+else
+ifeq ($(NVIDIA_ARCH_POLICY),A)
+NVIDIA_ARCH_LIST := $(NVIDIA_EARLIEST_COMPILER_SUPPORTED_ARCH)
+else ifeq ($(NVIDIA_ARCH_POLICY),B)
+$(error NVIDIA_ARCH_POLICY=B requires explicit NVIDIA_ARCH=sm_xy \
+when no visible NVIDIA GPU architecture is compiler-supported)
+else ifeq ($(NVIDIA_ARCH_POLICY),C)
+ifeq ($(notdir $(CC)),gcc)
+$(error No visible NVIDIA SM is compiler-supported with CC=gcc; \
+rerun with CC=clang or set explicit NVIDIA_ARCH=sm_xy)
+else
+$(error No visible NVIDIA SM is compiler-supported with CC=clang; \
+set explicit NVIDIA_ARCH=sm_xy)
+endif
+endif
+endif
+endif
+NVIDIA_EFFECTIVE_ARCHES := \
+	$(strip $(subst $(space),$(comma),$(call dedup_words,$(NVIDIA_ARCH_LIST))))
+endif
+
+NVIDIA_MISSING_VISIBLE_ARCHES := \
+	$(filter-out $(NVIDIA_ARCH_LIST),$(NVIDIA_SYSTEM_ARCH_LIST))
+NVIDIA_INVALID_ARCH := $(shell if [ -n "$(NVIDIA_EFFECTIVE_ARCHES)" ]; then \
+	printf '%s\n' '$(NVIDIA_EFFECTIVE_ARCHES)' | tr ',' '\n' \
+	| grep -Ev '^sm_[0-9]+$$' | head -n 1; fi)
+AMD_ARCH_INVALID := $(shell if [ -n "$(AMD_ARCH)" ] \
+	&& ! printf '%s\n' '$(AMD_ARCH)' | grep -Eq '^gfx[0-9a-f]+$$'; then \
+	printf '%s' '$(AMD_ARCH)'; fi)
+
+NVIDIA_MISSING_ARCH_MESSAGE := NVIDIA arch detection failed; rerun with \
+	make CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_xy
+
+$(if $(strip $(NVIDIA_INVALID_ARCH)), \
+	$(error NVIDIA_ARCH must be a comma-separated list of \
+	sm_xy targets; invalid entry '$(NVIDIA_INVALID_ARCH)'))
+
+$(if $(strip $(AMD_ARCH_INVALID)), \
+	$(error AMD_ARCH must match gfx<target>, e.g. gfx90a; \
+	got '$(AMD_ARCH_INVALID)'))
+
+ifeq ($(GPU),NONE)
+ifneq ($(strip $(NVIDIA_ARCH)$(AMD_ARCH)),)
+$(error GPU=NONE does not accept NVIDIA_ARCH or AMD_ARCH overrides)
+endif
+else ifeq ($(GPU),NVIDIA)
+ifneq ($(strip $(AMD_ARCH)),)
+$(error GPU=NVIDIA does not accept AMD_ARCH; use NVIDIA_ARCH=sm_xy[,sm_ab,...])
+endif
+else ifeq ($(GPU),AMD)
+ifneq ($(strip $(NVIDIA_ARCH)),)
+$(error GPU=AMD does not accept NVIDIA_ARCH; use AMD_ARCH=gfx_target)
+endif
+endif
+
+ifeq ($(filter $(GPU),NVIDIA AMD),$(GPU))
+ifeq ($(strip $(NVIDIA_ARCH)$(AMD_ARCH)),)
+$(info No GPU arch specified; set NVIDIA_ARCH=... or AMD_ARCH=... to override.)
+endif
+endif
+
+ifeq ($(GPU),NVIDIA)
+ifneq ($(strip $(NVIDIA_EFFECTIVE_ARCHES)),)
+$(info NVIDIA device images ($(NVIDIA_SELECTION_MODE)): \
+	$(NVIDIA_EFFECTIVE_ARCHES))
+ifneq ($(strip $(NVIDIA_ARCH)),)
+ifneq ($(strip $(NVIDIA_MISSING_VISIBLE_ARCHES)),)
+$(warning Explicit NVIDIA_ARCH=$(NVIDIA_ARCH) omits visible GPU \
+architectures $(subst $(space),$(comma),$(NVIDIA_MISSING_VISIBLE_ARCHES)); \
+running on those GPUs can fail with 'No images found compatible'. \
+Include all required SMs or set CUDA_VISIBLE_DEVICES to a compatible GPU)
+endif
+endif
+else
+$(error $(NVIDIA_MISSING_ARCH_MESSAGE))
+endif
+endif
+
+ifeq ($(GPU),AMD)
+ifneq ($(strip $(AMD_ARCH)),)
+BUG_GPU_ARCH_TAG := $(AMD_ARCH)
+else
+BUG_GPU_ARCH_TAG := default
+endif
+else ifeq ($(GPU),NVIDIA)
+ifneq ($(strip $(NVIDIA_EFFECTIVE_ARCHES)),)
+BUG_GPU_ARCH_TAG := $(subst $(comma),-,$(NVIDIA_EFFECTIVE_ARCHES))
+else
+BUG_GPU_ARCH_TAG := default
+endif
 else
 BUG_GPU_ARCH_TAG := cpu
 endif
 BUG_REPORT_TAG ?= $(notdir $(CC))-$(GPU)-$(BUG_GPU_ARCH_TAG)
 
-# Backward compatibility: if NVIDIA_ARCH is set, use it as a single target.
-ifneq ($(strip $(NVIDIA_ARCH)),)
-NVIDIA_ARCHES := $(NVIDIA_ARCH)
+NVIDIA_CLANG_ARCH_FLAGS :=
+ifneq ($(strip $(NVIDIA_ARCH_LIST)),)
+NVIDIA_CLANG_ARCH_FLAGS := \
+	$(foreach arch,$(NVIDIA_ARCH_LIST),--offload-arch=$(arch))
 endif
-
-NVIDIA_CLANG_ARCH_FLAGS := $(foreach arch,$(NVIDIA_ARCHES),-Xopenmp-target=nvptx64-nvidia-cuda --offload-arch=$(arch))
+NVIDIA_GCC_ARCH_FLAG :=
+ifneq ($(strip $(NVIDIA_ARCH_LIST)),)
+ifeq ($(notdir $(CC)),gcc)
+ifneq ($(word 2,$(NVIDIA_ARCH_LIST)),)
+$(error CC=gcc supports one NVIDIA device image in this Makefile; \
+pass a single NVIDIA_ARCH=sm_xy)
+endif
+NVIDIA_GCC_ARCH_FLAG := \
+	-foffload-options=nvptx-none=-march=$(firstword $(NVIDIA_ARCH_LIST))
+endif
+endif
 
 # Set the appropriate OpenMP flag based on compiler
 ifeq ($(notdir $(CC)),gcc)
 OPENMP_FLAG = -fopenmp
-else ifeq ($(notdir $(CC)),g++)
-OPENMP_FLAG = -fopenmp
+OPENMP_LINK_LIBS = -lgomp
+OPENMP_LINK_PRE = -Wl,--no-as-needed
+OPENMP_LINK_POST = -Wl,--as-needed
 else ifeq ($(notdir $(CC)),clang)
 OPENMP_FLAG = -fopenmp
 else
-# For clang-family and Intel compilers
-OPENMP_FLAG = -qopenmp
+$(error Unsupported compiler $(CC); use gcc or clang)
 endif
 
 ifeq ($(IS_CLEAN_GOAL),)
 $(info GPU is set to $(GPU))
 endif
-#Set the appropriate offload flag based on GPU type
+
+# Set the appropriate offload flag based on GPU type
 ifeq ($(GPU),NONE)
 ifeq ($(notdir $(CC)),gcc)
 OFFLOAD_FL = -foffload=disable
@@ -121,38 +287,60 @@ endif
 DEFINES += -DNOGPU
 else ifeq ($(GPU),NVIDIA)
 ifeq ($(notdir $(CC)),gcc)
-OFFLOAD_FL = -fno-stack-protector -fcf-protection=none -foffload=nvptx-none
+$(warning GPU=NVIDIA with CC=gcc is experimental; reliable fat-binary \
+or multi-arch offload is not guaranteed)
+OFFLOAD_FL = -foffload=nvptx-none $(NVIDIA_GCC_ARCH_FLAG)
+HOST_PROTECTION_FLAGS = -fno-stack-protector -fcf-protection=none
 else ifeq ($(notdir $(CC)),clang)
-OFFLOAD_FL = -fopenmp-targets=nvptx64-nvidia-cuda --cuda-path=$(CUDA_PATH) $(NVIDIA_CLANG_ARCH_FLAGS) -Xopenmp-target=nvptx64-nvidia-cuda --no-cuda-version-check -foffload-lto
-else ifeq ($(notdir $(CC)),icx)
-OFFLOAD_FL = -fopenmp-targets=nvptx64-nvidia-cuda
+ifeq ($(strip $(NVIDIA_CLANG_ARCH_FLAGS)),)
+$(error $(NVIDIA_MISSING_ARCH_MESSAGE))
+endif
+OFFLOAD_FL = -fopenmp-targets=nvptx64-nvidia-cuda \
+	--cuda-path=$(CUDA_PATH) $(NVIDIA_CLANG_ARCH_FLAGS) \
+	-Xopenmp-target=nvptx64-nvidia-cuda --no-cuda-version-check \
+	-foffload-lto
+else
+$(error GPU=NVIDIA is supported with gcc or clang only)
 endif
 else ifeq ($(GPU),AMD)
+AMD_OPENMP_RUNTIME_REQUIRED := 1
+ifneq ($(filter-out hip_gpu_bench build/hip_gpu_benchmark,$(MAKECMDGOALS)),)
+AMD_OPENMP_RUNTIME_REQUIRED := 1
+else ifneq ($(filter hip_gpu_bench build/hip_gpu_benchmark,$(MAKECMDGOALS)),)
+AMD_OPENMP_RUNTIME_REQUIRED :=
+endif
 ifeq ($(notdir $(CC)),gcc)
-$(warning GPU=AMD with CC=gcc can trigger GCC amdgcn internal compiler errors on this setup; prefer CC=clang)
-OFFLOAD_FL = -fno-stack-protector -fcf-protection=none \
-             -foffload=amdgcn-amdhsa \
-             -foffload-options=amdgcn-amdhsa="-march=$(AMD_ARCH)"
+$(warning GPU=AMD with CC=gcc can trigger GCC amdgcn internal \
+compiler errors on this setup; prefer CC=clang)
+OFFLOAD_FL = -foffload=amdgcn-amdhsa
+HOST_PROTECTION_FLAGS = -fno-stack-protector -fcf-protection=none
+ifneq ($(strip $(AMD_ARCH)),)
+OFFLOAD_FL += -foffload-options=amdgcn-amdhsa="-march=$(AMD_ARCH)"
+endif
 else ifeq ($(notdir $(CC)),clang)
-OFFLOAD_FL = -fopenmp-targets=amdgcn-amd-amdhsa --rocm-path=$(ROCM_PATH) --rocm-device-lib-path=$(ROCM_DEVICE_LIB_PATH) -Xopenmp-target=amdgcn-amd-amdhsa -march=$(AMD_ARCH)
+OFFLOAD_FL = -fopenmp-targets=amdgcn-amd-amdhsa \
+	--rocm-path=$(ROCM_PATH) \
+	--rocm-device-lib-path=$(ROCM_DEVICE_LIB_PATH)
+ifneq ($(strip $(AMD_ARCH)),)
+OFFLOAD_FL += -Xopenmp-target=amdgcn-amd-amdhsa -march=$(AMD_ARCH)
 AMD_DEVICE_RTL_FILE := $(firstword \
 	$(wildcard /usr/lib/llvm-*/lib/libomptarget-amdgpu-$(AMD_ARCH).bc) \
 	$(wildcard $(ROCM_PATH)/lib/llvm/lib/libomptarget-amdgpu-$(AMD_ARCH).bc) \
 	$(wildcard $(ROCM_PATH)/lib/llvm/lib/libomptarget-500-amdgpu-$(AMD_ARCH).bc) \
 )
+ifneq ($(strip $(AMD_OPENMP_RUNTIME_REQUIRED)),)
 ifeq ($(strip $(AMD_DEVICE_RTL_FILE)),)
-$(error No OpenMP AMD device runtime was found for AMD_ARCH=$(AMD_ARCH). Install LLVM/ROCm support for this gfx target or override AMD_ARCH to a supported value)
+$(error No OpenMP AMD device runtime was found for \
+AMD_ARCH=$(AMD_ARCH). Install LLVM/ROCm support for this gfx target \
+or override AMD_ARCH to a supported value)
+endif
+endif
 endif
 else
 $(error GPU=AMD is not supported with CC=$(CC); use gcc or clang)
 endif
-else ifeq ($(GPU),INTEL)
-$(info GPU is set to INTEL, so will use Intel oneAPI icx Compiler)
-CC=icx
-OPENMP_FLAG = -fiopenmp
-OFFLOAD_FL = -fopenmp-targets=spir64
 else
-$(error GPU = $(GPU) is not one of the supported GPUs (NVIDIA, AMD, INTEL))
+$(error GPU=$(GPU) is not one of the supported GPUs (NONE, NVIDIA, AMD))
 endif
 # Allow custom build directory, default to 'build' folder
 BUILD_DIR ?= build
@@ -161,7 +349,8 @@ BUILD_DIR ?= build
 $(shell mkdir -p $(BUILD_DIR))
 
 ## compiler flags
-CFLAGS0 = -Wall -Wextra -Iinclude -D_POSIX_C_SOURCE=199309L -std=c11 -fPIC -O3 -march=native \
+CFLAGS0 = -Wall -Wextra -Iinclude -D_POSIX_C_SOURCE=199309L -std=c11 \
+	-fPIC -O3 -march=native \
 -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable
 
 REPORT_CFLAGS :=
@@ -169,18 +358,38 @@ ifeq ($(BUG_REPORT),1)
 ifeq ($(notdir $(CC)),gcc)
 REPORT_CFLAGS += -freport-bug
 else ifeq ($(notdir $(CC)),clang)
-REPORT_CFLAGS += -gen-reproducer -fcrash-diagnostics-dir=$(abspath $(BUG_REPORT_OUT))
+REPORT_CFLAGS += -gen-reproducer \
+	-fcrash-diagnostics-dir=$(abspath $(BUG_REPORT_OUT))
 endif
 endif
 
-CFLAGS += $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) $(REPORT_CFLAGS)
+HOST_PROTECTION_FLAGS ?=
+
+CFLAGS += $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(HOST_PROTECTION_FLAGS) $(CFLAGS0) $(REPORT_CFLAGS)
+HOST_ONLY_CFLAGS := $(filter-out $(OFFLOAD_FL),$(CFLAGS))
+
+COMPILE_CMD = $(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
+HOST_COMPILE_CMD = $(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -c $< -o $@
+BIT_LINK_DIRS = -L$(BUILD_DIR) $(BUILD_RPATH_FLAG) $(OMPTARGET_RPATH_FLAG)
+HOST_OPENMP_LIBS = $(OPENMP_LINK_PRE) $(OPENMP_LINK_LIBS) $(OPENMP_LINK_POST)
+BIT_LINK_LIBS = $(BIT_LINK_DIRS) -lbit $(HOST_OPENMP_LIBS)
+BIT_OPENMP_LINK_LIBS = $(BIT_LINK_DIRS) -lbit $(OPENMP_FLAG) $(HOST_OPENMP_LIBS)
+BENCH_OMP_NO_CPU_EXTRA_LINK_LIBS =
+ifeq ($(notdir $(CC)),clang)
+BENCH_OMP_NO_CPU_EXTRA_LINK_LIBS += $(OPENMP_LINK_PRE) -lomptarget $(OPENMP_LINK_POST)
+endif
+SHARED_LIB_LINK_CMD = $(CC_ENV) $(CC) $(CFLAGS) -shared -o $@ $^ \
+	$(LDFLAGS) $(OMPTARGET_RPATH_FLAG) $(HOST_OPENMP_LIBS)
+BUG_REPORT_SCRIPT = scripts/generate_bug_report.sh
 
 # Runtime search paths - occasionally you have to do this
 BUILD_RPATH_FLAG := -Wl,-rpath,$(shell pwd)/$(BUILD_DIR)
 OMPTARGET_LIBDIR :=
 ifeq ($(notdir $(CC)),clang)
-CLANG_LIBRARY_DIRS := $(subst :, ,$(patsubst libraries: =%,%,$(shell $(CC) -print-search-dirs 2>/dev/null | grep '^libraries: =')))
-OMPTARGET_LIBDIR := $(firstword $(foreach d,$(CLANG_LIBRARY_DIRS),$(if $(wildcard $(d)/libomptarget.so*),$(d),)))
+CLANG_LIBRARY_DIRS := $(subst :, ,$(patsubst libraries: =%,%, \
+	$(shell $(CC) -print-search-dirs 2>/dev/null | grep '^libraries: =')))
+OMPTARGET_LIBDIR := $(firstword $(foreach d,$(CLANG_LIBRARY_DIRS), \
+	$(if $(wildcard $(d)/libomptarget.so*),$(d),)))
 endif
 OMPTARGET_RPATH_FLAG :=
 ifneq ($(strip $(OMPTARGET_LIBDIR)),)
@@ -203,6 +412,15 @@ $(CONFIG_STAMP): FORCE
 	@{ \
 		echo "CC=$(CC)"; \
 		echo "GPU=$(GPU)"; \
+		echo "NVIDIA_ARCH=$(NVIDIA_ARCH)"; \
+		echo "NVIDIA_ARCH_POLICY=$(NVIDIA_ARCH_POLICY)"; \
+		echo "NVIDIA_SELECTION_MODE=$(NVIDIA_SELECTION_MODE)"; \
+		echo "NVIDIA_SYSTEM_ARCHES=$(NVIDIA_SYSTEM_ARCHES)"; \
+		echo "NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST=" \
+		"$(NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST)"; \
+		echo "NVIDIA_COMPILER_SUPPORTED_ARCH_LIST=" \
+		"$(NVIDIA_COMPILER_SUPPORTED_ARCH_LIST)"; \
+		echo "NVIDIA_EFFECTIVE_ARCHES=$(NVIDIA_EFFECTIVE_ARCHES)"; \
 		echo "DEFINES=$(DEFINES)"; \
 		echo "ROCM_PATH=$(ROCM_PATH)"; \
 		echo "ROCM_DEVICE_LIB_PATH=$(ROCM_DEVICE_LIB_PATH)"; \
@@ -211,7 +429,8 @@ $(CONFIG_STAMP): FORCE
 		echo "OMPTARGET_LIBDIR=$(OMPTARGET_LIBDIR)"; \
 		echo "CFLAGS=$(CFLAGS)"; \
 	} > $(CONFIG_STAMP).tmp
-	@cmp -s $(CONFIG_STAMP).tmp $(CONFIG_STAMP) 2>/dev/null || mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP)
+	@cmp -s $(CONFIG_STAMP).tmp $(CONFIG_STAMP) 2>/dev/null \
+		|| mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP)
 	@rm -f $(CONFIG_STAMP).tmp
 
 
@@ -261,36 +480,175 @@ BENCH_OMP_GPU_EXEC = $(BUILD_DIR)/openmp_bit_nogpu
 
 BENCH_OMP_NO_CPU_SRC = benchmark/openmp_bit_nocpu.c
 BENCH_OMP_NO_CPU_OBJ = $(BUILD_DIR)/openmp_bit_nocpu.o
+BENCH_OMP_NO_CPU_BIT_OBJ = $(BUILD_DIR)/bit_nocpu_host.o
 BENCH_OMP_NO_CPU_EXEC = $(BUILD_DIR)/openmp_bit_nocpu
 
-.PHONY: all clean test test_offload bench LIBPOPCNT bug_report
+UNIFIED_GPU_BENCH_SRC = benchmark/unified_gpu_benchmark.c
+UNIFIED_GPU_BENCH_OBJ = $(BUILD_DIR)/unified_gpu_benchmark.o
+UNIFIED_GPU_BENCH_EXEC = $(BUILD_DIR)/unified_gpu_benchmark
+
+COMPARE_SIZE ?= 1024
+CUDA_BENCH_SRC = benchmark/cuda_gpu_benchmark.cu
+CUDA_BENCH_EXEC = $(BUILD_DIR)/cuda_gpu_benchmark
+NVCC ?= nvcc
+NVCC_ARCH ?= sm_70
+NVCC_FLAGS ?= -O3 -std=c++14 -I./include -I./src
+
+HIP_BENCH_SRC = benchmark/hip_gpu_benchmark.cpp
+HIP_BENCH_EXEC = $(BUILD_DIR)/hip_gpu_benchmark
+HIPCC ?= hipcc
+HIPCC_FLAGS ?= -O3 -std=c++17 -I./include -I./src
+
+USE_BUILTIN_POPCOUNT ?= 0
+GPU_OCCUPANCY_TUNING ?= 1
+## OpenMP Offload GPU implementation selection for openmp_bit_nocpu
+## Mode options:
+##   TEAM_PARALLEL_SIMD - current hierarchical teams -> parallel -> simd path
+##   FLAT_COLLAPSE      - current flat collapse(2) path using OMP_GPU_FLAT
+OPENMP_GPU_IMPL ?= TEAM_PARALLEL_SIMD
+
+ifeq ($(strip $(USE_BUILTIN_POPCOUNT)),1)
+NVCC_FLAGS += -DUSE_BUILTIN_POPCOUNT
+HIPCC_FLAGS += -DUSE_BUILTIN_POPCOUNT
+endif
+
+ifeq ($(strip $(GPU_OCCUPANCY_TUNING)),1)
+NVCC_FLAGS += -DGPU_OCCUPANCY_TUNING
+HIPCC_FLAGS += -DGPU_OCCUPANCY_TUNING
+endif
+
+ifeq ($(strip $(OPENMP_GPU_IMPL)),TEAM_PARALLEL_SIMD)
+CFLAGS += -DOPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD
+else ifeq ($(strip $(OPENMP_GPU_IMPL)),FLAT_COLLAPSE)
+CFLAGS += -DOPENMP_GPU_IMPL_FLAT_COLLAPSE
+else
+$(error OPENMP_GPU_IMPL must be TEAM_PARALLEL_SIMD or FLAT_COLLAPSE)
+endif
+
+# Keep compare_nocpu architecture behavior aligned with bench_omp logic.
+NVCC_ARCH_EFFECTIVE := $(if $(strip $(NVIDIA_ARCH_LIST)),$(firstword $(NVIDIA_ARCH_LIST)),$(NVCC_ARCH))
+
+NVCC_ARCH_LIST :=
+ifneq ($(strip $(NVIDIA_ARCH_LIST)),)
+NVCC_ARCH_LIST := $(NVIDIA_ARCH_LIST)
+ifneq ($(strip $(NVIDIA_SYSTEM_ARCH_LIST)),)
+NVCC_ARCH_LIST := $(call dedup_words,$(NVIDIA_ARCH_LIST) $(NVIDIA_SYSTEM_ARCH_LIST))
+endif
+else
+NVCC_ARCH_LIST := $(NVIDIA_SYSTEM_ARCH_LIST)
+endif
+
+NVCC_ARCH_FLAGS :=
+ifneq ($(strip $(NVCC_ARCH_LIST)),)
+ifneq ($(words $(NVCC_ARCH_LIST)),1)
+NVCC_ARCH_FLAGS := $(foreach arch,$(NVCC_ARCH_LIST),-gencode=arch=compute_$(subst sm_,,$(arch)),code=$(arch))
+else
+NVCC_ARCH_FLAGS := -arch=$(firstword $(NVCC_ARCH_LIST))
+endif
+else
+NVCC_ARCH_FLAGS := -arch=$(NVCC_ARCH_EFFECTIVE)
+endif
+HIPCC_ARCH_FLAGS :=
+ifneq ($(strip $(AMD_ARCH)),)
+HIPCC_ARCH_FLAGS := $(foreach arch,$(subst $(comma), ,$(AMD_ARCH)),--offload-arch=$(arch))
+endif
+COMPARE_NUM_BITS ?= 64
+COMPARE_NUM_REF_BITS ?= 64
+COMPARE_GPU_ITERATIONS ?= 2
+COMPARE_GPU_ID ?= 0
+COMPARE_BACKEND ?= AUTO
+COMPARE_BACKENDS_ENV ?= BIT_COMPARE_BACKENDS=1
+COMPARE_RUN_ENV ?= OMP_TARGET_OFFLOAD=MANDATORY
+COMPARE_VISIBLE_DEVICE_ENV :=
+ifeq ($(GPU),NVIDIA)
+COMPARE_VISIBLE_DEVICE_ENV := CUDA_VISIBLE_DEVICES=$(COMPARE_GPU_ID)
+endif
+
+ifeq ($(COMPARE_BACKEND),AUTO)
+ifeq ($(GPU),NVIDIA)
+COMPARE_BACKEND_EFFECTIVE := CUDA
+else ifeq ($(GPU),AMD)
+COMPARE_BACKEND_EFFECTIVE := HIP
+else
+COMPARE_BACKEND_EFFECTIVE := AUTO
+endif
+else
+COMPARE_BACKEND_EFFECTIVE := $(COMPARE_BACKEND)
+endif
+
+COMPARE_BACKEND_TARGETS :=
+ifeq ($(COMPARE_BACKEND_EFFECTIVE),CUDA)
+COMPARE_BACKEND_TARGETS += $(CUDA_BENCH_EXEC)
+else ifeq ($(COMPARE_BACKEND_EFFECTIVE),HIP)
+COMPARE_BACKEND_TARGETS += $(HIP_BENCH_EXEC)
+else
+COMPARE_BACKEND_TARGETS += $(CUDA_BENCH_EXEC) $(HIP_BENCH_EXEC)
+endif
+
+.PHONY: all clean test test_offload bench compare_nocpu unified_gpu_bench LIBPOPCNT bug_report
+.PHONY: cuda_gpu_bench hip_gpu_bench
 
 # Default targets are to build the shared and static libraries
 all: $(TARGET) $(TARGET_STATIC)
 
 # Rule to build object files in the build directory
 $(BUILD_DIR)/%.o: src/%.c $(CONFIG_STAMP)
-	$(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
+	$(COMPILE_CMD)
 
 $(BUILD_DIR)/%.o: tests/%.c $(CONFIG_STAMP)
-	$(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
+	$(COMPILE_CMD)
 
 # Add pattern rule for benchmark source files
 $(BUILD_DIR)/%.o: benchmark/%.c $(CONFIG_STAMP)
+	$(COMPILE_CMD)
+
+# Build OpenMP harness benchmark objects without OFFLOAD_FL so only libbit
+# contributes target images (avoids duplicate clang offload bundles).
+$(BENCH_OBJ): $(BENCH_SRC) $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
+$(BENCH_OMP_OBJ): $(BENCH_OMP_SRC) $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
+$(BENCH_OMP_GPU_OBJ): $(BENCH_OMP_NO_GPU_SRC) $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
+$(BENCH_OMP_NO_CPU_OBJ): $(BENCH_OMP_NO_CPU_SRC) $(CONFIG_STAMP)
+	$(COMPILE_CMD)
+
+$(BENCH_OMP_NO_CPU_BIT_OBJ): $(SRC) $(CONFIG_STAMP)
 	$(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/openmp_bit.o: benchmark/openmp_bit.c $(CONFIG_STAMP)
-	$(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
+$(UNIFIED_GPU_BENCH_OBJ): $(UNIFIED_GPU_BENCH_SRC) $(CONFIG_STAMP)
+	$(COMPILE_CMD)
 
-$(BUILD_DIR)/openmp_bit_nogpu.o: benchmark/openmp_bit_nogpu.c $(CONFIG_STAMP)
-	$(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
+$(BENCH_OMP_EXEC): $(TARGET) $(BENCH_OMP_OBJ)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_OBJ) \
+		$(BIT_OPENMP_LINK_LIBS) -lrt
 
-$(BUILD_DIR)/openmp_bit_nocpu.o: benchmark/openmp_bit_nocpu.c $(CONFIG_STAMP)
-	$(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
+$(BENCH_OMP_GPU_EXEC): $(TARGET) $(BENCH_OMP_GPU_OBJ)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_GPU_OBJ) \
+		$(BIT_OPENMP_LINK_LIBS) -lrt
+
+$(BENCH_OMP_NO_CPU_EXEC): $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ)
+	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
+		$(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) \
+		$(OMPTARGET_RPATH_FLAG) $(OPENMP_FLAG) $(HOST_OPENMP_LIBS) \
+		$(BENCH_OMP_NO_CPU_EXTRA_LINK_LIBS) -lrt
+
+$(UNIFIED_GPU_BENCH_EXEC): $(OBJ) $(UNIFIED_GPU_BENCH_OBJ)
+	$(CC_ENV) $(CC) $(CFLAGS) -o $@ $(UNIFIED_GPU_BENCH_OBJ) $(OBJ) \
+		$(OMPTARGET_RPATH_FLAG) $(OPENMP_FLAG) $(HOST_OPENMP_LIBS) -lrt
+
+$(CUDA_BENCH_EXEC): $(CUDA_BENCH_SRC)
+	$(NVCC) $(NVCC_FLAGS) $(NVCC_ARCH_FLAGS) -o $@ $< -lm
+
+$(HIP_BENCH_EXEC): $(HIP_BENCH_SRC)
+	$(HIPCC) $(HIPCC_FLAGS) $(HIPCC_ARCH_FLAGS) -o $@ $< -lm
 
 # Change from static to shared library compilation
 $(TARGET): $(OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -shared -o $@ $^ $(LDFLAGS) $(OMPTARGET_RPATH_FLAG)
+	$(SHARED_LIB_LINK_CMD)
 
 # Build the static library as well
 $(TARGET_STATIC): $(OBJ)
@@ -298,90 +656,67 @@ $(TARGET_STATIC): $(OBJ)
 	
 # Update test to use shared library
 test: $(TARGET) $(TEST_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) -L$(BUILD_DIR) $(BUILD_RPATH_FLAG) $(OMPTARGET_RPATH_FLAG) -lbit
+	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) $(BIT_LINK_LIBS)
 
 # test_offload uses the same offload flags as the main library
-# You can pass NVIDIA_ARCH, NVIDIA_ARCHES, or AMD_ARCH when invoking test_offload
+# You can pass NVIDIA_ARCH or AMD_ARCH when invoking test_offload
 test_offload: $(TEST_OFFLOAD_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_OFFLOAD_EXEC) $(TEST_OFFLOAD_OBJ) $(OPENMP_FLAG) -lm
+	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_OFFLOAD_EXEC) \
+		$(TEST_OFFLOAD_OBJ) $(OMPTARGET_RPATH_FLAG) \
+		$(OPENMP_FLAG) $(HOST_OPENMP_LIBS) -lm
 
 
 # Add target to build the benchmark executable and the OpenMP benchmark
 bench: $(TARGET) $(BENCH_OBJ) bench_omp
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(BENCH_EXEC) $(BENCH_OBJ) -L$(BUILD_DIR) $(BUILD_RPATH_FLAG) $(OMPTARGET_RPATH_FLAG) -lbit -lrt
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $(BENCH_EXEC) $(BENCH_OBJ) $(BIT_LINK_LIBS) -lrt
 
 # Conditional bench_omp target based on GPU setting
 ifeq ($(GPU),NONE)
-bench_omp: $(TARGET) $(BENCH_OMP_GPU_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(BENCH_OMP_GPU_EXEC) $(BENCH_OMP_GPU_OBJ) -L$(BUILD_DIR) $(BUILD_RPATH_FLAG) $(OMPTARGET_RPATH_FLAG) -lbit $(OPENMP_FLAG) -lrt
+bench_omp: $(BENCH_OMP_GPU_EXEC)
 else
-bench_omp: $(TARGET) $(BENCH_OMP_OBJ) $(BENCH_OMP_GPU_OBJ) $(BENCH_OMP_NO_CPU_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(BENCH_OMP_EXEC) $(BENCH_OMP_OBJ) -L$(BUILD_DIR) $(BUILD_RPATH_FLAG) $(OMPTARGET_RPATH_FLAG) -lbit $(OPENMP_FLAG) -lrt
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(BENCH_OMP_GPU_EXEC) $(BENCH_OMP_GPU_OBJ) -L$(BUILD_DIR) $(BUILD_RPATH_FLAG) $(OMPTARGET_RPATH_FLAG) -lbit $(OPENMP_FLAG) -lrt
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(BENCH_OMP_NO_CPU_EXEC) $(BENCH_OMP_NO_CPU_OBJ) -L$(BUILD_DIR) $(BUILD_RPATH_FLAG) $(OMPTARGET_RPATH_FLAG) -lbit $(OPENMP_FLAG) -lrt
+bench_omp: $(BENCH_OMP_EXEC) $(BENCH_OMP_GPU_EXEC) $(BENCH_OMP_NO_CPU_EXEC)
 endif
+
+compare_nocpu: $(BENCH_OMP_NO_CPU_EXEC) $(COMPARE_BACKEND_TARGETS)
+	$(COMPARE_BACKENDS_ENV) BIT_COMPARE_BACKEND=$(COMPARE_BACKEND_EFFECTIVE) \
+		BIT_GPU_TARGET=$(GPU) \
+		$(COMPARE_VISIBLE_DEVICE_ENV) $(COMPARE_RUN_ENV) ./$(BENCH_OMP_NO_CPU_EXEC) \
+		$(COMPARE_SIZE) $(COMPARE_NUM_BITS) $(COMPARE_NUM_REF_BITS) \
+		$(COMPARE_GPU_ITERATIONS) $(COMPARE_GPU_ID)
+
+unified_gpu_bench: $(UNIFIED_GPU_BENCH_EXEC)
+	$(COMPARE_VISIBLE_DEVICE_ENV) $(COMPARE_RUN_ENV) ./$(UNIFIED_GPU_BENCH_EXEC) \
+		1024 1024 1024 5 $(COMPARE_GPU_ID)
+cuda_gpu_bench: $(CUDA_BENCH_EXEC)
+	./$(CUDA_BENCH_EXEC) 1024 1024 1024 5 0
+
+hip_gpu_bench: $(HIP_BENCH_EXEC)
+	./$(HIP_BENCH_EXEC) 1024 1024 1024 5 0
 
 
 bug_report:
-	@REPORT_PATH="$(BUG_REPORT_DIR)/$$(date +%Y%m%d-%H%M%S)-$(BUG_REPORT_TAG)"; \
-	mkdir -p "$$REPORT_PATH"; \
-	echo "Compiler bug report generation" > "$$REPORT_PATH/config.txt"; \
-	echo "Timestamp: $$(date -Is)" >> "$$REPORT_PATH/config.txt"; \
-	echo "CC=$(CC)" >> "$$REPORT_PATH/config.txt"; \
-	echo "GPU=$(GPU)" >> "$$REPORT_PATH/config.txt"; \
-	echo "AMD_ARCH=$(AMD_ARCH)" >> "$$REPORT_PATH/config.txt"; \
-	echo "OPENMP_FLAG=$(OPENMP_FLAG)" >> "$$REPORT_PATH/config.txt"; \
-	echo "OFFLOAD_FL=$(OFFLOAD_FL)" >> "$$REPORT_PATH/config.txt"; \
-	echo "BUG_TARGET=$(BUG_TARGET)" >> "$$REPORT_PATH/config.txt"; \
-	echo "CFLAGS=$(CFLAGS)" >> "$$REPORT_PATH/config.txt"; \
-	echo "Compiler version:" >> "$$REPORT_PATH/config.txt"; \
-	$(CC) --version | head -n 1 >> "$$REPORT_PATH/config.txt"; \
-	$(MAKE) clean >/dev/null; \
-	BUILD_STATUS=0; \
-	$(MAKE) BUG_REPORT=1 BUG_REPORT_OUT="$$REPORT_PATH" $(BUG_TARGET) > "$$REPORT_PATH/build.log" 2>&1 || BUILD_STATUS=$$?; \
-	if [ "$(notdir $(CC))" = "gcc" ]; then \
-		$(CC) -v > "$$REPORT_PATH/gcc-v.txt" 2>&1 || true; \
-		printf '%s\n' "$(CC) -v -save-temps=obj $(CFLAGS) -c src/bit.c -o $(BUILD_DIR)/gcc-bug-report.o" > "$$REPORT_PATH/gcc-repro-command.txt"; \
-		$(CC) -v -save-temps=obj $(CFLAGS) -c src/bit.c -o $(BUILD_DIR)/gcc-bug-report.o > "$$REPORT_PATH/gcc-save-temps.log" 2>&1 || true; \
-		if [ -f "$(BUILD_DIR)/gcc-bug-report.i" ]; then \
-			cp -f "$(BUILD_DIR)/gcc-bug-report.i" "$$REPORT_PATH/src-bit.preprocessed.i"; \
-		else \
-			echo "Failed to generate GCC preprocessed source with -save-temps." > "$$REPORT_PATH/src-bit.preprocessed.i"; \
-		fi; \
-		rm -f "$(BUILD_DIR)/gcc-bug-report.o" "$(BUILD_DIR)/gcc-bug-report.i" "$(BUILD_DIR)/gcc-bug-report.s"; \
-	else \
-		$(CC_ENV) $(CC) $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) -E src/bit.c -o "$$REPORT_PATH/src-bit.preprocessed.i" >/dev/null 2>&1 || true; \
-	fi; \
-	if [ "$$BUILD_STATUS" -ne 0 ]; then \
-		if command -v gdb >/dev/null 2>&1; then \
-			gdb --batch \
-				-ex "set pagination off" \
-				-ex "set follow-fork-mode child" \
-				-ex "set detach-on-fork off" \
-				-ex "set print thread-events off" \
-				-ex "run" \
-				-ex "thread apply all bt full" \
-				--args $(MAKE) BUG_REPORT=1 BUG_REPORT_OUT="$$REPORT_PATH" $(BUG_TARGET) \
-				> "$$REPORT_PATH/backtrace.txt" 2>&1 || true; \
-		else \
-			echo "gdb not found; unable to collect full backtrace automatically." > "$$REPORT_PATH/backtrace.txt"; \
-			echo "Install gdb and rerun make bug_report to include full backtrace." >> "$$REPORT_PATH/backtrace.txt"; \
-		fi; \
-	else \
-		echo "Build completed successfully; no compiler crash occurred." > "$$REPORT_PATH/backtrace.txt"; \
-		echo "No backtrace available because there was no failing process." >> "$$REPORT_PATH/backtrace.txt"; \
-	fi; \
-	find $(BUILD_DIR) -maxdepth 1 \( -name '*.i' -o -name '*.ii' -o -name '*.s' -o -name '*.bc' -o -name '*.cui' \) -delete 2>/dev/null || true; \
-	echo "Saved bug report files under $$REPORT_PATH"; \
-	echo "- Build log: $$REPORT_PATH/build.log"; \
-	echo "- Config: $$REPORT_PATH/config.txt"; \
-	if [ "$(notdir $(CC))" = "gcc" ]; then \
-		echo "- GCC -v details: $$REPORT_PATH/gcc-v.txt"; \
-		echo "- GCC repro command: $$REPORT_PATH/gcc-repro-command.txt"; \
-		echo "- GCC save-temps log: $$REPORT_PATH/gcc-save-temps.log"; \
-	fi; \
-	echo "- Backtrace: $$REPORT_PATH/backtrace.txt"; \
-	echo "- Preprocessed source: $$REPORT_PATH/src-bit.preprocessed.i"
+	@REPORT_PATH="$(BUG_REPORT_DIR)/$$(date +%Y%m%d-%H%M%S)-$(BUG_REPORT_TAG)" \
+	CC="$(CC)" \
+	GPU="$(GPU)" \
+	NVIDIA_ARCH="$(NVIDIA_ARCH)" \
+	NVIDIA_ARCH_POLICY="$(NVIDIA_ARCH_POLICY)" \
+	NVIDIA_SELECTION_MODE="$(NVIDIA_SELECTION_MODE)" \
+	NVIDIA_SYSTEM_ARCHES="$(NVIDIA_SYSTEM_ARCHES)" \
+	NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST="$(NVIDIA_VISIBLE_SUPPORTED_ARCH_LIST)" \
+	NVIDIA_COMPILER_SUPPORTED_ARCH_LIST="$(NVIDIA_COMPILER_SUPPORTED_ARCH_LIST)" \
+	NVIDIA_EFFECTIVE_ARCHES="$(NVIDIA_EFFECTIVE_ARCHES)" \
+	AMD_ARCH="$(AMD_ARCH)" \
+	CUDA_PATH="$(CUDA_PATH)" \
+	OPENMP_FLAG="$(OPENMP_FLAG)" \
+	OFFLOAD_FL='$(OFFLOAD_FL)' \
+	BUG_TARGET="$(BUG_TARGET)" \
+	CFLAGS='$(CFLAGS)' \
+	CFLAGS0='$(CFLAGS0)' \
+	DEFINES='$(DEFINES)' \
+	CC_ENV='$(CC_ENV)' \
+	BUILD_DIR="$(BUILD_DIR)" \
+	MAKE="$(MAKE)" \
+	$(BUG_REPORT_SCRIPT)
 
 
 clean:

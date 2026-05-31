@@ -239,30 +239,37 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
                         device(dev_id)))
 
 #define SETOP_INIT_GPU(bit, bits, counts, opts)                                \
-  if (omp_target_is_present(bit->qwords, opts.device_id)) {                    \
-    if (opts.upd_1st_operand) {                                                \
-      UPDATE_GPU_ARRAY(to, bit->qwords, 0, bit->size_in_qwords * bit->nelem,   \
-                       opts.device_id)                                         \
+  const int _setop_dev_id = (opts).device_id;                                  \
+  const int _setop_upd_1st = (opts).upd_1st_operand;                           \
+  const int _setop_upd_2nd = (opts).upd_2nd_operand;                           \
+  unsigned long long *_setop_bit_qwords = (bit)->qwords;                       \
+  unsigned long long *_setop_bits_qwords = (bits)->qwords;                     \
+  int *_setop_counts = (counts);                                               \
+  const size_t _setop_bit_span = (size_t)(bit)->size_in_qwords * (bit)->nelem; \
+  const size_t _setop_bits_span =                                              \
+      (size_t)(bits)->size_in_qwords * (bits)->nelem;                          \
+  const size_t _setop_counts_span = (size_t)(bit)->nelem * (bits)->nelem;      \
+  if (omp_target_is_present(_setop_bit_qwords, _setop_dev_id)) {               \
+    if (_setop_upd_1st) {                                                      \
+      UPDATE_GPU_ARRAY(to, _setop_bit_qwords, 0, _setop_bit_span,              \
+                       _setop_dev_id)                                          \
     }                                                                          \
   } else {                                                                     \
-    TARGET_GPU_ARRAY(enter, to, bit->qwords, 0,                                \
-                     bit->size_in_qwords * bit->nelem, opts.device_id)         \
+    TARGET_GPU_ARRAY(enter, to, _setop_bit_qwords, 0, _setop_bit_span,         \
+                     _setop_dev_id)                                            \
   }                                                                            \
-  if (omp_target_is_present(bits->qwords, opts.device_id)) {                   \
-    if (opts.upd_2nd_operand) {                                                \
-      UPDATE_GPU_ARRAY(to, bits->qwords, 0,                                    \
-                       bits->size_in_qwords * bits->nelem, opts.device_id)     \
-    } else {                                                                   \
-      TARGET_GPU_ARRAY(enter, to, bits->qwords, 0,                             \
-                       bits->size_in_qwords * bits->nelem, opts.device_id)     \
+  if (omp_target_is_present(_setop_bits_qwords, _setop_dev_id)) {              \
+    if (_setop_upd_2nd) {                                                      \
+      UPDATE_GPU_ARRAY(to, _setop_bits_qwords, 0, _setop_bits_span,            \
+                       _setop_dev_id)                                          \
     }                                                                          \
   } else {                                                                     \
-    TARGET_GPU_ARRAY(enter, to, bits->qwords, 0,                               \
-                     bits->size_in_qwords * bits->nelem, opts.device_id)       \
+    TARGET_GPU_ARRAY(enter, to, _setop_bits_qwords, 0, _setop_bits_span,       \
+                     _setop_dev_id)                                            \
   }                                                                            \
-  if (!omp_target_is_present(counts, opts.device_id)) {                        \
-    TARGET_GPU_ARRAY(enter, to, counts, 0, bit->nelem * bits->nelem,           \
-                     opts.device_id)                                           \
+  if (!omp_target_is_present(_setop_counts, _setop_dev_id)) {                  \
+    TARGET_GPU_ARRAY(enter, to, _setop_counts, 0, _setop_counts_span,          \
+                     _setop_dev_id)                                            \
   }
 
 #define OMP_GPU_TEAMS(num_targets, dev_id)                                     \

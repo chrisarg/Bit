@@ -53,6 +53,30 @@ int main(int argc, char* argv []) {
     gpu_id = atoi(argv[5]);
   }
 
+
+  int num_devices = omp_get_num_devices();
+  if (num_devices <= 0) {
+    fprintf(stderr,
+            "Error: OpenMP reports no target devices (omp_get_num_devices=%d).\n",
+            num_devices);
+    fprintf(stderr,
+            "Hint: check GCC offload plugin/runtime and GPU arch flags.\n");
+    return EXIT_FAILURE;
+  }
+
+  if (gpu_id < 0 || gpu_id >= num_devices) {
+    fprintf(stderr,
+            "Warning: requested gpu_id=%d is out of range [0,%d). Using 0.\n",
+            gpu_id, num_devices);
+    gpu_id = 0;
+  }
+
+
+  
+  printf("OpenMP target devices: %d, selected device: %d\n",
+         num_devices, gpu_id);
+
+
   if (size <= 0 || num_of_bits <= 0 || num_of_ref_bits <= 0 ||
     max_threads <= 0) {
     fprintf(stderr, "Error: size, number of bits, number of ref bits, and max "
@@ -157,8 +181,8 @@ int main(int argc, char* argv []) {
   max = database_match_GPU(db1, db2,
     (SETOP_COUNT_OPTS) {
     .device_id =    gpu_id,
-      .upd_1st_operand = false,
-      .upd_2nd_operand = false
+      .upd_1st_operand = true,
+      .upd_2nd_operand = true
   });
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   duration = timeDiff(&end_time, &start_time);

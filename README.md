@@ -46,37 +46,37 @@ on unions/differences/intersections of sets) and fast population counts (see bel
 
 ### Prerequisites
 
-- C compiler (GCC, Clang, or Intel ICX) : GCC extensively tested, ICX and Clang 
-  support still experimental (see offload testing later on)
+- C compiler (`gcc` or `clang`)
 - GNU Make
 
 ### Building
 
-This assumes that you have CUDA and ROCm installed and working in your system. If you do not want
-to build for GPU, ignore all GPU sections. 
+This assumes that you have CUDA installed for NVIDIA builds and, if you want to
+use AMD offload, a ROCm-supported AMD GPU with a matching ROCm/LLVM stack. If
+you do not want to build for GPU, ignore all GPU sections.
 
 ```bash
 # Clone the repository
 git clone https://github.com/username/Bit.git
 cd Bit
 
-# Build the library for NVIDIA
+# Build the library with CPU-only fallback wrappers (default)
 make
 
 # Build the library without GPU support (the corresponding functions point to the CPU versions)
 make GPU=NONE
 
-# Build for NVIDIA
-make GPU=NVIDIA
-
-# Build for NVIDIA with clang (default NVIDIA architectures listed below)
+# Build for NVIDIA with clang (supported path; auto-detect visible GPU SMs)
 make CC=clang GPU=NVIDIA
 
 # Build for one specific NVIDIA architecture
 make CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_75
 
-# Build for an explicit list of NVIDIA architectures
-make CC=clang GPU=NVIDIA NVIDIA_ARCHES='sm_50 sm_52 sm_53 sm_60 sm_61 sm_62 sm_70 sm_72 sm_75'
+# Build for an explicit comma-separated list of NVIDIA architectures
+make CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_70,sm_80
+
+# GCC NVIDIA build (policy-implicit; picks the earliest compiler-supported SM)
+make CC=gcc GPU=NVIDIA
 
 # Build for NVIDIA using a specific CUDA toolkit location
 make CC=clang GPU=NVIDIA CUDA_PATH=/usr/local/cuda-11.8
@@ -92,14 +92,59 @@ make CC=clang GPU=AMD
 make CC=clang GPU=AMD AMD_ARCH=gfx90a
 ```
 
-For `CC=clang GPU=NVIDIA`, the Makefile defaults to a fatbinary targeting:
-`sm_50 sm_52 sm_53 sm_60 sm_61 sm_62 sm_70 sm_72 sm_75`.
+Plain `make` now defaults to `GPU=NONE`.
+
+On this developer machine, the following combinations are known to build:
+
+- `make GPU=NONE`
+- `make CC=gcc GPU=NVIDIA` with `NVIDIA_ARCH_POLICY=A` selecting `sm_35`
+- `make CC=clang GPU=NVIDIA` with `NVIDIA_ARCH_POLICY=A` selecting `sm_52,sm_70`
+
+The AMD path is not validated on this machine because the installed GPU is not
+supported by ROCm. In particular, `make CC=gcc GPU=AMD` does not work here.
+If you have a ROCm-supported AMD GPU, you should run the AMD tests on that
+machine to confirm the architecture/runtime pairing.
+
+For `CC=clang GPU=NVIDIA`, the supported flow is:
+
+- use `NVIDIA_ARCH` when you want explicit targets,
+- otherwise let `NVIDIA_ARCH_POLICY=A` pick the earliest compiler-supported
+  SM from the visible GPUs,
+- and fail early with `NVIDIA_ARCH_POLICY=B` or `C` when you want explicit
+  control instead of automatic guessing.
+
+If architecture detection fails, the canonical recovery command is:
+
+```bash
+make CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_xy
+```
 
 NVIDIA build variables:
 
-- `NVIDIA_ARCHES`: space-separated list of NVIDIA SM targets to include in the build.
-- `NVIDIA_ARCH`: single SM target; when set, it overrides `NVIDIA_ARCHES`.
+- `NVIDIA_ARCH`: one SM target or a comma-separated list such as `sm_70,sm_80`; input is normalized case-insensitively, and each entry must match `sm_<digits>`.
+- `NVIDIA_ARCH_POLICY`: controls implicit selection when `NVIDIA_ARCH` is not
+  set. `A` is the default and chooses the earliest compiler-supported SM,
+  `B` requires an explicit `NVIDIA_ARCH` when no visible supported SM is
+  available, and `C` fails instead of guessing.
 - `CUDA_PATH`: path to the CUDA toolkit used by clang offload (default: `/usr/lib/cuda`).
+
+AMD build variables:
+
+- `AMD_ARCH`: one AMD gfx target such as `gfx90a`; input is normalized case-insensitively and must match `gfx<target>`.
+
+The Makefile rejects `NVIDIA_ARCH` when `GPU=AMD`, rejects `AMD_ARCH` when `GPU=NVIDIA`, and rejects both when `GPU=NONE`.
+
+If you set `NVIDIA_ARCH` explicitly on a multi-GPU system, make sure the list
+covers the GPU you will actually run on. Otherwise LLVM OpenMP can fail at
+runtime with a message like `No images found compatible with the installed
+hardware`, even though the build succeeded. In that case, either include all
+required SM targets in `NVIDIA_ARCH` or restrict execution with
+`CUDA_VISIBLE_DEVICES` to a compatible GPU.
+
+`CC=gcc GPU=NVIDIA` remains best-effort experimental. In this Makefile,
+`gcc` only uses one NVIDIA device image at a time, so implicit selection picks
+the earliest compiler-supported SM and explicit `NVIDIA_ARCH` should name a
+single SM target. `clang` can use multiple `--offload-arch` entries.
 
 
 ### GPU Troubleshoooting and Benchmarking
@@ -132,7 +177,7 @@ by the bit library and can help isolate compile/runtime issues and/or mismathces
 #### Building `test_offload` with Custom Architectures
 
 The `test_offload` binary inherits all compiler and GPU offload flags from the library build.
-You can pass `NVIDIA_ARCH`, `NVIDIA_ARCHES`, or `AMD_ARCH` when invoking `make test_offload`:
+You can pass `NVIDIA_ARCH` or `AMD_ARCH` when invoking `make test_offload`:
 
 **NVIDIA:**
 ```bash
@@ -140,10 +185,13 @@ You can pass `NVIDIA_ARCH`, `NVIDIA_ARCHES`, or `AMD_ARCH` when invoking `make t
 make test_offload CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_70
 
 # Build for multiple NVIDIA architectures
-make test_offload CC=clang GPU=NVIDIA NVIDIA_ARCHES='sm_50 sm_70 sm_75'
+make test_offload CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_70,sm_80
 
-# Default (uses all default NVIDIA architectures)
-make test_offload
+# Auto-detect visible NVIDIA architectures via nvidia-smi
+make test_offload CC=clang GPU=NVIDIA
+
+# Restrict execution to a GPU whose SM matches the built image set
+CUDA_VISIBLE_DEVICES=1 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
 ```
 
 **AMD:**
@@ -160,12 +208,15 @@ with the chosen architecture. Pass benchmark iterations as the third argument to
 the GPU benchmark suite:
 
 ```bash
-# Correctness tests only
-./build/test_offload 100000 0
+# Correctness tests only; require real device offload
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
 
 # Correctness tests + benchmarks with 100 iterations
-./build/test_offload 100000 0 100
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0 100
 ```
+
+Using `OMP_TARGET_OFFLOAD=MANDATORY` is recommended when validating GPU builds so
+host fallback is treated as failure instead of looking like a successful offload run.
 
 #### libomptarget diagnostics defaults (overrideable)
 
@@ -201,7 +252,8 @@ Common AMD GPU architectures that you can use as arguments:
 - `gfx908` - CDNA 1 / MI100
 - `gfx90a` - CDNA 2 / MI200
 
-If AMD offload does not initialize, use this remediation flow:
+If AMD offload does not initialize, use this remediation flow on a machine with
+a ROCm-supported AMD GPU:
 
 ```bash
 # 1) Confirm your detected AMD gfx target
@@ -225,6 +277,17 @@ ROCR_VISIBLE_DEVICES=0 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 4096 0
 If `make` reports that no OpenMP AMD device runtime exists for a selected
 `AMD_ARCH`, rebuild with a supported target for your installed LLVM/ROCm stack.
 
+If you are validating the AMD path on supported hardware, run the full test
+suite with mandatory offload so host fallback cannot hide a broken device path:
+
+```bash
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0 100
+```
+
+If these tests fail on a ROCm-supported GPU, adjust `AMD_ARCH` to match the
+installed LLVM/ROCm runtime and rerun before trusting the build.
+
 If you are building for an architecture that is not supported (e.g. due to AMD's aggressive planned obsolescence),
 you may be able to use the following workaround (tested with AMD Radeon Pro W5500 and llvm 18):
 1. pick a supported architecture that is "close" to what you want to build for (e.g. use gfx1010 or 1030 for gfx1012)
@@ -234,6 +297,7 @@ and compile with that architecture.
 export HSA_OVERRIDE_GFX_VERSION=10.1.0
 ```
 3. Run normally
+(note this hack is more likely to work with llvm than gcc)
 
 #### NVIDIA GPU remediation (OpenMP offload)
 
@@ -257,6 +321,7 @@ this environment can report zero devices or fail to initialize correctly.
 That looks like a `libomptarget`/runtime quirk rather than a Bit issue, because
 the same binary works when each GPU is tested individually. In practice, the
 safe workaround is to run one GPU at a time.
+On the other hand, gcc is more than happy to work with more than 1 NVIDIA GPUs.
 
 
 ### Compiler Bug Reports
@@ -268,7 +333,7 @@ By default:
 
 - `BUG_REPORT_DIR=bug_reports`
 - `BUG_TARGET=bench_omp`
-- `BUG_REPORT_TAG=$(notdir CC)-GPU-<arch-tag>` (used in output file names; defaults to `AMD_ARCH` for AMD and `NVIDIA_ARCH`/first `NVIDIA_ARCHES` entry for NVIDIA)
+- `BUG_REPORT_TAG=$(notdir CC)-GPU-<arch-tag>` (used in output file names; defaults to `AMD_ARCH` for AMD and `NVIDIA_EFFECTIVE_ARCHES` for NVIDIA)
 
 Each invocation creates a new report subdirectory:
 
@@ -288,8 +353,8 @@ make bug_report CC=gcc GPU=AMD AMD_ARCH=gfx900 BUG_TARGET=bench_omp
 # Clang AMD offload bug report
 make bug_report CC=clang GPU=AMD AMD_ARCH=gfx90a BUG_TARGET=bench_omp
 
-# Clang NVIDIA offload bug report
-make bug_report CC=clang GPU=NVIDIA BUG_TARGET=bench_omp
+# Clang NVIDIA offload bug report with explicit SM target
+make bug_report CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_70 BUG_TARGET=bench_omp
 ```
 
 After completion, inspect files in the new per-run report directory, especially:
@@ -359,12 +424,50 @@ The benchmark will run:
 - containerized OpenMP query utilizing 1 to max_threads
 - containerized OpenMP query using GPU offloading
 
+The CPU-only benchmar (`openmo_bit_nogpu`) omits entirely the GPU benchmarks.
+
 The GPU-only benchmark (`openmp_bit_nocpu`) runs only containerized GPU
 offloaded intersection counts. Its 4th argument uses the same CLI position as
 `max threads`, but is interpreted as the number of GPU iterations.
 
-The repository [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits) contains benchmarks
-against other bitset/bitvector/bitmaps in C and Perl.
+### Interpreting `openmp_bit_nocpu` Output
+
+This is a safe harbor for testing various implementations of GPU code (e.g. 
+OpenMP directives, or popcount algorithms) without messing with `bit.c`.
+
+The GPU-only benchmark prints multiple timing blocks so on can separate kernel
+cost from host/device transfer and orchestration overhead:
+
+- **GPU Algorithm Timing**
+  - Time spent in the GPU intersection algorithm itself (kernel-focused view).
+  - Use this to compare algorithmic efficiency across architectures/compilers.
+
+- **GPU Algorithm + PCIe Timings**
+  - End-to-end device path including host/device movement.
+  - Use this to evaluate real execution cost when transfers are part of each
+    iteration.
+
+- **CPU Overhead Timings**
+  - Host-side setup/dispatch/synchronization overhead around GPU work.
+  - Useful for understanding launch/runtime overhead at small problem sizes.
+
+- **Per-Iteration Data Movement Breakdown**
+  - Reports transfer volume and transfer time per iteration.
+  - Use this to see whether runtime is dominated by movement or compute.
+
+- **Estimated Throughput**
+  - Effective rate computed from processed data and measured time.
+  - Treat this as a practical end-to-end throughput metric (not a pure bus
+    bandwidth number unless only transfer time is used in the denominator).
+
+In short: compare **GPU Algorithm Timing** for compute behavior, and compare
+**GPU Algorithm + PCIe Timings** plus movement breakdown for real workload
+performance.
+
+
+
+The repository [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits) 
+contains benchmarks against other bitset/bitvector/bitmaps in C and Perl.
 
 
 ## Usage Example
@@ -826,8 +929,8 @@ Bit is particularly useful for:
 - Implement additional set-op operations (e.g. the Jaccard index)
 - Implement additional, OS agnostic build systems 
 - Code the setop functions (e.g. and, not, xor etc) using SIMD directives
-- Ensure that clang and icx are fully tested and supported
-- CUDA and HIP implementations (use AI to generate those from the manually coded OpenMP path)
+- Ensure that gcc and clang are fully tested across CPU, NVIDIA, and AMD paths
+- CUDA and HIP implementations (? use AI to generate those from the manually coded OpenMP path)
 - Utilize Unified Shared Memory if available in the system
 - TPU & NPU support (low priority but will be cool with all the new chips)
 
@@ -840,10 +943,18 @@ BSD 2-Clause License. See the LICENSE file for details.
 Christos Argyropoulos (April 2025 -  May 2026)
 
 ## AI disclosure
-Github Copilot has been very helpful when it comes to generating the makefile. For sure there is bload, but my technical skills in writing Makefiles is horrendous and I appreciate all the help I could get. 
+Github Copilot has been very helpful when it comes to generating the makefile. 
+For sure there is bloat, but my technical skills in writing Makefiles is  
+horrendous and I appreciate all the help I could get. 
 
-[^1]: Historical Trivia: The method is identified as the ”Gillies-Miller sideways addition” in the original reference (Maurice V. Wilkes, David J. Wheeler, and Stanley Gill. 
-_The Preparation of Programs for an Electronic Digital Computer_, chapter Gillies–Miller method for sideways addition, pages 191–193. Addison-Wesley Publishing
-Company, Reading, Mass., 2nd edition, 1957.) but it was named the ”Wilkes-Wheeler-Gill function in C” by Mula, Kurz and Lemire (Faster population counts using avx2 instructions. 
-_The Computer Journal_, 61(1):111–120, May 2017.), leaving some confusion about who originated the method, though
-the first implementation may had been written by Wilkes, Wheeler andGill in support of their 1957 book.
+[^1]: Historical Trivia: The method is identified as the Gillies-Miller 
+"sideways addition” in the original reference (Maurice V. Wilkes, 
+David J. Wheeler, and Stanley Gill. _The Preparation of Programs for 
+an Electronic Digital Computer_, chapter Gillies–Miller method for 
+sideways addition, pages 191–193. Addison-Wesley Publishing Company, 
+Reading, Mass., 2nd edition, 1957.) but it was named the 
+”Wilkes-Wheeler-Gill function in C” by Mula, Kurz and Lemire 
+(Faster population counts using avx2 instructions. _The Computer Journal_,
+ 61(1):111–120, May 2017.), leaving some confusion about who originated 
+ the method, though the first implementation may had been written by
+  Wilkes, Wheeler andGill in support of their 1957 book.
