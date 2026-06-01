@@ -24,7 +24,16 @@
                           by the library). Returns the address of the storage
                           if allocated externally, or NULL if the
                           bitset was allocated by the library.
-    * Bit_load          : Load an externally allocated bitset into a (new) T
+    * Bit_load          : Load an externally allocated bitset into a (new) T.
+                          The buffer must be large enough to hold the bitset (so
+                          please ensure that you use Bit_buffer_size(length) to 
+                          obtain the size of the buffer you need). 
+                          The library expects the buffer size to be a multiple 
+                          of uint64_t, so if the length is not a multiple of 
+                          64 bits, the buffer should be padded to the next 
+                          multiple of 8 bytes. If you allocate a shorter buffer, 
+                          contratulations, you just inserted an overrun buffer 
+                          bug in your application. 
     * Bit_extract       : Extract the bitset from a T into an externally
                           allocated buffer. Returns the number of bytes written.
 
@@ -77,7 +86,8 @@
 
     * BitDB_new         : Create a new packed container of bitsets
     * BitDB_load        : Load a packed container of bitsets from an
-                          externally allocated buffer
+                          externally allocated buffer. See warnings under 
+                          Bit_load about buffer size and padding.
     * BitDB_free        : Free the packed container of bitsets
     * BitDB_length      : Get the length of bitsets in the packed container.
     * BitDB_count_at    : Population count at a given index in the container.
@@ -168,7 +178,9 @@ typedef struct {
     * Bit_free          : It is a checked runtime error to try to free a bitset
                           that was not allocated by the library.
     * Bit_load          : Checked runtime error if length is less than 0 or
-                          greater than INT_MAX. Also checks if buffer is NUL
+                          greater than INT_MAX. Also checks if buffer is NULL
+                          Cannot possibly check if the buffer is padded to 
+                          the next multiple of the size of a uint64_t.
     * Bit_buffer_size   : Checked runtime error if length is less than 0 or
                           greater than INT_MAX.
     * Bit_length        : Obtains the length (capacity of the bitset) in bits.

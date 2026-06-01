@@ -39,7 +39,10 @@ on unions/differences/intersections of sets) and fast population counts (see bel
   Population counts in GPUs are carried out using the WWG algorithm.
 - **Containerized operations**: These allow operations (e.g. intersect counts)
   between two packed containers of Bits using either the CPU or the GPU.
-  Multithreading in the CPU and GPU offloading requires the presence of OpenMP
+  Multithreading in the CPU and GPU offloading requires the presence of OpenMP.
+  The storage space of containers managed by the library will be aligned to 
+  64 bit (or even 32 bit!) addresses to assist with SIMD operations when
+  operating at large collections of packed bitsets. 
 - **Perl interface**: Interface is provided by the Bit::Set MetaCPAN [package](https://metacpan.org/pod/Bit::Set)
 
 ## Installation
