@@ -20,9 +20,12 @@
 #include <stdlib.h>  // For malloc, free
 #include <string.h>  // For memset
 
+/*---------------------------------------------------------------------------
+  Environmental and configuration macros
+----------------------------------------------------------------------------*/
+
 #if defined(USE_LIBPOPCNT)
 #include "libpopcnt.h"
-#define BUFFER_SIZE 1024  // Buffer size for popcnt operations
 #define USING_LIBPOPCNT 1 // Flag to indicate the use of libpopcnt
 #else
 #define USING_LIBPOPCNT 0
@@ -45,21 +48,16 @@
 #error "Unsupported pointer size. Architecture must be 32-bit or 64-bit."
 #endif
 
-// OpenMP macros that help with the macro code
-
-// simple OMP macro to parallelize the loop
-#define OMP_CPU_LOOP(levels, sched)                                            \
-_Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
-
-#define OMP_CPU_LOOP_STATIC(levels, chunk)                                     \
-_Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(static, chunk)))
-
-// simple OMP macro to parallelize the loop with SIMD vectorization
-#define OMP_CPU_SIMD _Pragma(STRINGIFY(omp simd))
-
-// Aligned SIMD macro
-#define OMP_CPU_SIMD_ALIGN_BUFFER(buffer, alignment)                           \
-  _Pragma(STRINGIFY(omp simd aligned(buffer : alignment)))
+/*
+  Tune these tiles to fit in L2/L3 cache. e.g., 32x32 or 32x64 for your
+  OpenMP CPU implementation.
+*/
+#ifndef CPU_TILE_BIT
+#define CPU_TILE_BIT 32
+#endif
+#ifndef CPU_TILE_BITS
+#define CPU_TILE_BITS 32
+#endif
 
 #define T Bit_T
 #define T_DB Bit_DB_T
@@ -102,10 +100,9 @@ struct T_DB {
   unsigned char *bytes;    // pointer to the first byte
   uint64_t *qwords;        // pointer to the first qword
 };
-/*---------------------------------------------------------------------------*/
-/*
-  Macros
-*/
+/*---------------------------------------------------------------------------
+  Infrastructural macros
+----------------------------------------------------------------------------*/
 
 #define STRINGIFY(x) #x // Macro to convert a macro argument to a string
 
@@ -116,6 +113,38 @@ struct T_DB {
 #define nbytes(len) ((((len) + 8 - 1) & (~(8 - 1))) / 8) // ceil(len/QBPW)
 
 #define POPCOUNT(x) count_WWG((x))
+
+// the is a no operation macro that can be used to disable SIMD vectorization in
+// the CPU code when needed
+#define NO_SIMD /*NO SIMD*/
+
+/*---------------------------------------------------------------------------
+  OpenMP CPU macros
+----------------------------------------------------------------------------*/
+
+// OpenMP macros that help with the macro code
+
+// simple OMP macro to parallelize the loop
+#define OMP_CPU_LOOP(levels, sched)                                            \
+_Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(sched)))
+
+#define OMP_CPU_LOOP_STATIC(levels, chunk)                                     \
+_Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(static, chunk)))
+
+// simple OMP macro to parallelize the loop with SIMD vectorization
+#define OMP_CPU_SIMD _Pragma(STRINGIFY(omp simd))
+
+// Aligned SIMD macro
+/*
+#define OMP_CPU_SIMD_ALIGN_BUFFER(buffer, alignment)                           \
+  _Pragma(STRINGIFY(omp simd aligned(buffer : alignment)))
+  */
+#define OMP_CPU_SIMD_ALIGN_BUFFER(alignment, ...)                              \
+  _Pragma(STRINGIFY(omp simd aligned(__VA_ARGS__ : alignment)))
+/*---------------------------------------------------------------------------
+  Macros relevant to the set operations on two bitsets
+----------------------------------------------------------------------------*/
+#define SETOP_BUFFER_SIZE 1024 // Buffer size for popcnt operations
 
 // Macro that implements the set operations on two bitsets (from Hanson's book)
 #define setop(sequal, snull, tnull, op)                                        \
@@ -168,14 +197,15 @@ struct T_DB {
   } else {                                                                     \
     assert(s->length == t->length);                                            \
     uint64_t count = 0;                                                        \
-    uint64_t setop_buffer[BUFFER_SIZE]; /*buffer for popcount*/                \
-    int limit = s->size_in_qwords - s->size_in_qwords % BUFFER_SIZE;           \
+    uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/          \
+    int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;     \
     int i = 0;                                                                 \
-    for (; i < limit; i += BUFFER_SIZE) {                                      \
-      for (int j = 0; j < BUFFER_SIZE; j++) {                                  \
+    for (; i < limit; i += SETOP_BUFFER_SIZE) {                                \
+      for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {                            \
         setop_buffer[j] = s->qwords[i + j] op t->qwords[i + j];                \
       }                                                                        \
-      count += popcnt((void *)setop_buffer, BUFFER_SIZE * sizeof(uint64_t));   \
+      count +=                                                                 \
+          popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));  \
     }                                                                          \
     for (; i < s->size_in_qwords; i++) {                                       \
       count += POPCOUNT(s->qwords[i] op t->qwords[i]);                         \
@@ -184,6 +214,9 @@ struct T_DB {
   }
 #endif
 
+/*---------------------------------------------------------------------------
+  Macros relevant to the set operations on two bitset containers (DB)
+----------------------------------------------------------------------------*/
 // Checks that 2 DB bitsets are valid and have the same length
 #define SETOP_DB_CHECKS(bit, bits)                                             \
   assert(bit &&bits);                                                          \
@@ -200,124 +233,86 @@ struct T_DB {
 
 // Initializes the threaded set operations on two DB bitsets
 #define SETOP_DB_INIT_CPU(opts)                                                \
-  LIMIT_STATEMENT(limit, bit_size_in_qwords, BUFFER_SIZE)                      \
+  LIMIT_STATEMENT(limit, bit_size_in_qwords, SETOP_BUFFER_SIZE)                \
   int numthreads = opts.num_cpu_threads;                                       \
   if (numthreads <= 0) {                                                       \
     numthreads = omp_get_max_threads();                                        \
   }                                                                            \
   omp_set_num_threads(numthreads);
 
-// conditional macro that executes the set operation count on two DB bitsets
+// Group of macros that implement the setop count operations on two DB bitsets
+
+#define setop_count_db_cpu_kernel(a_row, b_row, bit_size_in_qwords, result,    \
+                                  op, SIMD_DIRECTIVE)                          \
+  _Alignas(ALIGNMENT) uint64_t setop_buffer[SETOP_BUFFER_SIZE];                \
+  uint64_t count = 0;                                                          \
+  int l = 0;                                                                   \
+                                                                               \
+  for (; l < limit; l += SETOP_BUFFER_SIZE) {                                  \
+    /* SIMD SYNCHRONIZATION DIRECTIVE */                                       \
+    SIMD_DIRECTIVE                                                             \
+    for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                              \
+      setop_buffer[k] = a_row[l + k] op b_row[l + k];                          \
+    }                                                                          \
+    POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                   \
+  } /* Handle the scalar remainder perfectly */                                \
+  for (; l < bit_size_in_qwords; l++) {                                        \
+    count += POPCOUNT(a_row[l] op b_row[l]);                                   \
+  }                                                                            \
+  result = (int)count;
+
+// conditional macros facilitating count ops on DB according to the use
+// of libpopcnt or not
 #ifndef USE_LIBPOPCNT
-#define LIMIT_STATEMENT(limit, bit_size_in_qwords, BUFFER_SIZE)
-#define setop_count_db_cpu_kernel(bits, bit_qwords, bits_qwords,               \
-                                  bit_size_in_qwords, counts, op, n)           \
-  int count = 0;                                                               \
-  for (int k = 0; k < bit_size_in_qwords; k++) {                               \
-    count += POPCOUNT(bit_qwords[i * bit_size_in_qwords + k] op                \
-                          bits_qwords[j * bit_size_in_qwords + k]);            \
-  }                                                                            \
-  counts[i * n + j] = count;
+
+#define POPULATION_COUNT(count, setop_buffer, buffer_size)                     \
+  /* SIMD SYNCHRONIZATION DIRECTIVE */                                         \
+  OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, setop_buffer)                           \
+  for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                                \
+    count += POPCOUNT(setop_buffer[k]);                                        \
+  }
+
 #else
-#define LIMIT_STATEMENT(limit, bit_size_in_qwords, BUFFER_SIZE)                \
-  int limit = bit_size_in_qwords - bit_size_in_qwords % BUFFER_SIZE;
 
-// original implementation of the setop count kernel using libpopcnt without
-// leveraging the alignment of the bitsets. Replaced by the three versions of
-// the kernel below that leverage the alignment of the bitsets to achieve
-// (?perhaps) better performance.
+#define POPULATION_COUNT(count, setop_buffer, buffer_size)                     \
+  count += popcnt((void *)setop_buffer, buffer_size * sizeof(uint64_t));
 
-#define setop_count_db_cpu_kernel(a_row, b_row, bit_size_in_qwords, op,        \
-                                  result)                                      \
-  uint64_t count = 0;                                                          \
-  _Alignas(ALIGNMENT) uint64_t setop_buffer[BUFFER_SIZE];                      \
-  int l = 0;                                                                   \
-                                                                               \
-  for (; l < limit; l += BUFFER_SIZE) {                                        \
-    /* Force SIMD vectorization of the bitwise operation into the buffer */    \
-    OMP_CPU_SIMD_ALIGN_BUFFER(setop_buffer, ALIGNMENT)                         \
-    for (int k = 0; k < BUFFER_SIZE; k++) {                                    \
-      setop_buffer[k] = a_row[l + k] op b_row[l + k];                          \
-    }                                                                          \
-    count += popcnt((void *)setop_buffer, BUFFER_SIZE * sizeof(uint64_t));     \
-  }                                                                            \
-  /* Handle the scalar remainder perfectly */                                  \
-  for (; l < bit_size_in_qwords; l++) {                                        \
-    count += POPCOUNT(a_row[l] op b_row[l]);                                   \
-  }                                                                            \
-  result = (int)count;
-
-#define setop_count_db_cpu_kernel_32bit(a_row, b_row, bit_size_in_qwords, op,  \
-                                        result)                                \
-  uint64_t count = 0;                                                          \
-  _Alignas(ALIGNMENT) uint64_t setop_buffer[BUFFER_SIZE];                      \
-  int l = 0;                                                                   \
-                                                                               \
-  uint64_t safe_a[BUFFER_SIZE], safe_b[BUFFER_SIZE];                           \
-  for (; l <= (int)(bit_size_in_qwords - BUFFER_SIZE); l += BUFFER_SIZE) {     \
-    memcpy(safe_a, &a_row[l], BUFFER_SIZE * sizeof(uint64_t));                 \
-    memcpy(safe_b, &b_row[l], BUFFER_SIZE * sizeof(uint64_t));                 \
-    for (int k = 0; k < BUFFER_SIZE; k++) {                                    \
-      setop_buffer[k] = safe_a[k] op safe_b[k];                                \
-    }                                                                          \
-    count += popcnt((void *)setop_buffer, BUFFER_SIZE * 8);                    \
-  }                                                                            \
-  /* Handle the scalar remainder perfectly */                                  \
-  for (; l < bit_size_in_qwords; l++) {                                        \
-    count += POPCOUNT(a_row[l] op b_row[l]);                                   \
-  }                                                                            \
-  result = (int)count;
-
-#define setop_count_db_cpu_kernel_fullalign_64bit(                             \
-    a_row, b_row, bit_size_in_qwords, op, result)                              \
-  uint64_t count = 0;                                                          \
-  _Alignas(ALIGNMENT) uint64_t setop_buffer[BUFFER_SIZE];                      \
-  int l = 0;                                                                   \
-                                                                               \
-  for (; l <= (int)(bit_size_in_qwords - BUFFER_SIZE); l += BUFFER_SIZE) {     \
-    _Pragma(                                                                   \
-        "omp simd aligned(a_row, b_row, setop_buffer: 64)") for (int k = 0;    \
-                                                                 k <           \
-                                                                 BUFFER_SIZE;  \
-                                                                 k++) {        \
-      setop_buffer[k] = a_row[l + k] op b_row[l + k];                          \
-    }                                                                          \
-    count += popcnt((void *)setop_buffer, BUFFER_SIZE * 8);                    \
-  }                                                                            \
-  /* Handle the scalar remainder perfectly */                                  \
-  for (; l < bit_size_in_qwords; l++) {                                        \
-    count += POPCOUNT(a_row[l] op b_row[l]);                                   \
-  }                                                                            \
-  result = (int)count;
-
-#define setop_count_db_cpu_kernel_partialalign_64bit(                          \
-    a_row, b_row, bit_size_in_qwords, op, result)                              \
-  uint64_t count = 0;                                                          \
-  _Alignas(ALIGNMENT) uint64_t setop_buffer[BUFFER_SIZE];                      \
-  int l = 0;                                                                   \
-                                                                               \
-  for (; l <= (int)(bit_size_in_qwords - BUFFER_SIZE); l += BUFFER_SIZE) {     \
-    _Pragma("omp simd aligned(setop_buffer: 64)") for (int k = 0;              \
-                                                       k < BUFFER_SIZE; k++) { \
-      setop_buffer[k] = a_row[l + k] op b_row[l + k];                          \
-    }                                                                          \
-    count += popcnt((void *)setop_buffer, BUFFER_SIZE * 8);                    \
-  }                                                                            \
-  /* Handle the scalar remainder perfectly */                                  \
-  for (; l < bit_size_in_qwords; l++) {                                        \
-    count += POPCOUNT(a_row[l] op b_row[l]);                                   \
-  }                                                                            \
-  result = (int)count;
 #endif
 
-// CPU SETOP on two bitsets
-/* Tune these tiles to fit in L2/L3 cache. e.g., 64x64 or 32x128 */
-#ifndef TILE_BIT
-#define TILE_BIT 32
-#endif
-#ifndef TILE_BITS
-#define TILE_BITS 32
-#endif
+/*-----------------------------------------------------------------------------*/
+// Helper macros to reduce typing in the setop_count_db_cpu function below.
+
+#define LIMIT_STATEMENT(limit, bit_size_in_qwords, SETOP_BUFFER_SIZE)          \
+  int limit = bit_size_in_qwords - bit_size_in_qwords % SETOP_BUFFER_SIZE;
+
+#define OMP_CPU_TILE_START                                                     \
+  OMP_CPU_LOOP(2, static)                                                      \
+  for (int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
+    for (int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
+                                                                               \
+      /* Determine boundary limits for this tile */                            \
+      int i_max = (i_b + CPU_TILE_BIT < num_targets) ? i_b + CPU_TILE_BIT      \
+                                                     : num_targets;            \
+      int j_max = (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;         \
+                                                                               \
+      /* Compute all pairs within the tile */                                  \
+      for (int i = i_b; i < i_max; i++) {                                      \
+        /* Pre-calculate the starting pointer for row i of Matrix A */         \
+        const uint64_t *restrict a_row =                                       \
+            bit_qwords + (uint64_t)i * bit_size_in_qwords;                     \
+                                                                               \
+        for (int j = j_b; j < j_max; j++) {                                    \
+          /* Pre-calculate the starting pointer for row j of Matrix B */       \
+          const uint64_t *restrict b_row =                                     \
+              bits_qwords + (uint64_t)j * bit_size_in_qwords;                  \
+                                                                               \
+/* Here goes code  that differentiates the execution paths */
+#define OMP_CPU_TILE_END                                                       \
+  }                                                                            \
+  }                                                                            \
+  }                                                                            \
+  }
+/*-----------------------------------------------------------------------------*/
 
 #define setop_count_db_cpu(bit, bits, counts, op, opts)                        \
   SETOP_DB_CHECKS(bit, bits)                                                   \
@@ -327,90 +322,27 @@ struct T_DB {
   /*Check Alignment of the buffers to select the codepath*/                    \
   bool aligned = ALIGN_CHECK(bit_qwords) && ALIGN_CHECK(bits_qwords);          \
   SETOP_DB_INIT_CPU(opts)                                                      \
-  if (aligned) {                                                               \
-    OMP_CPU_LOOP(2, static)                                                    \
-    for (int i_b = 0; i_b < num_targets; i_b += TILE_BIT) {                    \
-      for (int j_b = 0; j_b < n; j_b += TILE_BITS) {                           \
-                                                                               \
-        /* Determine boundary limits for this tile */                          \
-        int i_max =                                                            \
-            (i_b + TILE_BIT < num_targets) ? i_b + TILE_BIT : num_targets;     \
-        int j_max = (j_b + TILE_BITS < n) ? j_b + TILE_BITS : n;               \
-                                                                               \
-        /* Compute all pairs within the tile */                                \
-        for (int i = i_b; i < i_max; i++) {                                    \
-          /* Pre-calculate the starting pointer for row i of Matrix A */       \
-          const uint64_t *restrict a_row =                                     \
-              bit_qwords + (uint64_t)i * bit_size_in_qwords;                   \
-                                                                               \
-          for (int j = j_b; j < j_max; j++) {                                  \
-            /* Pre-calculate the starting pointer for row j of Matrix B */     \
-            const uint64_t *restrict b_row =                                   \
-                bits_qwords + (uint64_t)j * bit_size_in_qwords;                \
-                                                                               \
-            setop_count_db_cpu_kernel_fullalign_64bit(                         \
-                a_row, b_row, bit_size_in_qwords, op,                          \
-                counts[(uint64_t)i * n + j])                                   \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    }                                                                          \
-  } else if (ARCH_32BIT) {                                                     \
-    OMP_CPU_LOOP(2, static)                                                    \
-    for (int i_b = 0; i_b < num_targets; i_b += TILE_BIT) {                    \
-      for (int j_b = 0; j_b < n; j_b += TILE_BITS) {                           \
-                                                                               \
-        /* Determine boundary limits for this tile */                          \
-        int i_max =                                                            \
-            (i_b + TILE_BIT < num_targets) ? i_b + TILE_BIT : num_targets;     \
-        int j_max = (j_b + TILE_BITS < n) ? j_b + TILE_BITS : n;               \
-                                                                               \
-        /* Compute all pairs within the tile */                                \
-        for (int i = i_b; i < i_max; i++) {                                    \
-          /* Pre-calculate the starting pointer for row i of Matrix A */       \
-          const uint64_t *restrict a_row =                                     \
-              bit_qwords + (uint64_t)i * bit_size_in_qwords;                   \
-                                                                               \
-          for (int j = j_b; j < j_max; j++) {                                  \
-            /* Pre-calculate the starting pointer for row j of Matrix B */     \
-            const uint64_t *restrict b_row =                                   \
-                bits_qwords + (uint64_t)j * bit_size_in_qwords;                \
-                                                                               \
-            setop_count_db_cpu_kernel_32bit(a_row, b_row, bit_size_in_qwords,  \
-                                            op, counts[(uint64_t)i * n + j])   \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    }                                                                          \
+  if (ARCH_32BIT) {                                                            \
+    OMP_CPU_TILE_START                                                         \
+    setop_count_db_cpu_kernel(                                                 \
+        a_row, b_row, bit_size_in_qwords, counts[(uint64_t)i * n + j], op,     \
+        OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, a_row, b_row, setop_buffer))      \
+        OMP_CPU_TILE_END                                                       \
   } else {                                                                     \
-    OMP_CPU_LOOP(2, static)                                                    \
-    for (int i_b = 0; i_b < num_targets; i_b += TILE_BIT) {                    \
-      for (int j_b = 0; j_b < n; j_b += TILE_BITS) {                           \
-                                                                               \
-        /* Determine boundary limits for this tile */                          \
-        int i_max =                                                            \
-            (i_b + TILE_BIT < num_targets) ? i_b + TILE_BIT : num_targets;     \
-        int j_max = (j_b + TILE_BITS < n) ? j_b + TILE_BITS : n;               \
-                                                                               \
-        /* Compute all pairs within the tile */                                \
-        for (int i = i_b; i < i_max; i++) {                                    \
-          /* Pre-calculate the starting pointer for row i of Matrix A */       \
-          const uint64_t *restrict a_row =                                     \
-              bit_qwords + (uint64_t)i * bit_size_in_qwords;                   \
-                                                                               \
-          for (int j = j_b; j < j_max; j++) {                                  \
-            /* Pre-calculate the starting pointer for row j of Matrix B */     \
-            const uint64_t *restrict b_row =                                   \
-                bits_qwords + (uint64_t)j * bit_size_in_qwords;                \
-                                                                               \
-            setop_count_db_cpu_kernel_partialalign_64bit(                      \
-                a_row, b_row, bit_size_in_qwords, op,                          \
-                counts[(uint64_t)i * n + j])                                   \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
+    if (aligned) {                                                             \
+      OMP_CPU_TILE_START                                                       \
+      setop_count_db_cpu_kernel(                                               \
+          a_row, b_row, bit_size_in_qwords, counts[(uint64_t)i * n + j], op,   \
+          OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, a_row, b_row, setop_buffer))    \
+          OMP_CPU_TILE_END                                                     \
+    } else {                                                                   \
+      OMP_CPU_TILE_START                                                       \
+      setop_count_db_cpu_kernel(                                               \
+          a_row, b_row, bit_size_in_qwords, counts[(uint64_t)i * n + j], op,   \
+          OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, setop_buffer)) OMP_CPU_TILE_END \
     }                                                                          \
-  }                                                                            \
+  }
+
 // Macros for GPU operations
 #ifndef NOGPU
 
@@ -1345,20 +1277,20 @@ Nicely formated macros (for when vscode formatting misbehaves)
   counts[i * n + j] = count;
 #else
 #define LIMIT_STATEMENT                                                        \
-  int limit = bit_size_in_qwords - bit_size_in_qwords % BUFFER_SIZE;
+  int limit = bit_size_in_qwords - bit_size_in_qwords % SETOP_BUFFER_SIZE;
 
 #define setop_count_db_cpu_kernel(bits, bit_qwords, bits_qwords,               \
                                   bit_size_in_qwords, counts, op, n)           \
   uint64_t count = 0;                                                          \
-  uint64_t setop_buffer[BUFFER_SIZE];                                \
+  uint64_t setop_buffer[SETOP_BUFFER_SIZE];                                \
   int l = 0;                                                                   \
-  for (; l < limit; l += BUFFER_SIZE) {                                        \
-    for (int k = 0; k < BUFFER_SIZE; k++) {                                    \
+  for (; l < limit; l += SETOP_BUFFER_SIZE) { \
+    for (int k = 0; k < SETOP_BUFFER_SIZE; k++) { \
       setop_buffer[k] = bit_qwords[i * bit_size_in_qwords + l + k] op          \
           bits_qwords[j * bit_size_in_qwords + l + k];                         \
     }                                                                          \
     count += popcnt((void *)setop_buffer,                                      \
-                    BUFFER_SIZE * sizeof(uint64_t));                 \
+                    SETOP_BUFFER_SIZE * sizeof(uint64_t));                 \
   }                                                                            \
   for (; l < bit_size_in_qwords; l++) {                                        \
     count += POPCOUNT(bit_qwords[i * bit_size_in_qwords + l] op                \
