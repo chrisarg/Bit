@@ -135,12 +135,9 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(static, chunk)))
 #define OMP_CPU_SIMD _Pragma(STRINGIFY(omp simd))
 
 // Aligned SIMD macro
-/*
-#define OMP_CPU_SIMD_ALIGN_BUFFER(buffer, alignment)                           \
-  _Pragma(STRINGIFY(omp simd aligned(buffer : alignment)))
-  */
 #define OMP_CPU_SIMD_ALIGN_BUFFER(alignment, ...)                              \
   _Pragma(STRINGIFY(omp simd aligned(__VA_ARGS__ : alignment)))
+
 /*---------------------------------------------------------------------------
   Macros relevant to the set operations on two bitsets
 ----------------------------------------------------------------------------*/
@@ -215,7 +212,7 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(static, chunk)))
 #endif
 
 /*---------------------------------------------------------------------------
-  Macros relevant to the set operations on two bitset containers (DB)
+  Macros relevant to the set operations on two bitset containers (DB) - CPU
 ----------------------------------------------------------------------------*/
 // Checks that 2 DB bitsets are valid and have the same length
 #define SETOP_DB_CHECKS(bit, bits)                                             \
@@ -240,26 +237,6 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(static, chunk)))
   }                                                                            \
   omp_set_num_threads(numthreads);
 
-// Group of macros that implement the setop count operations on two DB bitsets
-
-#define setop_count_db_cpu_kernel(a_row, b_row, bit_size_in_qwords, result,    \
-                                  op, SIMD_DIRECTIVE)                          \
-  _Alignas(ALIGNMENT) uint64_t setop_buffer[SETOP_BUFFER_SIZE];                \
-  uint64_t count = 0;                                                          \
-  int l = 0;                                                                   \
-                                                                               \
-  for (; l < limit; l += SETOP_BUFFER_SIZE) {                                  \
-    /* SIMD SYNCHRONIZATION DIRECTIVE */                                       \
-    SIMD_DIRECTIVE                                                             \
-    for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                              \
-      setop_buffer[k] = a_row[l + k] op b_row[l + k];                          \
-    }                                                                          \
-    POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                   \
-  } /* Handle the scalar remainder perfectly */                                \
-  for (; l < bit_size_in_qwords; l++) {                                        \
-    count += POPCOUNT(a_row[l] op b_row[l]);                                   \
-  }                                                                            \
-  result = (int)count;
 
 // conditional macros facilitating count ops on DB according to the use
 // of libpopcnt or not
@@ -343,7 +320,30 @@ _Pragma(STRINGIFY(omp parallel for collapse(levels) schedule(static, chunk)))
     }                                                                          \
   }
 
-// Macros for GPU operations
+// Group of macros that implement the setop count operations on two DB bitsets
+
+#define setop_count_db_cpu_kernel(a_row, b_row, bit_size_in_qwords, result,    \
+                                  op, SIMD_DIRECTIVE)                          \
+  _Alignas(ALIGNMENT) uint64_t setop_buffer[SETOP_BUFFER_SIZE];                \
+  uint64_t count = 0;                                                          \
+  int l = 0;                                                                   \
+                                                                               \
+  for (; l < limit; l += SETOP_BUFFER_SIZE) {                                  \
+    /* SIMD SYNCHRONIZATION DIRECTIVE */                                       \
+    SIMD_DIRECTIVE                                                             \
+    for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                              \
+      setop_buffer[k] = a_row[l + k] op b_row[l + k];                          \
+    }                                                                          \
+    POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                   \
+  } /* Handle the scalar remainder perfectly */                                \
+  for (; l < bit_size_in_qwords; l++) {                                        \
+    count += POPCOUNT(a_row[l] op b_row[l]);                                   \
+  }                                                                            \
+  result = (int)count;
+  
+/*---------------------------------------------------------------------------
+  Macros relevant to the set operations on two bitset containers (DB) - GPU
+----------------------------------------------------------------------------*/
 #ifndef NOGPU
 
 #define UPDATE_GPU_ARRAY(dir, array, index1, index2, dev_id)                   \

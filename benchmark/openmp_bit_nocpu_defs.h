@@ -10,6 +10,8 @@ typedef struct {
   struct timespec end_PCIe_time;
   struct timespec start_CPU_overhead;
   struct timespec end_CPU_overhead;
+  struct timespec start_GPU_transpose_time;
+  struct timespec end_GPU_transpose_time;
 } GPU_Instrumentation;
 
 struct Bit_T {

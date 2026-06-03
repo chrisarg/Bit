@@ -197,6 +197,7 @@ int main(int argc, char *argv[]) {
   int64_t timings[MAX_GPU_ITERATIONS + 1];
   int64_t PCIe_timings[MAX_GPU_ITERATIONS + 1];
   int64_t CPU_overhead_timings[MAX_GPU_ITERATIONS + 1];
+  int64_t GPU_transpose_timings[MAX_GPU_ITERATIONS + 1];
   int results[MAX_GPU_ITERATIONS + 1];
   GPU_Instrumentation instr;
   // burn-in iteration to mitigate cold-start overheads
@@ -220,6 +221,8 @@ int main(int argc, char *argv[]) {
     PCIe_timings[i] = timeDiff(&instr.end_PCIe_time, &instr.start_PCIe_time);
     CPU_overhead_timings[i] =
         timeDiff(&instr.end_CPU_overhead, &instr.start_CPU_overhead);
+    GPU_transpose_timings[i] =
+        timeDiff(&instr.end_GPU_transpose_time, &instr.start_GPU_transpose_time);
     results[i] = max;
   }
 
@@ -280,6 +283,13 @@ int main(int argc, char *argv[]) {
   for (int i = 1; i <= gpu_iterations; i++) {
     summarize_results("Container - GPU - OpenMP", PCIe_timings[i], i,
                       results[i], (float)PCIe_timings[1] / PCIe_timings[i]);
+  }
+
+  puts("GPU Transpose Timings:");
+  for (int i = 1; i <= gpu_iterations; i++) {
+    summarize_results("Container - GPU - OpenMP", GPU_transpose_timings[i], i,
+                      results[i], (float)GPU_transpose_timings[1] /
+                                      GPU_transpose_timings[i]);
   }
 
   puts("CPU Overhead Timings:");
