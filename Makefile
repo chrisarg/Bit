@@ -175,6 +175,7 @@ AMD_ARCH_INVALID := $(shell if [ -n "$(AMD_ARCH)" ] \
 NVIDIA_MISSING_ARCH_MESSAGE := NVIDIA arch detection failed; rerun with \
 	make CC=clang GPU=NVIDIA NVIDIA_ARCH=sm_xy
 
+ifeq ($(IS_CLEAN_GOAL),)
 $(if $(strip $(NVIDIA_INVALID_ARCH)), \
 	$(error NVIDIA_ARCH must be a comma-separated list of \
 	sm_xy targets; invalid entry '$(NVIDIA_INVALID_ARCH)'))
@@ -215,6 +216,7 @@ endif
 endif
 else
 $(error $(NVIDIA_MISSING_ARCH_MESSAGE))
+endif
 endif
 endif
 
@@ -425,6 +427,8 @@ $(CONFIG_STAMP): FORCE
 		echo "OFFLOAD_FL=$(OFFLOAD_FL)"; \
 		echo "OMPTARGET_LIBDIR=$(OMPTARGET_LIBDIR)"; \
 		echo "CFLAGS=$(CFLAGS)"; \
+		echo "GPU_TILE_J=$(GPU_TILE_J)"; \
+		echo "GPU_ILP=$(GPU_ILP)"; \
 	} > $(CONFIG_STAMP).tmp
 	@cmp -s $(CONFIG_STAMP).tmp $(CONFIG_STAMP) 2>/dev/null \
 		|| mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP)
@@ -497,6 +501,15 @@ HIPCC_FLAGS ?= -O3 -std=c++17 -x hip -I./include -I./src
 USE_BUILTIN_POPCOUNT ?= $(BUILTIN_POPCOUNT)
 USE_BUILTIN_POPCOUNT := $(strip $(USE_BUILTIN_POPCOUNT))
 GPU_OCCUPANCY_TUNING ?= 1
+GPU_TILE_J ?= 2048
+GPU_ILP ?= 16
+GPU_DEVICE_ID ?= 0
+GPU_NUM_BITS ?= 16384
+GPU_NUM_QUERIES ?= 1000
+GPU_NUM_REFS ?= 1024
+GPU_ITERATIONS ?= 100
+GPU_CSV_OUTPUT ?= gpu_bench_summary.csv
+GPU_LOG_OUTPUT ?= gpu_bench_raw.log
 ## OpenMP Offload GPU implementation selection for openmp_bit_nocpu
 ## Mode options:
 ##   TEAM_PARALLEL_SIMD - current hierarchical teams -> parallel -> simd path
@@ -515,6 +528,9 @@ ifeq ($(strip $(GPU_OCCUPANCY_TUNING)),1)
 NVCC_FLAGS += -DGPU_OCCUPANCY_TUNING
 HIPCC_FLAGS += -DGPU_OCCUPANCY_TUNING
 endif
+
+NVCC_FLAGS += -DTILE_J=$(GPU_TILE_J) -DILP=$(GPU_ILP)
+HIPCC_FLAGS += -DTILE_J=$(GPU_TILE_J) -DILP=$(GPU_ILP)
 
 # Validate OPENMP_GPU_IMPL value
 ifeq ($(filter $(OPENMP_GPU_IMPL),$(VALID_OPENMP_GPU_IMPLS)),)
@@ -582,6 +598,27 @@ COMPARE_BACKEND_TARGETS += $(HIP_BENCH_EXEC)
 else
 COMPARE_BACKEND_TARGETS += $(CUDA_BENCH_EXEC) $(HIP_BENCH_EXEC)
 endif
+
+GPU_BENCH_EXEC :=
+ifeq ($(IS_CLEAN_GOAL),)
+ifeq ($(strip $(GPU)),NVIDIA)
+GPU_BENCH_EXEC := $(CUDA_BENCH_EXEC)
+else ifeq ($(strip $(GPU)),AMD)
+GPU_BENCH_EXEC := $(HIP_BENCH_EXEC)
+endif
+ifeq ($(strip $(GPU_BENCH_EXEC)),)
+$(error gpu_bench_csv requires GPU=NVIDIA or GPU=AMD)
+endif
+endif
+
+.PHONY: gpu_bench_csv
+gpu_bench_csv: $(GPU_BENCH_EXEC)
+	@mkdir -p $(dir $(GPU_CSV_OUTPUT)) 2>/dev/null || true
+	@mkdir -p $(dir $(GPU_LOG_OUTPUT)) 2>/dev/null || true
+	@echo "Running GPU bench: GPU=$(GPU) TILE_J=$(GPU_TILE_J) ILP=$(GPU_ILP) bits=$(GPU_NUM_BITS) queries=$(GPU_NUM_QUERIES) refs=$(GPU_NUM_REFS) iterations=$(GPU_ITERATIONS)"
+	@GPU_CSV_OUTPUT="$(GPU_CSV_OUTPUT)" \
+	  ./$(GPU_BENCH_EXEC) $(GPU_NUM_BITS) $(GPU_NUM_QUERIES) $(GPU_NUM_REFS) $(GPU_ITERATIONS) $(GPU_DEVICE_ID) \
+	  >> "$(GPU_LOG_OUTPUT)" 2>&1
 
 .PHONY: all clean test test_offload bench compare_nocpu LIBPOPCNT bug_report
 .PHONY: cuda_gpu_bench hip_gpu_bench
