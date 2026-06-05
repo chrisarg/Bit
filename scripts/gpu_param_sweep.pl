@@ -177,7 +177,11 @@ sub run_benchmark {
     log_message("RUN: " . join(' ', @command) . "\n");
     return if $dry_run;
 
-    # 4. Execute safely bypassing the shell
+    # 4. Execute safely bypassing the shell.
+    # Remove any conflicting GPU architecture environment variables that
+    # would otherwise affect make even when explicit make-args are provided.
+    local $ENV{AMD_ARCH}   if $opts{backend} eq 'NVIDIA';
+    local $ENV{NVIDIA_ARCH} if $opts{backend} eq 'AMD';
     my $rc = system(@command);
     
     if ( $rc != 0 ) {
