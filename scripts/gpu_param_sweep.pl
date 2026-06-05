@@ -7,6 +7,7 @@ use File::Temp     qw(tempfile);
 use File::Spec;
 use Algorithm::Loops qw(NestedLoops);
 use List::Util qw(shuffle);
+use Text::ParseWords qw(shellwords);
 use Getopt::Long     qw(GetOptions);
 use POSIX            qw(strftime);
 
@@ -169,7 +170,7 @@ sub run_benchmark {
 
     # 2. Safely handle user-provided make_args by splitting them on spaces
     if ($make_args) {
-        push @command, split(/\s+/, $make_args);
+        push @command, shellwords($make_args);
     }
 
     # 3. Log it for debugging (join it just for the log)
