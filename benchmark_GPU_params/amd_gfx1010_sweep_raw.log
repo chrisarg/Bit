@@ -1,0 +1,1274 @@
+Starting GPU parameter sweep at 2026-06-06 01:28:40
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=2048 GPU_ILP=4 GPU_NUM_BITS=16384 GPU_NUM_QUERIES=1000 GPU_NUM_REFS=2048 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_pjI2.csv GPU_LOG_OUTPUT=/tmp/gpu_log_cDJ4.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 2048, ILP: 4, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :        10613099 ns	Searches per second : 94.22	GPU iteration:   1 	Result: 4369	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         9894924 ns	Searches per second : 101.06	GPU iteration:   2 	Result: 4369	Speedup factor: 1.07
+Total time for Container - GPU - HIP              :         9220879 ns	Searches per second : 108.45	GPU iteration:   3 	Result: 4369	Speedup factor: 1.15
+Total time for Container - GPU - HIP              :         9829279 ns	Searches per second : 101.74	GPU iteration:   4 	Result: 4369	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :        10459664 ns	Searches per second : 95.61	GPU iteration:   5 	Result: 4369	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :         9832200 ns	Searches per second : 101.71	GPU iteration:   6 	Result: 4369	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :        10445094 ns	Searches per second : 95.74	GPU iteration:   7 	Result: 4369	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :         9465618 ns	Searches per second : 105.65	GPU iteration:   8 	Result: 4369	Speedup factor: 1.12
+Total time for Container - GPU - HIP              :         6492107 ns	Searches per second : 154.03	GPU iteration:   9 	Result: 4369	Speedup factor: 1.63
+Total time for Container - GPU - HIP              :        10153152 ns	Searches per second : 98.49	GPU iteration:  10 	Result: 4369	Speedup factor: 1.05
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :        15740902 ns	Searches per second : 63.53	GPU iteration:   1 	Result: 4369	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        11968469 ns	Searches per second : 83.55	GPU iteration:   2 	Result: 4369	Speedup factor: 1.32
+Total time for Container - GPU - HIP              :        11331516 ns	Searches per second : 88.25	GPU iteration:   3 	Result: 4369	Speedup factor: 1.39
+Total time for Container - GPU - HIP              :        11923353 ns	Searches per second : 83.87	GPU iteration:   4 	Result: 4369	Speedup factor: 1.32
+Total time for Container - GPU - HIP              :        12573818 ns	Searches per second : 79.53	GPU iteration:   5 	Result: 4369	Speedup factor: 1.25
+Total time for Container - GPU - HIP              :        11883017 ns	Searches per second : 84.15	GPU iteration:   6 	Result: 4369	Speedup factor: 1.32
+Total time for Container - GPU - HIP              :        12531118 ns	Searches per second : 79.80	GPU iteration:   7 	Result: 4369	Speedup factor: 1.26
+Total time for Container - GPU - HIP              :        11525775 ns	Searches per second : 86.76	GPU iteration:   8 	Result: 4369	Speedup factor: 1.37
+Total time for Container - GPU - HIP              :         8556063 ns	Searches per second : 116.88	GPU iteration:   9 	Result: 4369	Speedup factor: 1.84
+Total time for Container - GPU - HIP              :        12254881 ns	Searches per second : 81.60	GPU iteration:  10 	Result: 4369	Speedup factor: 1.28
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :          560138 ns	Searches per second : 1785.27	GPU iteration:   1 	Result: 4369	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :          575997 ns	Searches per second : 1736.12	GPU iteration:   2 	Result: 4369	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :          591798 ns	Searches per second : 1689.77	GPU iteration:   3 	Result: 4369	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :          596103 ns	Searches per second : 1677.56	GPU iteration:   4 	Result: 4369	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :          610693 ns	Searches per second : 1637.48	GPU iteration:   5 	Result: 4369	Speedup factor: 0.92
+Total time for Container - GPU - HIP              :          573560 ns	Searches per second : 1743.50	GPU iteration:   6 	Result: 4369	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :          605891 ns	Searches per second : 1650.46	GPU iteration:   7 	Result: 4369	Speedup factor: 0.92
+Total time for Container - GPU - HIP              :          581934 ns	Searches per second : 1718.41	GPU iteration:   8 	Result: 4369	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :          572502 ns	Searches per second : 1746.72	GPU iteration:   9 	Result: 4369	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :          602876 ns	Searches per second : 1658.72	GPU iteration:  10 	Result: 4369	Speedup factor: 0.93
+Transpose Timing:
+  transpose: 0.905 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.001907 GB
+  results downloaded:       0.007629 GB
+  db2 (reference, resident): 0.003906 GB (NOT transferred)
+  Total per-iteration:      0.009537 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=9640601.683 ns, stddev=1130633.726 ns
+GPU compute throughput: mean=1.008 GB/s, stddev=0.159 GB/s
+Total operation time: mean=12028891.200 ns, stddev=1649707.088 ns
+Total operation throughput: mean=0.809 GB/s, stddev=0.119 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=16384,nelem=1000,iterations=10,avg_ns=9640601.683,stddev_ns=1130633.726,gbps=1.007741,gbps_stddev=0.159056,max=4369
+GPU/CPU agreement: 2048000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=1024 GPU_ILP=32 GPU_NUM_BITS=262144 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=8192 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_DI2t.csv GPU_LOG_OUTPUT=/tmp/gpu_log_FEZV.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 1024, ILP: 32, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :      4571678711 ns	Searches per second : 0.22	GPU iteration:   1 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4572772461 ns	Searches per second : 0.22	GPU iteration:   2 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4567564453 ns	Searches per second : 0.22	GPU iteration:   3 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4568466309 ns	Searches per second : 0.22	GPU iteration:   4 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4569580566 ns	Searches per second : 0.22	GPU iteration:   5 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4568158691 ns	Searches per second : 0.22	GPU iteration:   6 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4570126953 ns	Searches per second : 0.22	GPU iteration:   7 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4570033203 ns	Searches per second : 0.22	GPU iteration:   8 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4570395020 ns	Searches per second : 0.22	GPU iteration:   9 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4568725586 ns	Searches per second : 0.22	GPU iteration:  10 	Result: 66896	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :      4691988837 ns	Searches per second : 0.21	GPU iteration:   1 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      4635108405 ns	Searches per second : 0.22	GPU iteration:   2 	Result: 66896	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      4630004370 ns	Searches per second : 0.22	GPU iteration:   3 	Result: 66896	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      4630836130 ns	Searches per second : 0.22	GPU iteration:   4 	Result: 66896	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      4631824817 ns	Searches per second : 0.22	GPU iteration:   5 	Result: 66896	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      4630444521 ns	Searches per second : 0.22	GPU iteration:   6 	Result: 66896	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      4632282817 ns	Searches per second : 0.22	GPU iteration:   7 	Result: 66896	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      4632363173 ns	Searches per second : 0.22	GPU iteration:   8 	Result: 66896	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      4632783423 ns	Searches per second : 0.22	GPU iteration:   9 	Result: 66896	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      4630849867 ns	Searches per second : 0.22	GPU iteration:  10 	Result: 66896	Speedup factor: 1.01
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :        14788303 ns	Searches per second : 67.62	GPU iteration:   1 	Result: 66896	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14497766 ns	Searches per second : 68.98	GPU iteration:   2 	Result: 66896	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14593293 ns	Searches per second : 68.52	GPU iteration:   3 	Result: 66896	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :        14524388 ns	Searches per second : 68.85	GPU iteration:   4 	Result: 66896	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14394366 ns	Searches per second : 69.47	GPU iteration:   5 	Result: 66896	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :        14434470 ns	Searches per second : 69.28	GPU iteration:   6 	Result: 66896	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14342356 ns	Searches per second : 69.72	GPU iteration:   7 	Result: 66896	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :        14470898 ns	Searches per second : 69.10	GPU iteration:   8 	Result: 66896	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14522328 ns	Searches per second : 68.86	GPU iteration:   9 	Result: 66896	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14303233 ns	Searches per second : 69.91	GPU iteration:  10 	Result: 66896	Speedup factor: 1.03
+Transpose Timing:
+  transpose: 28.450 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.152588 GB
+  results downloaded:       0.152588 GB
+  db2 (reference, resident): 0.250000 GB (NOT transferred)
+  Total per-iteration:      0.305176 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=4569750195.312 ns, stddev=1533897.559 ns
+GPU compute throughput: mean=0.067 GB/s, stddev=0.000 GB/s
+Total operation time: mean=4637848636.000 ns, stddev=18100257.152 ns
+Total operation throughput: mean=0.066 GB/s, stddev=0.000 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=262144,nelem=5000,iterations=10,avg_ns=4569750195.312,stddev_ns=1533897.559,gbps=0.066782,gbps_stddev=0.000022,max=66896
+GPU/CPU agreement: 40960000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=512 GPU_ILP=16 GPU_NUM_BITS=262144 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=4096 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_LbLL.csv GPU_LOG_OUTPUT=/tmp/gpu_log_dG1m.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 512, ILP: 16, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :      1067706543 ns	Searches per second : 0.94	GPU iteration:   1 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1067719238 ns	Searches per second : 0.94	GPU iteration:   2 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1068078491 ns	Searches per second : 0.94	GPU iteration:   3 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1067738525 ns	Searches per second : 0.94	GPU iteration:   4 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1066909302 ns	Searches per second : 0.94	GPU iteration:   5 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1436135620 ns	Searches per second : 0.70	GPU iteration:   6 	Result: 66820	Speedup factor: 0.74
+Total time for Container - GPU - HIP              :      1067143433 ns	Searches per second : 0.94	GPU iteration:   7 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1323577637 ns	Searches per second : 0.76	GPU iteration:   8 	Result: 66820	Speedup factor: 0.81
+Total time for Container - GPU - HIP              :      1180019409 ns	Searches per second : 0.85	GPU iteration:   9 	Result: 66820	Speedup factor: 0.90
+Total time for Container - GPU - HIP              :      1067062012 ns	Searches per second : 0.94	GPU iteration:  10 	Result: 66820	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :      1139885278 ns	Searches per second : 0.88	GPU iteration:   1 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1110262094 ns	Searches per second : 0.90	GPU iteration:   2 	Result: 66820	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1110771062 ns	Searches per second : 0.90	GPU iteration:   3 	Result: 66820	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1110237058 ns	Searches per second : 0.90	GPU iteration:   4 	Result: 66820	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1109388865 ns	Searches per second : 0.90	GPU iteration:   5 	Result: 66820	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1478709020 ns	Searches per second : 0.68	GPU iteration:   6 	Result: 66820	Speedup factor: 0.77
+Total time for Container - GPU - HIP              :      1109822094 ns	Searches per second : 0.90	GPU iteration:   7 	Result: 66820	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1366007309 ns	Searches per second : 0.73	GPU iteration:   8 	Result: 66820	Speedup factor: 0.83
+Total time for Container - GPU - HIP              :      1222534404 ns	Searches per second : 0.82	GPU iteration:   9 	Result: 66820	Speedup factor: 0.93
+Total time for Container - GPU - HIP              :      1109618679 ns	Searches per second : 0.90	GPU iteration:  10 	Result: 66820	Speedup factor: 1.03
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         7373485 ns	Searches per second : 135.62	GPU iteration:   1 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         7212085 ns	Searches per second : 138.66	GPU iteration:   2 	Result: 66820	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :         7379521 ns	Searches per second : 135.51	GPU iteration:   3 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         7177126 ns	Searches per second : 139.33	GPU iteration:   4 	Result: 66820	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :         7185879 ns	Searches per second : 139.16	GPU iteration:   5 	Result: 66820	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :         7270146 ns	Searches per second : 137.55	GPU iteration:   6 	Result: 66820	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :         7343500 ns	Searches per second : 136.17	GPU iteration:   7 	Result: 66820	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         7133825 ns	Searches per second : 140.18	GPU iteration:   8 	Result: 66820	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :         7227389 ns	Searches per second : 138.36	GPU iteration:   9 	Result: 66820	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :         7250617 ns	Searches per second : 137.92	GPU iteration:  10 	Result: 66820	Speedup factor: 1.02
+Transpose Timing:
+  transpose: 9.204 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.152588 GB
+  results downloaded:       0.076294 GB
+  db2 (reference, resident): 0.125000 GB (NOT transferred)
+  Total per-iteration:      0.228882 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=1141209020.996 ns, stddev=126411845.290 ns
+GPU compute throughput: mean=0.203 GB/s, stddev=0.019 GB/s
+Total operation time: mean=1186723586.300 ns, stddev=124971752.263 ns
+Total operation throughput: mean=0.195 GB/s, stddev=0.018 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=262144,nelem=5000,iterations=10,avg_ns=1141209020.996,stddev_ns=126411845.290,gbps=0.202716,gbps_stddev=0.019495,max=66820
+GPU/CPU agreement: 20480000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=2048 GPU_ILP=8 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=8192 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_EdYW.csv GPU_LOG_OUTPUT=/tmp/gpu_log_0U_f.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 2048, ILP: 8, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :      1531346924 ns	Searches per second : 0.65	GPU iteration:   1 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1540006836 ns	Searches per second : 0.65	GPU iteration:   2 	Result: 17009	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :      1539762329 ns	Searches per second : 0.65	GPU iteration:   3 	Result: 17009	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :      1538614502 ns	Searches per second : 0.65	GPU iteration:   4 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1538332886 ns	Searches per second : 0.65	GPU iteration:   5 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1530820313 ns	Searches per second : 0.65	GPU iteration:   6 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1540459961 ns	Searches per second : 0.65	GPU iteration:   7 	Result: 17009	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :      1539298828 ns	Searches per second : 0.65	GPU iteration:   8 	Result: 17009	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :      1538253174 ns	Searches per second : 0.65	GPU iteration:   9 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1539900269 ns	Searches per second : 0.65	GPU iteration:  10 	Result: 17009	Speedup factor: 0.99
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :      1632906165 ns	Searches per second : 0.61	GPU iteration:   1 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1584394489 ns	Searches per second : 0.63	GPU iteration:   2 	Result: 17009	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1584044239 ns	Searches per second : 0.63	GPU iteration:   3 	Result: 17009	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1582956727 ns	Searches per second : 0.63	GPU iteration:   4 	Result: 17009	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1582662058 ns	Searches per second : 0.63	GPU iteration:   5 	Result: 17009	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1575198637 ns	Searches per second : 0.63	GPU iteration:   6 	Result: 17009	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :      1585559372 ns	Searches per second : 0.63	GPU iteration:   7 	Result: 17009	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1583513068 ns	Searches per second : 0.63	GPU iteration:   8 	Result: 17009	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1582576130 ns	Searches per second : 0.63	GPU iteration:   9 	Result: 17009	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :      1584450386 ns	Searches per second : 0.63	GPU iteration:  10 	Result: 17009	Speedup factor: 1.03
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :        14364096 ns	Searches per second : 69.62	GPU iteration:   1 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14445151 ns	Searches per second : 69.23	GPU iteration:   2 	Result: 17009	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :        14337552 ns	Searches per second : 69.75	GPU iteration:   3 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14393669 ns	Searches per second : 69.47	GPU iteration:   4 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14413223 ns	Searches per second : 69.38	GPU iteration:   5 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14468836 ns	Searches per second : 69.11	GPU iteration:   6 	Result: 17009	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :        15193511 ns	Searches per second : 65.82	GPU iteration:   7 	Result: 17009	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :        14291397 ns	Searches per second : 69.97	GPU iteration:   8 	Result: 17009	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :        14419498 ns	Searches per second : 69.35	GPU iteration:   9 	Result: 17009	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14602376 ns	Searches per second : 68.48	GPU iteration:  10 	Result: 17009	Speedup factor: 0.98
+Transpose Timing:
+  transpose: 3.570 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.038147 GB
+  results downloaded:       0.152588 GB
+  db2 (reference, resident): 0.062500 GB (NOT transferred)
+  Total per-iteration:      0.190735 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=1537679602.051 ns, stddev=3373720.298 ns
+GPU compute throughput: mean=0.124 GB/s, stddev=0.000 GB/s
+Total operation time: mean=1587826127.100 ns, stddev=15267021.854 ns
+Total operation throughput: mean=0.120 GB/s, stddev=0.001 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=5000,iterations=10,avg_ns=1537679602.051,stddev_ns=3373720.298,gbps=0.124041,gbps_stddev=0.000273,max=17009
+GPU/CPU agreement: 40960000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=1024 GPU_ILP=32 GPU_NUM_BITS=16384 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=2048 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_sNCX.csv GPU_LOG_OUTPUT=/tmp/gpu_log_dgvw.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 1024, ILP: 32, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :        91941040 ns	Searches per second : 10.88	GPU iteration:   1 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        91924431 ns	Searches per second : 10.88	GPU iteration:   2 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        91794106 ns	Searches per second : 10.89	GPU iteration:   3 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        91754395 ns	Searches per second : 10.90	GPU iteration:   4 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        91751091 ns	Searches per second : 10.90	GPU iteration:   5 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        91775826 ns	Searches per second : 10.90	GPU iteration:   6 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        91765282 ns	Searches per second : 10.90	GPU iteration:   7 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        91809822 ns	Searches per second : 10.89	GPU iteration:   8 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        91753487 ns	Searches per second : 10.90	GPU iteration:   9 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        91813271 ns	Searches per second : 10.89	GPU iteration:  10 	Result: 4416	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       116848349 ns	Searches per second : 8.56	GPU iteration:   1 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       102822282 ns	Searches per second : 9.73	GPU iteration:   2 	Result: 4416	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       102563324 ns	Searches per second : 9.75	GPU iteration:   3 	Result: 4416	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       102568921 ns	Searches per second : 9.75	GPU iteration:   4 	Result: 4416	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       102792432 ns	Searches per second : 9.73	GPU iteration:   5 	Result: 4416	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       102551104 ns	Searches per second : 9.75	GPU iteration:   6 	Result: 4416	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       102895650 ns	Searches per second : 9.72	GPU iteration:   7 	Result: 4416	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       102590131 ns	Searches per second : 9.75	GPU iteration:   8 	Result: 4416	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       102661374 ns	Searches per second : 9.74	GPU iteration:   9 	Result: 4416	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       102671906 ns	Searches per second : 9.74	GPU iteration:  10 	Result: 4416	Speedup factor: 1.14
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         3420531 ns	Searches per second : 292.35	GPU iteration:   1 	Result: 4416	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         3572997 ns	Searches per second : 279.88	GPU iteration:   2 	Result: 4416	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         3494522 ns	Searches per second : 286.16	GPU iteration:   3 	Result: 4416	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         3545999 ns	Searches per second : 282.01	GPU iteration:   4 	Result: 4416	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         3772341 ns	Searches per second : 265.09	GPU iteration:   5 	Result: 4416	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :         3494728 ns	Searches per second : 286.15	GPU iteration:   6 	Result: 4416	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         3831053 ns	Searches per second : 261.02	GPU iteration:   7 	Result: 4416	Speedup factor: 0.89
+Total time for Container - GPU - HIP              :         3516575 ns	Searches per second : 284.37	GPU iteration:   8 	Result: 4416	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         3632405 ns	Searches per second : 275.30	GPU iteration:   9 	Result: 4416	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :         3596375 ns	Searches per second : 278.06	GPU iteration:  10 	Result: 4416	Speedup factor: 0.95
+Transpose Timing:
+  transpose: 0.949 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.009537 GB
+  results downloaded:       0.038147 GB
+  db2 (reference, resident): 0.003906 GB (NOT transferred)
+  Total per-iteration:      0.047684 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=91808274.841 ns, stddev=65896.233 ns
+GPU compute throughput: mean=0.519 GB/s, stddev=0.000 GB/s
+Total operation time: mean=104096547.300 ns, stddev=4252134.708 ns
+Total operation throughput: mean=0.459 GB/s, stddev=0.017 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=16384,nelem=5000,iterations=10,avg_ns=91808274.841,stddev_ns=65896.233,gbps=0.519384,gbps_stddev=0.000372,max=4416
+GPU/CPU agreement: 10240000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=512 GPU_ILP=64 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=1000 GPU_NUM_REFS=8192 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_ddcH.csv GPU_LOG_OUTPUT=/tmp/gpu_log_8Klr.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 512, ILP: 64, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       248289886 ns	Searches per second : 4.03	GPU iteration:   1 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248166519 ns	Searches per second : 4.03	GPU iteration:   2 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248195053 ns	Searches per second : 4.03	GPU iteration:   3 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248231903 ns	Searches per second : 4.03	GPU iteration:   4 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248266205 ns	Searches per second : 4.03	GPU iteration:   5 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248256912 ns	Searches per second : 4.03	GPU iteration:   6 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248207184 ns	Searches per second : 4.03	GPU iteration:   7 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248191681 ns	Searches per second : 4.03	GPU iteration:   8 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248158844 ns	Searches per second : 4.03	GPU iteration:   9 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248277206 ns	Searches per second : 4.03	GPU iteration:  10 	Result: 16943	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       267908909 ns	Searches per second : 3.73	GPU iteration:   1 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       256806179 ns	Searches per second : 3.89	GPU iteration:   2 	Result: 16943	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256862860 ns	Searches per second : 3.89	GPU iteration:   3 	Result: 16943	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256951942 ns	Searches per second : 3.89	GPU iteration:   4 	Result: 16943	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256970892 ns	Searches per second : 3.89	GPU iteration:   5 	Result: 16943	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256896684 ns	Searches per second : 3.89	GPU iteration:   6 	Result: 16943	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256951669 ns	Searches per second : 3.89	GPU iteration:   7 	Result: 16943	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256844737 ns	Searches per second : 3.89	GPU iteration:   8 	Result: 16943	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256837596 ns	Searches per second : 3.89	GPU iteration:   9 	Result: 16943	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       257075916 ns	Searches per second : 3.89	GPU iteration:  10 	Result: 16943	Speedup factor: 1.04
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         2731961 ns	Searches per second : 366.04	GPU iteration:   1 	Result: 16943	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         2758688 ns	Searches per second : 362.49	GPU iteration:   2 	Result: 16943	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         2796015 ns	Searches per second : 357.65	GPU iteration:   3 	Result: 16943	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         2849386 ns	Searches per second : 350.95	GPU iteration:   4 	Result: 16943	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         2855633 ns	Searches per second : 350.19	GPU iteration:   5 	Result: 16943	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         2788896 ns	Searches per second : 358.56	GPU iteration:   6 	Result: 16943	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         2886545 ns	Searches per second : 346.43	GPU iteration:   7 	Result: 16943	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         2793951 ns	Searches per second : 357.92	GPU iteration:   8 	Result: 16943	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         2810443 ns	Searches per second : 355.82	GPU iteration:   9 	Result: 16943	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         2943864 ns	Searches per second : 339.69	GPU iteration:  10 	Result: 16943	Speedup factor: 0.93
+Transpose Timing:
+  transpose: 3.780 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.007629 GB
+  results downloaded:       0.030518 GB
+  db2 (reference, resident): 0.062500 GB (NOT transferred)
+  Total per-iteration:      0.038147 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=248224139.404 ns, stddev=44512.088 ns
+GPU compute throughput: mean=0.154 GB/s, stddev=0.000 GB/s
+Total operation time: mean=258010738.400 ns, stddev=3300259.993 ns
+Total operation throughput: mean=0.148 GB/s, stddev=0.002 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=1000,iterations=10,avg_ns=248224139.404,stddev_ns=44512.088,gbps=0.153680,gbps_stddev=0.000028,max=16943
+GPU/CPU agreement: 8192000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=1024 GPU_ILP=8 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=2048 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_74nu.csv GPU_LOG_OUTPUT=/tmp/gpu_log_9wWd.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 1024, ILP: 8, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       334205933 ns	Searches per second : 2.99	GPU iteration:   1 	Result: 16942	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       334808350 ns	Searches per second : 2.99	GPU iteration:   2 	Result: 16942	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       338790253 ns	Searches per second : 2.95	GPU iteration:   3 	Result: 16942	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :       335989655 ns	Searches per second : 2.98	GPU iteration:   4 	Result: 16942	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :       340190399 ns	Searches per second : 2.94	GPU iteration:   5 	Result: 16942	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :       331534149 ns	Searches per second : 3.02	GPU iteration:   6 	Result: 16942	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       332096039 ns	Searches per second : 3.01	GPU iteration:   7 	Result: 16942	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       335649658 ns	Searches per second : 2.98	GPU iteration:   8 	Result: 16942	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       337828552 ns	Searches per second : 2.96	GPU iteration:   9 	Result: 16942	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :       338642548 ns	Searches per second : 2.95	GPU iteration:  10 	Result: 16942	Speedup factor: 0.99
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       363384729 ns	Searches per second : 2.75	GPU iteration:   1 	Result: 16942	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       350219299 ns	Searches per second : 2.86	GPU iteration:   2 	Result: 16942	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       354010969 ns	Searches per second : 2.82	GPU iteration:   3 	Result: 16942	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       351267838 ns	Searches per second : 2.85	GPU iteration:   4 	Result: 16942	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       355575962 ns	Searches per second : 2.81	GPU iteration:   5 	Result: 16942	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       346723444 ns	Searches per second : 2.88	GPU iteration:   6 	Result: 16942	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       347307798 ns	Searches per second : 2.88	GPU iteration:   7 	Result: 16942	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       350980126 ns	Searches per second : 2.85	GPU iteration:   8 	Result: 16942	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       353065071 ns	Searches per second : 2.83	GPU iteration:   9 	Result: 16942	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       353910885 ns	Searches per second : 2.83	GPU iteration:  10 	Result: 16942	Speedup factor: 1.03
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         3334601 ns	Searches per second : 299.89	GPU iteration:   1 	Result: 16942	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         3642106 ns	Searches per second : 274.57	GPU iteration:   2 	Result: 16942	Speedup factor: 0.92
+Total time for Container - GPU - HIP              :         3475459 ns	Searches per second : 287.73	GPU iteration:   3 	Result: 16942	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         3518189 ns	Searches per second : 284.24	GPU iteration:   4 	Result: 16942	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         3628807 ns	Searches per second : 275.57	GPU iteration:   5 	Result: 16942	Speedup factor: 0.92
+Total time for Container - GPU - HIP              :         3455461 ns	Searches per second : 289.40	GPU iteration:   6 	Result: 16942	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         3475077 ns	Searches per second : 287.76	GPU iteration:   7 	Result: 16942	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         3571383 ns	Searches per second : 280.00	GPU iteration:   8 	Result: 16942	Speedup factor: 0.93
+Total time for Container - GPU - HIP              :         3499465 ns	Searches per second : 285.76	GPU iteration:   9 	Result: 16942	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         3522208 ns	Searches per second : 283.91	GPU iteration:  10 	Result: 16942	Speedup factor: 0.95
+Transpose Timing:
+  transpose: 0.772 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.038147 GB
+  results downloaded:       0.038147 GB
+  db2 (reference, resident): 0.015625 GB (NOT transferred)
+  Total per-iteration:      0.076294 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=335973553.467 ns, stddev=2749743.872 ns
+GPU compute throughput: mean=0.227 GB/s, stddev=0.002 GB/s
+Total operation time: mean=352644612.100 ns, stddev=4490880.405 ns
+Total operation throughput: mean=0.216 GB/s, stddev=0.003 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=5000,iterations=10,avg_ns=335973553.467,stddev_ns=2749743.872,gbps=0.227098,gbps_stddev=0.001861,max=16942
+GPU/CPU agreement: 10240000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=512 GPU_ILP=8 GPU_NUM_BITS=16384 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=4096 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_QTRc.csv GPU_LOG_OUTPUT=/tmp/gpu_log_RWjC.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 512, ILP: 8, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       169887772 ns	Searches per second : 5.89	GPU iteration:   1 	Result: 4411	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       170191711 ns	Searches per second : 5.88	GPU iteration:   2 	Result: 4411	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       166331421 ns	Searches per second : 6.01	GPU iteration:   3 	Result: 4411	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       169979462 ns	Searches per second : 5.88	GPU iteration:   4 	Result: 4411	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       169357941 ns	Searches per second : 5.90	GPU iteration:   5 	Result: 4411	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       168411942 ns	Searches per second : 5.94	GPU iteration:   6 	Result: 4411	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       169328445 ns	Searches per second : 5.91	GPU iteration:   7 	Result: 4411	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       168733398 ns	Searches per second : 5.93	GPU iteration:   8 	Result: 4411	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       165752457 ns	Searches per second : 6.03	GPU iteration:   9 	Result: 4411	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       167547104 ns	Searches per second : 5.97	GPU iteration:  10 	Result: 4411	Speedup factor: 1.01
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       219361370 ns	Searches per second : 4.56	GPU iteration:   1 	Result: 4411	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       190182360 ns	Searches per second : 5.26	GPU iteration:   2 	Result: 4411	Speedup factor: 1.15
+Total time for Container - GPU - HIP              :       186401489 ns	Searches per second : 5.36	GPU iteration:   3 	Result: 4411	Speedup factor: 1.18
+Total time for Container - GPU - HIP              :       189993955 ns	Searches per second : 5.26	GPU iteration:   4 	Result: 4411	Speedup factor: 1.15
+Total time for Container - GPU - HIP              :       189458126 ns	Searches per second : 5.28	GPU iteration:   5 	Result: 4411	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       188426796 ns	Searches per second : 5.31	GPU iteration:   6 	Result: 4411	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       189632483 ns	Searches per second : 5.27	GPU iteration:   7 	Result: 4411	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       189035636 ns	Searches per second : 5.29	GPU iteration:   8 	Result: 4411	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       185767024 ns	Searches per second : 5.38	GPU iteration:   9 	Result: 4411	Speedup factor: 1.18
+Total time for Container - GPU - HIP              :       187524546 ns	Searches per second : 5.33	GPU iteration:  10 	Result: 4411	Speedup factor: 1.17
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         7274771 ns	Searches per second : 137.46	GPU iteration:   1 	Result: 4411	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         7024904 ns	Searches per second : 142.35	GPU iteration:   2 	Result: 4411	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :         7132580 ns	Searches per second : 140.20	GPU iteration:   3 	Result: 4411	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :         7087532 ns	Searches per second : 141.09	GPU iteration:   4 	Result: 4411	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :         7162653 ns	Searches per second : 139.61	GPU iteration:   5 	Result: 4411	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :         7092825 ns	Searches per second : 140.99	GPU iteration:   6 	Result: 4411	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :         7355538 ns	Searches per second : 135.95	GPU iteration:   7 	Result: 4411	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         7374746 ns	Searches per second : 135.60	GPU iteration:   8 	Result: 4411	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         7094679 ns	Searches per second : 140.95	GPU iteration:   9 	Result: 4411	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :         7061812 ns	Searches per second : 141.61	GPU iteration:  10 	Result: 4411	Speedup factor: 1.03
+Transpose Timing:
+  transpose: 0.615 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.009537 GB
+  results downloaded:       0.076294 GB
+  db2 (reference, resident): 0.007812 GB (NOT transferred)
+  Total per-iteration:      0.085831 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=168552165.222 ns, stddev=1469481.071 ns
+GPU compute throughput: mean=0.509 GB/s, stddev=0.004 GB/s
+Total operation time: mean=191578378.500 ns, stddev=9370375.968 ns
+Total operation throughput: mean=0.449 GB/s, stddev=0.020 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=16384,nelem=5000,iterations=10,avg_ns=168552165.222,stddev_ns=1469481.071,gbps=0.509262,gbps_stddev=0.004469,max=4411
+GPU/CPU agreement: 20480000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=1024 GPU_ILP=64 GPU_NUM_BITS=16384 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=8192 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv__jOt.csv GPU_LOG_OUTPUT=/tmp/gpu_log_WKdT.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 1024, ILP: 64, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       325964539 ns	Searches per second : 3.07	GPU iteration:   1 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       325919067 ns	Searches per second : 3.07	GPU iteration:   2 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       325791901 ns	Searches per second : 3.07	GPU iteration:   3 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       325831940 ns	Searches per second : 3.07	GPU iteration:   4 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       325867310 ns	Searches per second : 3.07	GPU iteration:   5 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       325841705 ns	Searches per second : 3.07	GPU iteration:   6 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       325881348 ns	Searches per second : 3.07	GPU iteration:   7 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       325858429 ns	Searches per second : 3.07	GPU iteration:   8 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       325828949 ns	Searches per second : 3.07	GPU iteration:   9 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       325797241 ns	Searches per second : 3.07	GPU iteration:  10 	Result: 4397	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       422597855 ns	Searches per second : 2.37	GPU iteration:   1 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       365760947 ns	Searches per second : 2.73	GPU iteration:   2 	Result: 4397	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       365939466 ns	Searches per second : 2.73	GPU iteration:   3 	Result: 4397	Speedup factor: 1.15
+Total time for Container - GPU - HIP              :       365581698 ns	Searches per second : 2.74	GPU iteration:   4 	Result: 4397	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       365598707 ns	Searches per second : 2.74	GPU iteration:   5 	Result: 4397	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       367249478 ns	Searches per second : 2.72	GPU iteration:   6 	Result: 4397	Speedup factor: 1.15
+Total time for Container - GPU - HIP              :       366119015 ns	Searches per second : 2.73	GPU iteration:   7 	Result: 4397	Speedup factor: 1.15
+Total time for Container - GPU - HIP              :       365681261 ns	Searches per second : 2.73	GPU iteration:   8 	Result: 4397	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       365521780 ns	Searches per second : 2.74	GPU iteration:   9 	Result: 4397	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       365518274 ns	Searches per second : 2.74	GPU iteration:  10 	Result: 4397	Speedup factor: 1.16
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :        14304111 ns	Searches per second : 69.91	GPU iteration:   1 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14389213 ns	Searches per second : 69.50	GPU iteration:   2 	Result: 4397	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :        14683335 ns	Searches per second : 68.10	GPU iteration:   3 	Result: 4397	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :        14301056 ns	Searches per second : 69.92	GPU iteration:   4 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14294465 ns	Searches per second : 69.96	GPU iteration:   5 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        15937867 ns	Searches per second : 62.74	GPU iteration:   6 	Result: 4397	Speedup factor: 0.90
+Total time for Container - GPU - HIP              :        14778982 ns	Searches per second : 67.66	GPU iteration:   7 	Result: 4397	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :        14389461 ns	Searches per second : 69.50	GPU iteration:   8 	Result: 4397	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :        14247062 ns	Searches per second : 70.19	GPU iteration:   9 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14264581 ns	Searches per second : 70.10	GPU iteration:  10 	Result: 4397	Speedup factor: 1.00
+Transpose Timing:
+  transpose: 0.867 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.009537 GB
+  results downloaded:       0.152588 GB
+  db2 (reference, resident): 0.015625 GB (NOT transferred)
+  Total per-iteration:      0.162125 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=325858242.798 ns, stddev=50557.337 ns
+GPU compute throughput: mean=0.498 GB/s, stddev=0.000 GB/s
+Total operation time: mean=371556848.100 ns, stddev=17020770.002 ns
+Total operation throughput: mean=0.437 GB/s, stddev=0.018 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=16384,nelem=5000,iterations=10,avg_ns=325858242.798,stddev_ns=50557.337,gbps=0.497531,gbps_stddev=0.000077,max=4397
+GPU/CPU agreement: 40960000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=1024 GPU_ILP=8 GPU_NUM_BITS=16384 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=2048 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_GxmN.csv GPU_LOG_OUTPUT=/tmp/gpu_log_rokU.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 1024, ILP: 8, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :        16538040 ns	Searches per second : 60.47	GPU iteration:   1 	Result: 4369	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        34353619 ns	Searches per second : 29.11	GPU iteration:   2 	Result: 4369	Speedup factor: 0.48
+Total time for Container - GPU - HIP              :        38711796 ns	Searches per second : 25.83	GPU iteration:   3 	Result: 4369	Speedup factor: 0.43
+Total time for Container - GPU - HIP              :        34378933 ns	Searches per second : 29.09	GPU iteration:   4 	Result: 4369	Speedup factor: 0.48
+Total time for Container - GPU - HIP              :        35235344 ns	Searches per second : 28.38	GPU iteration:   5 	Result: 4369	Speedup factor: 0.47
+Total time for Container - GPU - HIP              :        37628281 ns	Searches per second : 26.58	GPU iteration:   6 	Result: 4369	Speedup factor: 0.44
+Total time for Container - GPU - HIP              :        33918999 ns	Searches per second : 29.48	GPU iteration:   7 	Result: 4369	Speedup factor: 0.49
+Total time for Container - GPU - HIP              :        39802631 ns	Searches per second : 25.12	GPU iteration:   8 	Result: 4369	Speedup factor: 0.42
+Total time for Container - GPU - HIP              :        40682194 ns	Searches per second : 24.58	GPU iteration:   9 	Result: 4369	Speedup factor: 0.41
+Total time for Container - GPU - HIP              :        39441692 ns	Searches per second : 25.35	GPU iteration:  10 	Result: 4369	Speedup factor: 0.42
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :        40333900 ns	Searches per second : 24.79	GPU iteration:   1 	Result: 4369	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        45182990 ns	Searches per second : 22.13	GPU iteration:   2 	Result: 4369	Speedup factor: 0.89
+Total time for Container - GPU - HIP              :        49544668 ns	Searches per second : 20.18	GPU iteration:   3 	Result: 4369	Speedup factor: 0.81
+Total time for Container - GPU - HIP              :        45153053 ns	Searches per second : 22.15	GPU iteration:   4 	Result: 4369	Speedup factor: 0.89
+Total time for Container - GPU - HIP              :        45894325 ns	Searches per second : 21.79	GPU iteration:   5 	Result: 4369	Speedup factor: 0.88
+Total time for Container - GPU - HIP              :        48366429 ns	Searches per second : 20.68	GPU iteration:   6 	Result: 4369	Speedup factor: 0.83
+Total time for Container - GPU - HIP              :        44769282 ns	Searches per second : 22.34	GPU iteration:   7 	Result: 4369	Speedup factor: 0.90
+Total time for Container - GPU - HIP              :        50499572 ns	Searches per second : 19.80	GPU iteration:   8 	Result: 4369	Speedup factor: 0.80
+Total time for Container - GPU - HIP              :        51378835 ns	Searches per second : 19.46	GPU iteration:   9 	Result: 4369	Speedup factor: 0.79
+Total time for Container - GPU - HIP              :        50111840 ns	Searches per second : 19.96	GPU iteration:  10 	Result: 4369	Speedup factor: 0.80
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         3411265 ns	Searches per second : 293.15	GPU iteration:   1 	Result: 4369	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         3502776 ns	Searches per second : 285.49	GPU iteration:   2 	Result: 4369	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         3549655 ns	Searches per second : 281.72	GPU iteration:   3 	Result: 4369	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         3506582 ns	Searches per second : 285.18	GPU iteration:   4 	Result: 4369	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         3399761 ns	Searches per second : 294.14	GPU iteration:   5 	Result: 4369	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         3464432 ns	Searches per second : 288.65	GPU iteration:   6 	Result: 4369	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         3590166 ns	Searches per second : 278.54	GPU iteration:   7 	Result: 4369	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         3431514 ns	Searches per second : 291.42	GPU iteration:   8 	Result: 4369	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         3437230 ns	Searches per second : 290.93	GPU iteration:   9 	Result: 4369	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         3413160 ns	Searches per second : 292.98	GPU iteration:  10 	Result: 4369	Speedup factor: 1.00
+Transpose Timing:
+  transpose: 0.643 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.009537 GB
+  results downloaded:       0.038147 GB
+  db2 (reference, resident): 0.003906 GB (NOT transferred)
+  Total per-iteration:      0.047684 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=35069152.832 ns, stddev=6622613.803 ns
+GPU compute throughput: mean=1.450 GB/s, stddev=0.485 GB/s
+Total operation time: mean=47123489.400 ns, stddev=3265623.420 ns
+Total operation throughput: mean=1.017 GB/s, stddev=0.074 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=16384,nelem=5000,iterations=10,avg_ns=35069152.832,stddev_ns=6622613.803,gbps=1.449548,gbps_stddev=0.485103,max=4369
+GPU/CPU agreement: 10240000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=2048 GPU_ILP=64 GPU_NUM_BITS=262144 GPU_NUM_QUERIES=10000 GPU_NUM_REFS=1024 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_Sx07.csv GPU_LOG_OUTPUT=/tmp/gpu_log_u8Qz.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 2048, ILP: 64, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :      1806000610 ns	Searches per second : 0.55	GPU iteration:   1 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1802779297 ns	Searches per second : 0.55	GPU iteration:   2 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1801073364 ns	Searches per second : 0.56	GPU iteration:   3 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1801522583 ns	Searches per second : 0.56	GPU iteration:   4 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1801417236 ns	Searches per second : 0.56	GPU iteration:   5 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1803988892 ns	Searches per second : 0.55	GPU iteration:   6 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1802471802 ns	Searches per second : 0.55	GPU iteration:   7 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1806803833 ns	Searches per second : 0.55	GPU iteration:   8 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1802241211 ns	Searches per second : 0.55	GPU iteration:   9 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1803853027 ns	Searches per second : 0.55	GPU iteration:  10 	Result: 66677	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :      1878370430 ns	Searches per second : 0.53	GPU iteration:   1 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :      1859858786 ns	Searches per second : 0.54	GPU iteration:   2 	Result: 66677	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      1858175774 ns	Searches per second : 0.54	GPU iteration:   3 	Result: 66677	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      1858650217 ns	Searches per second : 0.54	GPU iteration:   4 	Result: 66677	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      1858502931 ns	Searches per second : 0.54	GPU iteration:   5 	Result: 66677	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      1861093523 ns	Searches per second : 0.54	GPU iteration:   6 	Result: 66677	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      1859637144 ns	Searches per second : 0.54	GPU iteration:   7 	Result: 66677	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      1863952335 ns	Searches per second : 0.54	GPU iteration:   8 	Result: 66677	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      1859315664 ns	Searches per second : 0.54	GPU iteration:   9 	Result: 66677	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :      1860928460 ns	Searches per second : 0.54	GPU iteration:  10 	Result: 66677	Speedup factor: 1.01
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         3418602 ns	Searches per second : 292.52	GPU iteration:   1 	Result: 66677	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         3573009 ns	Searches per second : 279.88	GPU iteration:   2 	Result: 66677	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         3614250 ns	Searches per second : 276.68	GPU iteration:   3 	Result: 66677	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         3643795 ns	Searches per second : 274.44	GPU iteration:   4 	Result: 66677	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :         3593405 ns	Searches per second : 278.29	GPU iteration:   5 	Result: 66677	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         3605609 ns	Searches per second : 277.35	GPU iteration:   6 	Result: 66677	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         3664259 ns	Searches per second : 272.91	GPU iteration:   7 	Result: 66677	Speedup factor: 0.93
+Total time for Container - GPU - HIP              :         3662751 ns	Searches per second : 273.02	GPU iteration:   8 	Result: 66677	Speedup factor: 0.93
+Total time for Container - GPU - HIP              :         3588252 ns	Searches per second : 278.69	GPU iteration:   9 	Result: 66677	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         3587571 ns	Searches per second : 278.74	GPU iteration:  10 	Result: 66677	Speedup factor: 0.95
+Transpose Timing:
+  transpose: 3.078 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.305176 GB
+  results downloaded:       0.038147 GB
+  db2 (reference, resident): 0.031250 GB (NOT transferred)
+  Total per-iteration:      0.343323 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=1803215185.547 ns, stddev=1844413.546 ns
+GPU compute throughput: mean=0.190 GB/s, stddev=0.000 GB/s
+Total operation time: mean=1861848526.400 ns, stddev=5735780.977 ns
+Total operation throughput: mean=0.184 GB/s, stddev=0.001 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=262144,nelem=10000,iterations=10,avg_ns=1803215185.547,stddev_ns=1844413.546,gbps=0.190395,gbps_stddev=0.000195,max=66677
+GPU/CPU agreement: 10240000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=2048 GPU_ILP=8 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=1000 GPU_NUM_REFS=2048 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_4VSE.csv GPU_LOG_OUTPUT=/tmp/gpu_log_UwTC.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 2048, ILP: 8, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :        51995155 ns	Searches per second : 19.23	GPU iteration:   1 	Result: 16983	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        59135326 ns	Searches per second : 16.91	GPU iteration:   2 	Result: 16983	Speedup factor: 0.88
+Total time for Container - GPU - HIP              :        57172749 ns	Searches per second : 17.49	GPU iteration:   3 	Result: 16983	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :        59286995 ns	Searches per second : 16.87	GPU iteration:   4 	Result: 16983	Speedup factor: 0.88
+Total time for Container - GPU - HIP              :        54574459 ns	Searches per second : 18.32	GPU iteration:   5 	Result: 16983	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :        57163719 ns	Searches per second : 17.49	GPU iteration:   6 	Result: 16983	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :        57260017 ns	Searches per second : 17.46	GPU iteration:   7 	Result: 16983	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :        56941196 ns	Searches per second : 17.56	GPU iteration:   8 	Result: 16983	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :        60427860 ns	Searches per second : 16.55	GPU iteration:   9 	Result: 16983	Speedup factor: 0.86
+Total time for Container - GPU - HIP              :        59971542 ns	Searches per second : 16.67	GPU iteration:  10 	Result: 16983	Speedup factor: 0.87
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :        57514928 ns	Searches per second : 17.39	GPU iteration:   1 	Result: 16983	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        62104312 ns	Searches per second : 16.10	GPU iteration:   2 	Result: 16983	Speedup factor: 0.93
+Total time for Container - GPU - HIP              :        60200984 ns	Searches per second : 16.61	GPU iteration:   3 	Result: 16983	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :        62241085 ns	Searches per second : 16.07	GPU iteration:   4 	Result: 16983	Speedup factor: 0.92
+Total time for Container - GPU - HIP              :        57535363 ns	Searches per second : 17.38	GPU iteration:   5 	Result: 16983	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        60154629 ns	Searches per second : 16.62	GPU iteration:   6 	Result: 16983	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :        60239046 ns	Searches per second : 16.60	GPU iteration:   7 	Result: 16983	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :        59858846 ns	Searches per second : 16.71	GPU iteration:   8 	Result: 16983	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :        63442853 ns	Searches per second : 15.76	GPU iteration:   9 	Result: 16983	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :        62899366 ns	Searches per second : 15.90	GPU iteration:  10 	Result: 16983	Speedup factor: 0.91
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :          590279 ns	Searches per second : 1694.11	GPU iteration:   1 	Result: 16983	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :          585015 ns	Searches per second : 1709.36	GPU iteration:   2 	Result: 16983	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :          609973 ns	Searches per second : 1639.42	GPU iteration:   3 	Result: 16983	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :          556756 ns	Searches per second : 1796.12	GPU iteration:   4 	Result: 16983	Speedup factor: 1.06
+Total time for Container - GPU - HIP              :          584435 ns	Searches per second : 1711.05	GPU iteration:   5 	Result: 16983	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :          598903 ns	Searches per second : 1669.72	GPU iteration:   6 	Result: 16983	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :          595288 ns	Searches per second : 1679.86	GPU iteration:   7 	Result: 16983	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :          547243 ns	Searches per second : 1827.34	GPU iteration:   8 	Result: 16983	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :          625625 ns	Searches per second : 1598.40	GPU iteration:   9 	Result: 16983	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :          557964 ns	Searches per second : 1792.23	GPU iteration:  10 	Result: 16983	Speedup factor: 1.06
+Transpose Timing:
+  transpose: 1.572 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.007629 GB
+  results downloaded:       0.007629 GB
+  db2 (reference, resident): 0.015625 GB (NOT transferred)
+  Total per-iteration:      0.015259 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=57392901.993 ns, stddev=2447160.939 ns
+GPU compute throughput: mean=0.266 GB/s, stddev=0.012 GB/s
+Total operation time: mean=60619141.200 ns, stddev=1956225.529 ns
+Total operation throughput: mean=0.252 GB/s, stddev=0.008 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=1000,iterations=10,avg_ns=57392901.993,stddev_ns=2447160.939,gbps=0.266369,gbps_stddev=0.011821,max=16983
+GPU/CPU agreement: 2048000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=4096 GPU_ILP=4 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=1000 GPU_NUM_REFS=8192 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_sYBN.csv GPU_LOG_OUTPUT=/tmp/gpu_log_SOjf.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 4096, ILP: 4, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       308137878 ns	Searches per second : 3.25	GPU iteration:   1 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       308009827 ns	Searches per second : 3.25	GPU iteration:   2 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       307857758 ns	Searches per second : 3.25	GPU iteration:   3 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       307887360 ns	Searches per second : 3.25	GPU iteration:   4 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       307992889 ns	Searches per second : 3.25	GPU iteration:   5 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       307772736 ns	Searches per second : 3.25	GPU iteration:   6 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       308128052 ns	Searches per second : 3.25	GPU iteration:   7 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       307643616 ns	Searches per second : 3.25	GPU iteration:   8 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       308167816 ns	Searches per second : 3.24	GPU iteration:   9 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       307859985 ns	Searches per second : 3.25	GPU iteration:  10 	Result: 16944	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       329369388 ns	Searches per second : 3.04	GPU iteration:   1 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       316810894 ns	Searches per second : 3.16	GPU iteration:   2 	Result: 16944	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       316560643 ns	Searches per second : 3.16	GPU iteration:   3 	Result: 16944	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       316560071 ns	Searches per second : 3.16	GPU iteration:   4 	Result: 16944	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       316689862 ns	Searches per second : 3.16	GPU iteration:   5 	Result: 16944	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       316462484 ns	Searches per second : 3.16	GPU iteration:   6 	Result: 16944	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       316811756 ns	Searches per second : 3.16	GPU iteration:   7 	Result: 16944	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       316359855 ns	Searches per second : 3.16	GPU iteration:   8 	Result: 16944	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       316859186 ns	Searches per second : 3.16	GPU iteration:   9 	Result: 16944	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       316541062 ns	Searches per second : 3.16	GPU iteration:  10 	Result: 16944	Speedup factor: 1.04
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         2807918 ns	Searches per second : 356.14	GPU iteration:   1 	Result: 16944	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         2891435 ns	Searches per second : 345.85	GPU iteration:   2 	Result: 16944	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         2856218 ns	Searches per second : 350.11	GPU iteration:   3 	Result: 16944	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         2835444 ns	Searches per second : 352.68	GPU iteration:   4 	Result: 16944	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         2845585 ns	Searches per second : 351.42	GPU iteration:   5 	Result: 16944	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         2847974 ns	Searches per second : 351.13	GPU iteration:   6 	Result: 16944	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         2844461 ns	Searches per second : 351.56	GPU iteration:   7 	Result: 16944	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         2867137 ns	Searches per second : 348.78	GPU iteration:   8 	Result: 16944	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         2849740 ns	Searches per second : 350.91	GPU iteration:   9 	Result: 16944	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         2838220 ns	Searches per second : 352.33	GPU iteration:  10 	Result: 16944	Speedup factor: 0.99
+Transpose Timing:
+  transpose: 3.564 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.007629 GB
+  results downloaded:       0.030518 GB
+  db2 (reference, resident): 0.062500 GB (NOT transferred)
+  Total per-iteration:      0.038147 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=307945791.626 ns, stddev=162946.418 ns
+GPU compute throughput: mean=0.124 GB/s, stddev=0.000 GB/s
+Total operation time: mean=317902520.100 ns, stddev=3825433.969 ns
+Total operation throughput: mean=0.120 GB/s, stddev=0.001 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=1000,iterations=10,avg_ns=307945791.626,stddev_ns=162946.418,gbps=0.123876,gbps_stddev=0.000066,max=16944
+GPU/CPU agreement: 8192000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=2048 GPU_ILP=8 GPU_NUM_BITS=16384 GPU_NUM_QUERIES=10000 GPU_NUM_REFS=8192 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_4kkv.csv GPU_LOG_OUTPUT=/tmp/gpu_log_Djvm.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 2048, ILP: 8, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       797694641 ns	Searches per second : 1.25	GPU iteration:   1 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       798291565 ns	Searches per second : 1.25	GPU iteration:   2 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       796954407 ns	Searches per second : 1.25	GPU iteration:   3 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       796060669 ns	Searches per second : 1.26	GPU iteration:   4 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       797811340 ns	Searches per second : 1.25	GPU iteration:   5 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       794187805 ns	Searches per second : 1.26	GPU iteration:   6 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       798279114 ns	Searches per second : 1.25	GPU iteration:   7 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       783836487 ns	Searches per second : 1.28	GPU iteration:   8 	Result: 4409	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       797769470 ns	Searches per second : 1.25	GPU iteration:   9 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       798401550 ns	Searches per second : 1.25	GPU iteration:  10 	Result: 4409	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       998045402 ns	Searches per second : 1.00	GPU iteration:   1 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       876837898 ns	Searches per second : 1.14	GPU iteration:   2 	Result: 4409	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       875511423 ns	Searches per second : 1.14	GPU iteration:   3 	Result: 4409	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       874633100 ns	Searches per second : 1.14	GPU iteration:   4 	Result: 4409	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       876431759 ns	Searches per second : 1.14	GPU iteration:   5 	Result: 4409	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       872757800 ns	Searches per second : 1.15	GPU iteration:   6 	Result: 4409	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       877761442 ns	Searches per second : 1.14	GPU iteration:   7 	Result: 4409	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       862517917 ns	Searches per second : 1.16	GPU iteration:   8 	Result: 4409	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       876222127 ns	Searches per second : 1.14	GPU iteration:   9 	Result: 4409	Speedup factor: 1.14
+Total time for Container - GPU - HIP              :       877055237 ns	Searches per second : 1.14	GPU iteration:  10 	Result: 4409	Speedup factor: 1.14
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :        28954627 ns	Searches per second : 34.54	GPU iteration:   1 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        28933152 ns	Searches per second : 34.56	GPU iteration:   2 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        28958480 ns	Searches per second : 34.53	GPU iteration:   3 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        28991561 ns	Searches per second : 34.49	GPU iteration:   4 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        28979939 ns	Searches per second : 34.51	GPU iteration:   5 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        28978619 ns	Searches per second : 34.51	GPU iteration:   6 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        29893001 ns	Searches per second : 33.45	GPU iteration:   7 	Result: 4409	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :        29084199 ns	Searches per second : 34.38	GPU iteration:   8 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        28840881 ns	Searches per second : 34.67	GPU iteration:   9 	Result: 4409	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        29067516 ns	Searches per second : 34.40	GPU iteration:  10 	Result: 4409	Speedup factor: 1.00
+Transpose Timing:
+  transpose: 0.792 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.019073 GB
+  results downloaded:       0.305176 GB
+  db2 (reference, resident): 0.015625 GB (NOT transferred)
+  Total per-iteration:      0.324249 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=795928704.834 ns, stddev=4214210.559 ns
+GPU compute throughput: mean=0.407 GB/s, stddev=0.002 GB/s
+Total operation time: mean=886777410.500 ns, stddev=37327059.832 ns
+Total operation throughput: mean=0.366 GB/s, stddev=0.014 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=16384,nelem=10000,iterations=10,avg_ns=795928704.834,stddev_ns=4214210.559,gbps=0.407396,gbps_stddev=0.002184,max=4409
+GPU/CPU agreement: 81920000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=4096 GPU_ILP=16 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=1000 GPU_NUM_REFS=8192 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_x54I.csv GPU_LOG_OUTPUT=/tmp/gpu_log_jZQb.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 4096, ILP: 16, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       227328903 ns	Searches per second : 4.40	GPU iteration:   1 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       227150452 ns	Searches per second : 4.40	GPU iteration:   2 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       227032532 ns	Searches per second : 4.40	GPU iteration:   3 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       226791901 ns	Searches per second : 4.41	GPU iteration:   4 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       226783875 ns	Searches per second : 4.41	GPU iteration:   5 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       226909500 ns	Searches per second : 4.41	GPU iteration:   6 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       226997009 ns	Searches per second : 4.41	GPU iteration:   7 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       226928116 ns	Searches per second : 4.41	GPU iteration:   8 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       226880020 ns	Searches per second : 4.41	GPU iteration:   9 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       227137314 ns	Searches per second : 4.40	GPU iteration:  10 	Result: 16941	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       246703025 ns	Searches per second : 4.05	GPU iteration:   1 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       235791147 ns	Searches per second : 4.24	GPU iteration:   2 	Result: 16941	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       235684467 ns	Searches per second : 4.24	GPU iteration:   3 	Result: 16941	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       235399178 ns	Searches per second : 4.25	GPU iteration:   4 	Result: 16941	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       235580462 ns	Searches per second : 4.24	GPU iteration:   5 	Result: 16941	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       235681790 ns	Searches per second : 4.24	GPU iteration:   6 	Result: 16941	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       235745250 ns	Searches per second : 4.24	GPU iteration:   7 	Result: 16941	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       235578192 ns	Searches per second : 4.24	GPU iteration:   8 	Result: 16941	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       235521632 ns	Searches per second : 4.25	GPU iteration:   9 	Result: 16941	Speedup factor: 1.05
+Total time for Container - GPU - HIP              :       235840242 ns	Searches per second : 4.24	GPU iteration:  10 	Result: 16941	Speedup factor: 1.05
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         2702055 ns	Searches per second : 370.09	GPU iteration:   1 	Result: 16941	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         2765608 ns	Searches per second : 361.58	GPU iteration:   2 	Result: 16941	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         2789956 ns	Searches per second : 358.43	GPU iteration:   3 	Result: 16941	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         2752103 ns	Searches per second : 363.36	GPU iteration:   4 	Result: 16941	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         2950681 ns	Searches per second : 338.90	GPU iteration:   5 	Result: 16941	Speedup factor: 0.92
+Total time for Container - GPU - HIP              :         2914010 ns	Searches per second : 343.17	GPU iteration:   6 	Result: 16941	Speedup factor: 0.93
+Total time for Container - GPU - HIP              :         2904090 ns	Searches per second : 344.34	GPU iteration:   7 	Result: 16941	Speedup factor: 0.93
+Total time for Container - GPU - HIP              :         2808427 ns	Searches per second : 356.07	GPU iteration:   8 	Result: 16941	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         2803326 ns	Searches per second : 356.72	GPU iteration:   9 	Result: 16941	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         2856922 ns	Searches per second : 350.03	GPU iteration:  10 	Result: 16941	Speedup factor: 0.95
+Transpose Timing:
+  transpose: 3.561 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.007629 GB
+  results downloaded:       0.030518 GB
+  db2 (reference, resident): 0.062500 GB (NOT transferred)
+  Total per-iteration:      0.038147 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=226993962.097 ns, stddev=163749.535 ns
+GPU compute throughput: mean=0.168 GB/s, stddev=0.000 GB/s
+Total operation time: mean=236752538.500 ns, stddev=3319189.928 ns
+Total operation throughput: mean=0.161 GB/s, stddev=0.002 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=1000,iterations=10,avg_ns=226993962.097,stddev_ns=163749.535,gbps=0.168053,gbps_stddev=0.000121,max=16941
+GPU/CPU agreement: 8192000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=2048 GPU_ILP=4 GPU_NUM_BITS=262144 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=1024 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_RO1o.csv GPU_LOG_OUTPUT=/tmp/gpu_log_hCUd.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 2048, ILP: 4, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       616672241 ns	Searches per second : 1.62	GPU iteration:   1 	Result: 66643	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       621735657 ns	Searches per second : 1.61	GPU iteration:   2 	Result: 66643	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :       616817993 ns	Searches per second : 1.62	GPU iteration:   3 	Result: 66643	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       492557098 ns	Searches per second : 2.03	GPU iteration:   4 	Result: 66643	Speedup factor: 1.25
+Total time for Container - GPU - HIP              :       697492859 ns	Searches per second : 1.43	GPU iteration:   5 	Result: 66643	Speedup factor: 0.88
+Total time for Container - GPU - HIP              :       528945129 ns	Searches per second : 1.89	GPU iteration:   6 	Result: 66643	Speedup factor: 1.17
+Total time for Container - GPU - HIP              :       369408234 ns	Searches per second : 2.71	GPU iteration:   7 	Result: 66643	Speedup factor: 1.67
+Total time for Container - GPU - HIP              :       614136780 ns	Searches per second : 1.63	GPU iteration:   8 	Result: 66643	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       421999512 ns	Searches per second : 2.37	GPU iteration:   9 	Result: 66643	Speedup factor: 1.46
+Total time for Container - GPU - HIP              :       497371094 ns	Searches per second : 2.01	GPU iteration:  10 	Result: 66643	Speedup factor: 1.24
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       651771462 ns	Searches per second : 1.53	GPU iteration:   1 	Result: 66643	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       650322704 ns	Searches per second : 1.54	GPU iteration:   2 	Result: 66643	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       645408542 ns	Searches per second : 1.55	GPU iteration:   3 	Result: 66643	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       521143947 ns	Searches per second : 1.92	GPU iteration:   4 	Result: 66643	Speedup factor: 1.25
+Total time for Container - GPU - HIP              :       726105960 ns	Searches per second : 1.38	GPU iteration:   5 	Result: 66643	Speedup factor: 0.90
+Total time for Container - GPU - HIP              :       557606608 ns	Searches per second : 1.79	GPU iteration:   6 	Result: 66643	Speedup factor: 1.17
+Total time for Container - GPU - HIP              :       397990250 ns	Searches per second : 2.51	GPU iteration:   7 	Result: 66643	Speedup factor: 1.64
+Total time for Container - GPU - HIP              :       642705948 ns	Searches per second : 1.56	GPU iteration:   8 	Result: 66643	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       450601992 ns	Searches per second : 2.22	GPU iteration:   9 	Result: 66643	Speedup factor: 1.45
+Total time for Container - GPU - HIP              :       525985113 ns	Searches per second : 1.90	GPU iteration:  10 	Result: 66643	Speedup factor: 1.24
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         1697651 ns	Searches per second : 589.05	GPU iteration:   1 	Result: 66643	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         1746002 ns	Searches per second : 572.74	GPU iteration:   2 	Result: 66643	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         1772479 ns	Searches per second : 564.18	GPU iteration:   3 	Result: 66643	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         1776494 ns	Searches per second : 562.91	GPU iteration:   4 	Result: 66643	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         1808700 ns	Searches per second : 552.88	GPU iteration:   5 	Result: 66643	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :         1856578 ns	Searches per second : 538.63	GPU iteration:   6 	Result: 66643	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :         1761761 ns	Searches per second : 567.61	GPU iteration:   7 	Result: 66643	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         1737240 ns	Searches per second : 575.63	GPU iteration:   8 	Result: 66643	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         1793474 ns	Searches per second : 557.58	GPU iteration:   9 	Result: 66643	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         1814417 ns	Searches per second : 551.14	GPU iteration:  10 	Result: 66643	Speedup factor: 0.94
+Transpose Timing:
+  transpose: 2.427 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.152588 GB
+  results downloaded:       0.019073 GB
+  db2 (reference, resident): 0.031250 GB (NOT transferred)
+  Total per-iteration:      0.171661 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=547713659.668 ns, stddev=97663473.315 ns
+GPU compute throughput: mean=0.325 GB/s, stddev=0.065 GB/s
+Total operation time: mean=576964252.600 ns, stddev=98140732.231 ns
+Total operation throughput: mean=0.307 GB/s, stddev=0.058 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=262144,nelem=5000,iterations=10,avg_ns=547713659.668,stddev_ns=97663473.315,gbps=0.324805,gbps_stddev=0.064961,max=66643
+GPU/CPU agreement: 5120000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=2048 GPU_ILP=8 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=1024 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_mssY.csv GPU_LOG_OUTPUT=/tmp/gpu_log_TSIw.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 2048, ILP: 8, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :        89347717 ns	Searches per second : 11.19	GPU iteration:   1 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        89173508 ns	Searches per second : 11.21	GPU iteration:   2 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        88978859 ns	Searches per second : 11.24	GPU iteration:   3 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        88991089 ns	Searches per second : 11.24	GPU iteration:   4 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        89035980 ns	Searches per second : 11.23	GPU iteration:   5 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        88996033 ns	Searches per second : 11.24	GPU iteration:   6 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        89007996 ns	Searches per second : 11.23	GPU iteration:   7 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        88991814 ns	Searches per second : 11.24	GPU iteration:   8 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        88994286 ns	Searches per second : 11.24	GPU iteration:   9 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        88991379 ns	Searches per second : 11.24	GPU iteration:  10 	Result: 16967	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       107353468 ns	Searches per second : 9.32	GPU iteration:   1 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        99922940 ns	Searches per second : 10.01	GPU iteration:   2 	Result: 16967	Speedup factor: 1.07
+Total time for Container - GPU - HIP              :        99826904 ns	Searches per second : 10.02	GPU iteration:   3 	Result: 16967	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :        99710930 ns	Searches per second : 10.03	GPU iteration:   4 	Result: 16967	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :        99757472 ns	Searches per second : 10.02	GPU iteration:   5 	Result: 16967	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :        99671030 ns	Searches per second : 10.03	GPU iteration:   6 	Result: 16967	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :        99668995 ns	Searches per second : 10.03	GPU iteration:   7 	Result: 16967	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :        99582844 ns	Searches per second : 10.04	GPU iteration:   8 	Result: 16967	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :        99563086 ns	Searches per second : 10.04	GPU iteration:   9 	Result: 16967	Speedup factor: 1.08
+Total time for Container - GPU - HIP              :        99710930 ns	Searches per second : 10.03	GPU iteration:  10 	Result: 16967	Speedup factor: 1.08
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         1857268 ns	Searches per second : 538.43	GPU iteration:   1 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         1781402 ns	Searches per second : 561.36	GPU iteration:   2 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :         1923246 ns	Searches per second : 519.95	GPU iteration:   3 	Result: 16967	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         1780670 ns	Searches per second : 561.59	GPU iteration:   4 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :         1800696 ns	Searches per second : 555.34	GPU iteration:   5 	Result: 16967	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :         1750229 ns	Searches per second : 571.35	GPU iteration:   6 	Result: 16967	Speedup factor: 1.06
+Total time for Container - GPU - HIP              :         1735636 ns	Searches per second : 576.16	GPU iteration:   7 	Result: 16967	Speedup factor: 1.07
+Total time for Container - GPU - HIP              :         1681330 ns	Searches per second : 594.77	GPU iteration:   8 	Result: 16967	Speedup factor: 1.10
+Total time for Container - GPU - HIP              :         1664147 ns	Searches per second : 600.91	GPU iteration:   9 	Result: 16967	Speedup factor: 1.12
+Total time for Container - GPU - HIP              :         1805584 ns	Searches per second : 553.84	GPU iteration:  10 	Result: 16967	Speedup factor: 1.03
+Transpose Timing:
+  transpose: 1.255 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.038147 GB
+  results downloaded:       0.019073 GB
+  db2 (reference, resident): 0.007812 GB (NOT transferred)
+  Total per-iteration:      0.057220 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=89050865.936 ns, stddev=112788.913 ns
+GPU compute throughput: mean=0.643 GB/s, stddev=0.001 GB/s
+Total operation time: mean=100476859.900 ns, stddev=2294429.771 ns
+Total operation throughput: mean=0.570 GB/s, stddev=0.012 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=5000,iterations=10,avg_ns=89050865.936,stddev_ns=112788.913,gbps=0.642560,gbps_stddev=0.000812,max=16967
+GPU/CPU agreement: 5120000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=512 GPU_ILP=16 GPU_NUM_BITS=262144 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=2048 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_v_S_.csv GPU_LOG_OUTPUT=/tmp/gpu_log_SX81.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 512, ILP: 16, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       570372803 ns	Searches per second : 1.75	GPU iteration:   1 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       570354919 ns	Searches per second : 1.75	GPU iteration:   2 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       570085571 ns	Searches per second : 1.75	GPU iteration:   3 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       570089844 ns	Searches per second : 1.75	GPU iteration:   4 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       570515320 ns	Searches per second : 1.75	GPU iteration:   5 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       570411011 ns	Searches per second : 1.75	GPU iteration:   6 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       570585876 ns	Searches per second : 1.75	GPU iteration:   7 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       570507568 ns	Searches per second : 1.75	GPU iteration:   8 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       570463013 ns	Searches per second : 1.75	GPU iteration:   9 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       570185242 ns	Searches per second : 1.75	GPU iteration:  10 	Result: 66688	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       616873970 ns	Searches per second : 1.62	GPU iteration:   1 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       603582603 ns	Searches per second : 1.66	GPU iteration:   2 	Result: 66688	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       603303021 ns	Searches per second : 1.66	GPU iteration:   3 	Result: 66688	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       603424675 ns	Searches per second : 1.66	GPU iteration:   4 	Result: 66688	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       603765194 ns	Searches per second : 1.66	GPU iteration:   5 	Result: 66688	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       603605156 ns	Searches per second : 1.66	GPU iteration:   6 	Result: 66688	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       603771710 ns	Searches per second : 1.66	GPU iteration:   7 	Result: 66688	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       603682831 ns	Searches per second : 1.66	GPU iteration:   8 	Result: 66688	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       603797128 ns	Searches per second : 1.66	GPU iteration:   9 	Result: 66688	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       603335923 ns	Searches per second : 1.66	GPU iteration:  10 	Result: 66688	Speedup factor: 1.02
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         3493664 ns	Searches per second : 286.23	GPU iteration:   1 	Result: 66688	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         3568557 ns	Searches per second : 280.23	GPU iteration:   2 	Result: 66688	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         3583522 ns	Searches per second : 279.06	GPU iteration:   3 	Result: 66688	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         3692846 ns	Searches per second : 270.79	GPU iteration:   4 	Result: 66688	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         3584730 ns	Searches per second : 278.96	GPU iteration:   5 	Result: 66688	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         3560737 ns	Searches per second : 280.84	GPU iteration:   6 	Result: 66688	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         3549479 ns	Searches per second : 281.73	GPU iteration:   7 	Result: 66688	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         3538719 ns	Searches per second : 282.59	GPU iteration:   8 	Result: 66688	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         3699877 ns	Searches per second : 270.28	GPU iteration:   9 	Result: 66688	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :         3525298 ns	Searches per second : 283.66	GPU iteration:  10 	Result: 66688	Speedup factor: 0.99
+Transpose Timing:
+  transpose: 4.191 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.152588 GB
+  results downloaded:       0.038147 GB
+  db2 (reference, resident): 0.062500 GB (NOT transferred)
+  Total per-iteration:      0.190735 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=570357116.699 ns, stddev=170022.682 ns
+GPU compute throughput: mean=0.334 GB/s, stddev=0.000 GB/s
+Total operation time: mean=604914221.100 ns, stddev=3990213.073 ns
+Total operation throughput: mean=0.315 GB/s, stddev=0.002 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=262144,nelem=5000,iterations=10,avg_ns=570357116.699,stddev_ns=170022.682,gbps=0.334413,gbps_stddev=0.000100,max=66688
+GPU/CPU agreement: 10240000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=1024 GPU_ILP=8 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=4096 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_cR_5.csv GPU_LOG_OUTPUT=/tmp/gpu_log_fFbj.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 1024, ILP: 8, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       748949402 ns	Searches per second : 1.34	GPU iteration:   1 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       748458130 ns	Searches per second : 1.34	GPU iteration:   2 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       749244080 ns	Searches per second : 1.33	GPU iteration:   3 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       748842834 ns	Searches per second : 1.34	GPU iteration:   4 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       742986877 ns	Searches per second : 1.35	GPU iteration:   5 	Result: 16967	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       745905579 ns	Searches per second : 1.34	GPU iteration:   6 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       749120361 ns	Searches per second : 1.33	GPU iteration:   7 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       743303772 ns	Searches per second : 1.35	GPU iteration:   8 	Result: 16967	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       747911133 ns	Searches per second : 1.34	GPU iteration:   9 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       744168823 ns	Searches per second : 1.34	GPU iteration:  10 	Result: 16967	Speedup factor: 1.01
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       801859406 ns	Searches per second : 1.25	GPU iteration:   1 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       773228592 ns	Searches per second : 1.29	GPU iteration:   2 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       773778534 ns	Searches per second : 1.29	GPU iteration:   3 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       773428758 ns	Searches per second : 1.29	GPU iteration:   4 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       767600020 ns	Searches per second : 1.30	GPU iteration:   5 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       770456291 ns	Searches per second : 1.30	GPU iteration:   6 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       773657761 ns	Searches per second : 1.29	GPU iteration:   7 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       767870970 ns	Searches per second : 1.30	GPU iteration:   8 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       772771184 ns	Searches per second : 1.29	GPU iteration:   9 	Result: 16967	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       768719276 ns	Searches per second : 1.30	GPU iteration:  10 	Result: 16967	Speedup factor: 1.04
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         7059925 ns	Searches per second : 141.64	GPU iteration:   1 	Result: 16967	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         7331447 ns	Searches per second : 136.40	GPU iteration:   2 	Result: 16967	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         7116769 ns	Searches per second : 140.51	GPU iteration:   3 	Result: 16967	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         7181052 ns	Searches per second : 139.26	GPU iteration:   4 	Result: 16967	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         7207323 ns	Searches per second : 138.75	GPU iteration:   5 	Result: 16967	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         7137109 ns	Searches per second : 140.11	GPU iteration:   6 	Result: 16967	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         7114588 ns	Searches per second : 140.56	GPU iteration:   7 	Result: 16967	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         7152828 ns	Searches per second : 139.80	GPU iteration:   8 	Result: 16967	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         7447416 ns	Searches per second : 134.27	GPU iteration:   9 	Result: 16967	Speedup factor: 0.95
+Total time for Container - GPU - HIP              :         7141490 ns	Searches per second : 140.03	GPU iteration:  10 	Result: 16967	Speedup factor: 0.99
+Transpose Timing:
+  transpose: 1.208 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.038147 GB
+  results downloaded:       0.076294 GB
+  db2 (reference, resident): 0.031250 GB (NOT transferred)
+  Total per-iteration:      0.114441 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=746889099.121 ns, stddev=2419543.797 ns
+GPU compute throughput: mean=0.153 GB/s, stddev=0.000 GB/s
+Total operation time: mean=774337079.200 ns, stddev=9468772.371 ns
+Total operation throughput: mean=0.148 GB/s, stddev=0.002 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=5000,iterations=10,avg_ns=746889099.121,stddev_ns=2419543.797,gbps=0.153225,gbps_stddev=0.000497,max=16967
+GPU/CPU agreement: 20480000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=512 GPU_ILP=4 GPU_NUM_BITS=262144 GPU_NUM_QUERIES=1000 GPU_NUM_REFS=1024 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_md3C.csv GPU_LOG_OUTPUT=/tmp/gpu_log_da7a.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 512, ILP: 4, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       135237335 ns	Searches per second : 7.39	GPU iteration:   1 	Result: 66552	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       132619720 ns	Searches per second : 7.54	GPU iteration:   2 	Result: 66552	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       135419647 ns	Searches per second : 7.38	GPU iteration:   3 	Result: 66552	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       132662567 ns	Searches per second : 7.54	GPU iteration:   4 	Result: 66552	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :       135155685 ns	Searches per second : 7.40	GPU iteration:   5 	Result: 66552	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       134893921 ns	Searches per second : 7.41	GPU iteration:   6 	Result: 66552	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       137515839 ns	Searches per second : 7.27	GPU iteration:   7 	Result: 66552	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :       134642990 ns	Searches per second : 7.43	GPU iteration:   8 	Result: 66552	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       134662964 ns	Searches per second : 7.43	GPU iteration:   9 	Result: 66552	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       133153091 ns	Searches per second : 7.51	GPU iteration:  10 	Result: 66552	Speedup factor: 1.02
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       142270348 ns	Searches per second : 7.03	GPU iteration:   1 	Result: 66552	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       138301982 ns	Searches per second : 7.23	GPU iteration:   2 	Result: 66552	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       141096054 ns	Searches per second : 7.09	GPU iteration:   3 	Result: 66552	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       138363066 ns	Searches per second : 7.23	GPU iteration:   4 	Result: 66552	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       140871030 ns	Searches per second : 7.10	GPU iteration:   5 	Result: 66552	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       140564032 ns	Searches per second : 7.11	GPU iteration:   6 	Result: 66552	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       143195641 ns	Searches per second : 6.98	GPU iteration:   7 	Result: 66552	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :       140351737 ns	Searches per second : 7.12	GPU iteration:   8 	Result: 66552	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       140377665 ns	Searches per second : 7.12	GPU iteration:   9 	Result: 66552	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :       138825102 ns	Searches per second : 7.20	GPU iteration:  10 	Result: 66552	Speedup factor: 1.02
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :          283369 ns	Searches per second : 3528.97	GPU iteration:   1 	Result: 66552	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :          285011 ns	Searches per second : 3508.64	GPU iteration:   2 	Result: 66552	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :          276210 ns	Searches per second : 3620.43	GPU iteration:   3 	Result: 66552	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :          313304 ns	Searches per second : 3191.79	GPU iteration:   4 	Result: 66552	Speedup factor: 0.90
+Total time for Container - GPU - HIP              :          292073 ns	Searches per second : 3423.80	GPU iteration:   5 	Result: 66552	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :          287241 ns	Searches per second : 3481.40	GPU iteration:   6 	Result: 66552	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :          292981 ns	Searches per second : 3413.19	GPU iteration:   7 	Result: 66552	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :          289717 ns	Searches per second : 3451.64	GPU iteration:   8 	Result: 66552	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :          296693 ns	Searches per second : 3370.49	GPU iteration:   9 	Result: 66552	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :          277003 ns	Searches per second : 3610.07	GPU iteration:  10 	Result: 66552	Speedup factor: 1.02
+Transpose Timing:
+  transpose: 2.984 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.030518 GB
+  results downloaded:       0.003815 GB
+  db2 (reference, resident): 0.031250 GB (NOT transferred)
+  Total per-iteration:      0.034332 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=134596376.038 ns, stddev=1405335.804 ns
+GPU compute throughput: mean=0.255 GB/s, stddev=0.003 GB/s
+Total operation time: mean=140421665.700 ns, stddev=1519088.367 ns
+Total operation throughput: mean=0.245 GB/s, stddev=0.003 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=262144,nelem=1000,iterations=10,avg_ns=134596376.038,stddev_ns=1405335.804,gbps=0.255104,gbps_stddev=0.002656,max=66552
+GPU/CPU agreement: 1024000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=4096 GPU_ILP=4 GPU_NUM_BITS=16384 GPU_NUM_QUERIES=10000 GPU_NUM_REFS=4096 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_UOfM.csv GPU_LOG_OUTPUT=/tmp/gpu_log_GcI5.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 4096, ILP: 4, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       273940491 ns	Searches per second : 3.65	GPU iteration:   1 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       266346771 ns	Searches per second : 3.75	GPU iteration:   2 	Result: 4397	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       321941498 ns	Searches per second : 3.11	GPU iteration:   3 	Result: 4397	Speedup factor: 0.85
+Total time for Container - GPU - HIP              :       281694336 ns	Searches per second : 3.55	GPU iteration:   4 	Result: 4397	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :       146334137 ns	Searches per second : 6.83	GPU iteration:   5 	Result: 4397	Speedup factor: 1.87
+Total time for Container - GPU - HIP              :       140044220 ns	Searches per second : 7.14	GPU iteration:   6 	Result: 4397	Speedup factor: 1.96
+Total time for Container - GPU - HIP              :       322798462 ns	Searches per second : 3.10	GPU iteration:   7 	Result: 4397	Speedup factor: 0.85
+Total time for Container - GPU - HIP              :       249446869 ns	Searches per second : 4.01	GPU iteration:   8 	Result: 4397	Speedup factor: 1.10
+Total time for Container - GPU - HIP              :       300718414 ns	Searches per second : 3.33	GPU iteration:   9 	Result: 4397	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :       288783752 ns	Searches per second : 3.46	GPU iteration:  10 	Result: 4397	Speedup factor: 0.95
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       374065506 ns	Searches per second : 2.67	GPU iteration:   1 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       307767958 ns	Searches per second : 3.25	GPU iteration:   2 	Result: 4397	Speedup factor: 1.22
+Total time for Container - GPU - HIP              :       363280358 ns	Searches per second : 2.75	GPU iteration:   3 	Result: 4397	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       322987678 ns	Searches per second : 3.10	GPU iteration:   4 	Result: 4397	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :       187560019 ns	Searches per second : 5.33	GPU iteration:   5 	Result: 4397	Speedup factor: 1.99
+Total time for Container - GPU - HIP              :       181242369 ns	Searches per second : 5.52	GPU iteration:   6 	Result: 4397	Speedup factor: 2.06
+Total time for Container - GPU - HIP              :       363931380 ns	Searches per second : 2.75	GPU iteration:   7 	Result: 4397	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       290628807 ns	Searches per second : 3.44	GPU iteration:   8 	Result: 4397	Speedup factor: 1.29
+Total time for Container - GPU - HIP              :       341879458 ns	Searches per second : 2.93	GPU iteration:   9 	Result: 4397	Speedup factor: 1.09
+Total time for Container - GPU - HIP              :       329983474 ns	Searches per second : 3.03	GPU iteration:  10 	Result: 4397	Speedup factor: 1.13
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :        14523655 ns	Searches per second : 68.85	GPU iteration:   1 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14461492 ns	Searches per second : 69.15	GPU iteration:   2 	Result: 4397	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        14364381 ns	Searches per second : 69.62	GPU iteration:   3 	Result: 4397	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :        14387359 ns	Searches per second : 69.51	GPU iteration:   4 	Result: 4397	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :        14292088 ns	Searches per second : 69.97	GPU iteration:   5 	Result: 4397	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14222748 ns	Searches per second : 70.31	GPU iteration:   6 	Result: 4397	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14217634 ns	Searches per second : 70.34	GPU iteration:   7 	Result: 4397	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14283284 ns	Searches per second : 70.01	GPU iteration:   8 	Result: 4397	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14247733 ns	Searches per second : 70.19	GPU iteration:   9 	Result: 4397	Speedup factor: 1.02
+Total time for Container - GPU - HIP              :        14290603 ns	Searches per second : 69.98	GPU iteration:  10 	Result: 4397	Speedup factor: 1.02
+Transpose Timing:
+  transpose: 0.908 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.019073 GB
+  results downloaded:       0.152588 GB
+  db2 (reference, resident): 0.007812 GB (NOT transferred)
+  Total per-iteration:      0.171661 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=259204895.020 ns, stddev=61956853.434 ns
+GPU compute throughput: mean=0.720 GB/s, stddev=0.244 GB/s
+Total operation time: mean=306332700.700 ns, stddev=65766183.550 ns
+Total operation throughput: mean=0.597 GB/s, stddev=0.172 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=16384,nelem=10000,iterations=10,avg_ns=259204895.020,stddev_ns=61956853.434,gbps=0.719781,gbps_stddev=0.244351,max=4397
+GPU/CPU agreement: 40960000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=4096 GPU_ILP=32 GPU_NUM_BITS=16384 GPU_NUM_QUERIES=1000 GPU_NUM_REFS=4096 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_Tfkp.csv GPU_LOG_OUTPUT=/tmp/gpu_log_QNPP.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 4096, ILP: 32, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :        32756592 ns	Searches per second : 30.53	GPU iteration:   1 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        32722969 ns	Searches per second : 30.56	GPU iteration:   2 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        32741070 ns	Searches per second : 30.54	GPU iteration:   3 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        32735950 ns	Searches per second : 30.55	GPU iteration:   4 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        32728291 ns	Searches per second : 30.55	GPU iteration:   5 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        32764709 ns	Searches per second : 30.52	GPU iteration:   6 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        32743454 ns	Searches per second : 30.54	GPU iteration:   7 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        32735767 ns	Searches per second : 30.55	GPU iteration:   8 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        32731682 ns	Searches per second : 30.55	GPU iteration:   9 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        32717911 ns	Searches per second : 30.56	GPU iteration:  10 	Result: 4353	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :        42726786 ns	Searches per second : 23.40	GPU iteration:   1 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :        36697192 ns	Searches per second : 27.25	GPU iteration:   2 	Result: 4353	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :        36690717 ns	Searches per second : 27.25	GPU iteration:   3 	Result: 4353	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :        36654044 ns	Searches per second : 27.28	GPU iteration:   4 	Result: 4353	Speedup factor: 1.17
+Total time for Container - GPU - HIP              :        36751866 ns	Searches per second : 27.21	GPU iteration:   5 	Result: 4353	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :        36744648 ns	Searches per second : 27.21	GPU iteration:   6 	Result: 4353	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :        36701993 ns	Searches per second : 27.25	GPU iteration:   7 	Result: 4353	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :        36722887 ns	Searches per second : 27.23	GPU iteration:   8 	Result: 4353	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :        36734460 ns	Searches per second : 27.22	GPU iteration:   9 	Result: 4353	Speedup factor: 1.16
+Total time for Container - GPU - HIP              :        36684569 ns	Searches per second : 27.26	GPU iteration:  10 	Result: 4353	Speedup factor: 1.16
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         1253295 ns	Searches per second : 797.90	GPU iteration:   1 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         1250928 ns	Searches per second : 799.41	GPU iteration:   2 	Result: 4353	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         1277809 ns	Searches per second : 782.59	GPU iteration:   3 	Result: 4353	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         1238239 ns	Searches per second : 807.60	GPU iteration:   4 	Result: 4353	Speedup factor: 1.01
+Total time for Container - GPU - HIP              :         1328743 ns	Searches per second : 752.59	GPU iteration:   5 	Result: 4353	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :         1288584 ns	Searches per second : 776.05	GPU iteration:   6 	Result: 4353	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         1274637 ns	Searches per second : 784.54	GPU iteration:   7 	Result: 4353	Speedup factor: 0.98
+Total time for Container - GPU - HIP              :         1305361 ns	Searches per second : 766.07	GPU iteration:   8 	Result: 4353	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         1333507 ns	Searches per second : 749.90	GPU iteration:   9 	Result: 4353	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :         1292926 ns	Searches per second : 773.44	GPU iteration:  10 	Result: 4353	Speedup factor: 0.97
+Transpose Timing:
+  transpose: 0.249 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.001907 GB
+  results downloaded:       0.015259 GB
+  db2 (reference, resident): 0.007812 GB (NOT transferred)
+  Total per-iteration:      0.017166 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=32737839.508 ns, stddev=13677.892 ns
+GPU compute throughput: mean=0.524 GB/s, stddev=0.000 GB/s
+Total operation time: mean=37310916.200 ns, stddev=1805513.954 ns
+Total operation throughput: mean=0.461 GB/s, stddev=0.020 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=16384,nelem=1000,iterations=10,avg_ns=32737839.508,stddev_ns=13677.892,gbps=0.524352,gbps_stddev=0.000219,max=4353
+GPU/CPU agreement: 4096000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=2048 GPU_ILP=64 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=1000 GPU_NUM_REFS=8192 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_ESOw.csv GPU_LOG_OUTPUT=/tmp/gpu_log_41oC.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 2048, ILP: 64, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       248165207 ns	Searches per second : 4.03	GPU iteration:   1 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248204987 ns	Searches per second : 4.03	GPU iteration:   2 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248146255 ns	Searches per second : 4.03	GPU iteration:   3 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248098068 ns	Searches per second : 4.03	GPU iteration:   4 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248164780 ns	Searches per second : 4.03	GPU iteration:   5 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248171555 ns	Searches per second : 4.03	GPU iteration:   6 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248167145 ns	Searches per second : 4.03	GPU iteration:   7 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248050293 ns	Searches per second : 4.03	GPU iteration:   8 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248036591 ns	Searches per second : 4.03	GPU iteration:   9 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       248156006 ns	Searches per second : 4.03	GPU iteration:  10 	Result: 16970	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       267681796 ns	Searches per second : 3.74	GPU iteration:   1 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       256883835 ns	Searches per second : 3.89	GPU iteration:   2 	Result: 16970	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256969005 ns	Searches per second : 3.89	GPU iteration:   3 	Result: 16970	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256729586 ns	Searches per second : 3.90	GPU iteration:   4 	Result: 16970	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256949407 ns	Searches per second : 3.89	GPU iteration:   5 	Result: 16970	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256821181 ns	Searches per second : 3.89	GPU iteration:   6 	Result: 16970	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       257001880 ns	Searches per second : 3.89	GPU iteration:   7 	Result: 16970	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256779872 ns	Searches per second : 3.89	GPU iteration:   8 	Result: 16970	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256689272 ns	Searches per second : 3.90	GPU iteration:   9 	Result: 16970	Speedup factor: 1.04
+Total time for Container - GPU - HIP              :       256850701 ns	Searches per second : 3.89	GPU iteration:  10 	Result: 16970	Speedup factor: 1.04
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         2697688 ns	Searches per second : 370.69	GPU iteration:   1 	Result: 16970	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         2785219 ns	Searches per second : 359.04	GPU iteration:   2 	Result: 16970	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         2966397 ns	Searches per second : 337.11	GPU iteration:   3 	Result: 16970	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :         2775790 ns	Searches per second : 360.26	GPU iteration:   4 	Result: 16970	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         2929587 ns	Searches per second : 341.35	GPU iteration:   5 	Result: 16970	Speedup factor: 0.92
+Total time for Container - GPU - HIP              :         2789760 ns	Searches per second : 358.45	GPU iteration:   6 	Result: 16970	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         2956039 ns	Searches per second : 338.29	GPU iteration:   7 	Result: 16970	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :         2867767 ns	Searches per second : 348.70	GPU iteration:   8 	Result: 16970	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :         2807363 ns	Searches per second : 356.21	GPU iteration:   9 	Result: 16970	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         2824737 ns	Searches per second : 354.02	GPU iteration:  10 	Result: 16970	Speedup factor: 0.96
+Transpose Timing:
+  transpose: 3.510 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.007629 GB
+  results downloaded:       0.030518 GB
+  db2 (reference, resident): 0.062500 GB (NOT transferred)
+  Total per-iteration:      0.038147 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=248136088.562 ns, stddev=52769.937 ns
+GPU compute throughput: mean=0.154 GB/s, stddev=0.000 GB/s
+Total operation time: mean=257935653.500 ns, stddev=3250164.729 ns
+Total operation throughput: mean=0.148 GB/s, stddev=0.002 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=1000,iterations=10,avg_ns=248136088.562,stddev_ns=52769.937,gbps=0.153734,gbps_stddev=0.000033,max=16970
+GPU/CPU agreement: 8192000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=4096 GPU_ILP=32 GPU_NUM_BITS=65536 GPU_NUM_QUERIES=5000 GPU_NUM_REFS=1024 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_pcrK.csv GPU_LOG_OUTPUT=/tmp/gpu_log_HWik.log AMD_ARCH=gfx1010 CC=clang
+Starting GPU-only benchmark
+TILE_J: 4096, ILP: 32, word_bits: 64
+Completed burn-in iteration to warm up GPU and PCIe paths
+GPU Algorithm Timing:
+Total time for Container - GPU - HIP              :       204391174 ns	Searches per second : 4.89	GPU iteration:   1 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       204426102 ns	Searches per second : 4.89	GPU iteration:   2 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       204224060 ns	Searches per second : 4.90	GPU iteration:   3 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       204198975 ns	Searches per second : 4.90	GPU iteration:   4 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       204252731 ns	Searches per second : 4.90	GPU iteration:   5 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       204210724 ns	Searches per second : 4.90	GPU iteration:   6 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       204280884 ns	Searches per second : 4.90	GPU iteration:   7 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       204232346 ns	Searches per second : 4.90	GPU iteration:   8 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       204290878 ns	Searches per second : 4.89	GPU iteration:   9 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       204258881 ns	Searches per second : 4.90	GPU iteration:  10 	Result: 16938	Speedup factor: 1.00
+GPU Algorithm + PCIe Timings:
+Total time for Container - GPU - HIP              :       221511944 ns	Searches per second : 4.51	GPU iteration:   1 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :       215038438 ns	Searches per second : 4.65	GPU iteration:   2 	Result: 16938	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       214921069 ns	Searches per second : 4.65	GPU iteration:   3 	Result: 16938	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       214912978 ns	Searches per second : 4.65	GPU iteration:   4 	Result: 16938	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       214870352 ns	Searches per second : 4.65	GPU iteration:   5 	Result: 16938	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       214840535 ns	Searches per second : 4.65	GPU iteration:   6 	Result: 16938	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       214935666 ns	Searches per second : 4.65	GPU iteration:   7 	Result: 16938	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       214908962 ns	Searches per second : 4.65	GPU iteration:   8 	Result: 16938	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       215015920 ns	Searches per second : 4.65	GPU iteration:   9 	Result: 16938	Speedup factor: 1.03
+Total time for Container - GPU - HIP              :       215041071 ns	Searches per second : 4.65	GPU iteration:  10 	Result: 16938	Speedup factor: 1.03
+CPU Overhead Timings:
+Total time for Container - GPU - HIP              :         1653833 ns	Searches per second : 604.66	GPU iteration:   1 	Result: 16938	Speedup factor: 1.00
+Total time for Container - GPU - HIP              :         1675766 ns	Searches per second : 596.74	GPU iteration:   2 	Result: 16938	Speedup factor: 0.99
+Total time for Container - GPU - HIP              :         1754439 ns	Searches per second : 569.98	GPU iteration:   3 	Result: 16938	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :         1801335 ns	Searches per second : 555.14	GPU iteration:   4 	Result: 16938	Speedup factor: 0.92
+Total time for Container - GPU - HIP              :         1696892 ns	Searches per second : 589.31	GPU iteration:   5 	Result: 16938	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         1708962 ns	Searches per second : 585.15	GPU iteration:   6 	Result: 16938	Speedup factor: 0.97
+Total time for Container - GPU - HIP              :         1724484 ns	Searches per second : 579.88	GPU iteration:   7 	Result: 16938	Speedup factor: 0.96
+Total time for Container - GPU - HIP              :         1761753 ns	Searches per second : 567.62	GPU iteration:   8 	Result: 16938	Speedup factor: 0.94
+Total time for Container - GPU - HIP              :         1814026 ns	Searches per second : 551.26	GPU iteration:   9 	Result: 16938	Speedup factor: 0.91
+Total time for Container - GPU - HIP              :         1809075 ns	Searches per second : 552.77	GPU iteration:  10 	Result: 16938	Speedup factor: 0.91
+Transpose Timing:
+  transpose: 0.837 ms
+
+Per-Iteration Data Movement Breakdown:
+  db1 (queries) uploaded:   0.038147 GB
+  results downloaded:       0.019073 GB
+  db2 (reference, resident): 0.007812 GB (NOT transferred)
+  Total per-iteration:      0.057220 GB
+
+Estimated Throughput (iterations 1-N, steady-state):
+GPU compute time: mean=204276675.415 ns, stddev=71880.558 ns
+GPU compute throughput: mean=0.280 GB/s, stddev=0.000 GB/s
+Total operation time: mean=215599693.500 ns, stddev=1971825.978 ns
+Total operation throughput: mean=0.265 GB/s, stddev=0.002 GB/s
+HIP_SUMMARY,backend=HIP,method=WWG,bitset_bits=65536,nelem=5000,iterations=10,avg_ns=204276675.415,stddev_ns=71880.558,gbps=0.280113,gbps_stddev=0.000099,max=16938
+GPU/CPU agreement: 5120000, disagreement: 0
+RUN: make -B GPU=AMD gpu_bench_csv GPU_TILE_J=1024 GPU_ILP=32 GPU_NUM_BITS=262144 GPU_NUM_QUERIES=10000 GPU_NUM_REFS=2048 GPU_ITERATIONS=10 GPU_CSV_OUTPUT=/tmp/gpu_csv_pzZb.csv GPU_LOG_OUTPUT=/tmp/gpu_log_fwXE.log AMD_ARCH=gfx1010 CC=clang
