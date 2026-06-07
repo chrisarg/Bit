@@ -137,8 +137,11 @@ required SM targets in `NVIDIA_ARCH` or restrict execution with
 `CC=gcc GPU=NVIDIA` remains best-effort experimental. Both `gcc` and `clang`
 accept a multi-SM list via `NVIDIA_ARCH`. Their behaviour differs:
 `clang` embeds one native cubin per SM target (a true fat binary);
-`gcc` compiles PTX targeting the minimum SM in the list and relies on the
-CUDA PTX JIT driver to produce native code for any newer GPU at load time.
+`gcc` does not inject an explicit NVIDIA `-march` target unless `NVIDIA_ARCH`
+is provided. When `NVIDIA_ARCH` is set, it chooses the minimum SM from the
+list and relies on the CUDA PTX JIT driver to produce native code for any newer
+GPU at load time. If `NVIDIA_ARCH` is omitted, GCC uses its own default/PTX
+fallback behaviour.
 PTX JIT requires a CUDA driver at runtime — toolkit-only installs without a
 driver may fail to offload on GPUs newer than the minimum target SM.
 

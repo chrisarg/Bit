@@ -89,7 +89,11 @@ BUG_REPORT_TAG ?= $(notdir $(CC))-$(GPU)-$(BUG_GPU_ARCH_TAG)
 
 NVIDIA_CLANG_ARCH_FLAGS := $(foreach arch,$(NVIDIA_ARCH_LIST),--offload-arch=$(arch))
 ifeq ($(notdir $(CC)),gcc)
-  NVIDIA_GCC_ARCH_FLAG := $(foreach arch,$(NVIDIA_ARCH_LIST),-foffload-options=nvptx-none=-march=$(arch))
+  ifneq ($(strip $(NVIDIA_ARCH)),)
+    NVIDIA_GCC_ARCH_FLAG := -foffload-options=nvptx-none=-march=$(firstword $(sort $(NVIDIA_ARCH_LIST)))
+  else
+    NVIDIA_GCC_ARCH_FLAG :=
+  endif
 endif
 
 ifeq ($(IS_CLEAN_GOAL),)
@@ -107,14 +111,17 @@ ifeq ($(GPU),NONE)
     $(error GPU=NONE does not accept NVIDIA_ARCH or AMD_ARCH overrides)
   endif
 else ifeq ($(GPU),NVIDIA)
+# disable control flow protection for nvptx targets, which do not support it and 
+# cause compilation to fail; this should not impact host code or non-nvptx offloads
+  OFFLOAD_FL += -fcf-protection=none -fno-stack-protector
   ifneq ($(strip $(AMD_ARCH)),)
     $(error GPU=NVIDIA does not accept AMD_ARCH; use NVIDIA_ARCH=sm_xy[,sm_ab,...])
   endif
   ifeq ($(notdir $(CC)),gcc)
     $(warning GPU=NVIDIA with CC=gcc is experimental; use CC=clang for reliable nvptx offload)
-    OFFLOAD_FL := -foffload=nvptx-none $(NVIDIA_GCC_ARCH_FLAG)
+    OFFLOAD_FL += -foffload=nvptx-none $(NVIDIA_GCC_ARCH_FLAG)
   else ifeq ($(notdir $(CC)),clang)
-    OFFLOAD_FL := -fopenmp-targets=nvptx64-nvidia-cuda --cuda-path=$(CUDA_PATH) $(NVIDIA_CLANG_ARCH_FLAGS) -Xopenmp-target=nvptx64-nvidia-cuda --no-cuda-version-check -foffload-lto
+    OFFLOAD_FL += -fopenmp-targets=nvptx64-nvidia-cuda --cuda-path=$(CUDA_PATH) $(NVIDIA_CLANG_ARCH_FLAGS) -Xopenmp-target=nvptx64-nvidia-cuda --no-cuda-version-check -foffload-lto
   else
     $(error GPU=NVIDIA is supported with gcc or clang only)
   endif
@@ -228,7 +235,7 @@ $(TARGET_STATIC): $(OBJ)
 	ar rcs $@ $^
 
 test: $(TARGET) $(TEST_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) $(BUILD_RPATH_FLAG) $(OPENMP_LINK_PRE) $(OPENMP_LINK_LIBS) $(OPENMP_LINK_POST)
+	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) $(OPENMP_LINK_PRE) $(OPENMP_LINK_LIBS) $(OPENMP_LINK_POST) 
 
 test_offload: $(TEST_OFFLOAD_OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_OFFLOAD_EXEC) $(TEST_OFFLOAD_OBJ) $(BUILD_RPATH_FLAG) $(OPENMP_LINK_PRE) $(OPENMP_LINK_LIBS) $(OPENMP_LINK_POST) -lm
