@@ -3,7 +3,7 @@ set -euo pipefail
 
 BRANCH_SRC="gpuOpt"
 BRANCH_DST="main"
-
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 FILES=(
   Makefile
   README.md
@@ -17,7 +17,7 @@ FILES=(
   tests/test_offload.c
 )
 
-if [[ "$(git rev-parse --abbrev-ref HEAD)" != "$BRANCH_SRC" ]]; then
+if [[ "$CURRENT_BRANCH" != "$BRANCH_SRC" ]]; then
   echo "ERROR: must run from branch '$BRANCH_SRC'"
   exit 1
 fi
@@ -37,3 +37,6 @@ git checkout "$BRANCH_SRC" -- include "${FILES[@]}"
 git add include "${FILES[@]}"
 git commit -m "Cherry-pick selected gpuOpt files into main"
 git push origin "$BRANCH_DST"
+
+git switch "$CURRENT_BRANCH"
+echo "Switched back to '$CURRENT_BRANCH'"
