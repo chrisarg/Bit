@@ -122,7 +122,7 @@ static uint64_t tree_adder_GPU(unsigned long long v);
   }
 #endif
 #define TILE_J 256
-#if defined(OPENMP_GPU_IMPL_VL_TRANSPOSED_TEAM_PARALLEL_SIMD)
+#if defined(OPENMP_GPU_IMPL_ACTIVE_BRANCH)
 #define setop_count_db_gpu_instrument(bit, bits, counts, op, opts, instr)      \
   SETOP_DB_CHECKS(bit, bits)                                                   \
   SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
