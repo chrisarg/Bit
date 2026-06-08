@@ -3,9 +3,11 @@ set -euo pipefail
 
 BRANCH_SRC="gpuOpt"
 BRANCH_DST="inteliGPU"
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 
-if [[ "$(git rev-parse --abbrev-ref HEAD)" != "$BRANCH_SRC" ]]; then
+
+if [[ "$CURRENT_BRANCH" != "$BRANCH_SRC" ]]; then
   echo "ERROR: must run from branch '$BRANCH_SRC'"
   exit 1
 fi
@@ -22,4 +24,5 @@ git pull origin "$BRANCH_DST"
 
 git merge "$BRANCH_SRC" --no-ff -m "Merge  '$BRANCH_SRC' into '$BRANCH_DST'"
 
-git switch "$BRANCH_SRC" -m "Switch back to '$BRANCH_SRC' after merging into '$BRANCH_DST'"
+git switch "$CURRENT_BRANCH"
+echo "Switched back to '$CURRENT_BRANCH'"
