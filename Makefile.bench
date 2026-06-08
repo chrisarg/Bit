@@ -30,6 +30,17 @@ endif
 
 HIPCC_ARCH_FLAGS := $(foreach arch,$(amd_archs),--offload-arch=$(arch))
 
+# check for valid code branches of the OpenMP GPU implementation
+OPENMP_GPU_IMPL ?= TEAM_PARALLEL_SIMD
+override OPENMP_GPU_IMPL := $(shell printf '%s' '$(OPENMP_GPU_IMPL)' | tr 'a-z' 'A-Z' | tr -d '[:space:]')
+OPENMP_GPU_IMPL_OPTIONS := TEAM_PARALLEL_SIMD TRANSPOSED_TEAM_PARALLEL_SIMD ACTIVE_BRANCH
+OPENMP_GPU_IMPL_OK := $(filter $(OPENMP_GPU_IMPL),$(OPENMP_GPU_IMPL_OPTIONS))
+ifeq ($(strip $(OPENMP_GPU_IMPL_OK)),)
+  $(error OPENMP_GPU_IMPL=$(OPENMP_GPU_IMPL) is not one of $(OPENMP_GPU_IMPL_OPTIONS))
+endif
+OPENMP_GPU_IMPL_MACRO := -DOPENMP_GPU_IMPL_$(OPENMP_GPU_IMPL)
+CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(OPENMP_GPU_IMPL_MACRO) $(CFLAGS0) $(REPORT_CFLAGS)
+
 .PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu clean-bench distclean-bench
 
 gpu_bench_csv: $(GPU_BENCH_EXEC)
@@ -50,16 +61,30 @@ $(HIP_BENCH_EXEC): $(HIP_BENCH_OBJ)
 $(HIP_BENCH_OBJ): $(HIP_BENCH_SRC)
 	$(HIPCC) $(HIPCC_FLAGS) $(HIPCC_ARCH_FLAGS) -c $< -o $@
 
+
+openmp_bit_nocpu: $(BENCH_OMP_NO_CPU_EXEC)
+BENCH_OMP_NO_CPU_SRC := benchmark/openmp_bit_nocpu.c
+BENCH_OMP_NO_CPU_OBJ := $(BUILD_DIR)/openmp_bit_nocpu.o
+BENCH_OMP_NO_CPU_BIT_OBJ := $(BUILD_DIR)/bit_nocpu_host.o
+BENCH_OMP_NO_CPU_EXEC := $(BUILD_DIR)/openmp_bit_nocpu
+
 ifeq ($(strip $(GPU)),NONE)
 openmp_bit_nocpu:
 	$(error openmp_bit_nocpu requires GPU=NVIDIA or GPU=AMD)
 else
-openmp_bit_nocpu: $(BUILD_DIR)/openmp_bit_nocpu.o $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(BUILD_DIR)/openmp_bit_nocpu $(BUILD_DIR)/openmp_bit_nocpu.o $(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) $(OPENMP_LINK_PRE) $(OPENMP_LINK_LIBS) $(OPENMP_LINK_POST) -lrt -lm
-
-$(BUILD_DIR)/openmp_bit_nocpu.o: benchmark/openmp_bit_nocpu.c $(CONFIG_STAMP)
+$(BENCH_OMP_NO_CPU_OBJ): $(BENCH_OMP_NO_CPU_SRC) $(CONFIG_STAMP)
 	$(COMPILE_CMD)
+
+$(BENCH_OMP_NO_CPU_BIT_OBJ): src/bit.c $(CONFIG_STAMP)
+	$(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
+
+$(BENCH_OMP_NO_CPU_EXEC): $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
+	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
+      $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
+      $(OMPTARGET_RPATH_FLAG) $(OPENMP_FLAG) $(HOST_OPENMP_LIBS) \
+      $(BENCH_OMP_NO_CPU_EXTRA_LINK_LIBS) -lrt -lm
 endif
+
 
 clean-bench:
 	rm -f $(BUILD_DIR)/cuda_gpu_benchmark $(BUILD_DIR)/cuda_gpu_benchmark.o $(BUILD_DIR)/hip_gpu_benchmark $(BUILD_DIR)/hip_gpu_benchmark.o $(BUILD_DIR)/openmp_bit_nocpu.o
