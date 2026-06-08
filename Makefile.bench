@@ -62,7 +62,7 @@ $(HIP_BENCH_OBJ): $(HIP_BENCH_SRC)
 	$(HIPCC) $(HIPCC_FLAGS) $(HIPCC_ARCH_FLAGS) -c $< -o $@
 
 
-openmp_bit_nocpu: $(BENCH_OMP_NO_CPU_EXEC)
+
 BENCH_OMP_NO_CPU_SRC := benchmark/openmp_bit_nocpu.c
 BENCH_OMP_NO_CPU_OBJ := $(BUILD_DIR)/openmp_bit_nocpu.o
 BENCH_OMP_NO_CPU_BIT_OBJ := $(BUILD_DIR)/bit_nocpu_host.o
@@ -72,6 +72,7 @@ ifeq ($(strip $(GPU)),NONE)
 openmp_bit_nocpu:
 	$(error openmp_bit_nocpu requires GPU=NVIDIA or GPU=AMD)
 else
+openmp_bit_nocpu: $(BENCH_OMP_NO_CPU_EXEC)
 $(BENCH_OMP_NO_CPU_OBJ): $(BENCH_OMP_NO_CPU_SRC) $(CONFIG_STAMP)
 	$(COMPILE_CMD)
 

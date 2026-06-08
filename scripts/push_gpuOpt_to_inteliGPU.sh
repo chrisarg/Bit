@@ -21,3 +21,5 @@ git switch "$BRANCH_DST"
 git pull origin "$BRANCH_DST"
 
 git merge "$BRANCH_SRC" --no-ff -m "Merge  '$BRANCH_SRC' into '$BRANCH_DST'"
+
+git switch "$BRANCH_SRC" -m "Switch back to '$BRANCH_SRC' after merging into '$BRANCH_DST'"
