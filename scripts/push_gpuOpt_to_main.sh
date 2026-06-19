@@ -8,6 +8,7 @@ FILES=(
   Makefile
   README.md
   src/bit.c
+  src/bit_internal.h
   benchmark/benchmark.c
   benchmark/openmp_bit_helpers.c
   benchmark/openmp_bit_helpers.h
@@ -15,6 +16,7 @@ FILES=(
   benchmark/openmp_bit_nogpu.c
   tests/test_bit.c
   tests/test_offload.c
+  scripts/install_compilers.sh
 )
 
 if [[ "$CURRENT_BRANCH" != "$BRANCH_SRC" ]]; then

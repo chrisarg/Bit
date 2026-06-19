@@ -103,6 +103,9 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+  int num_devices = omp_get_num_devices();
+    printf("OpenMP detected %d capable GPU devices.\n", num_devices);
+
   int size = atoi(argv[1]);
   int num_of_bits = atoi(argv[2]);
   int num_of_ref_bits = atoi(argv[3]);
@@ -140,6 +143,9 @@ int main(int argc, char *argv[]) {
 #endif
 #ifdef OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD
   printf("Using OpenMP GPU implementation: TRANSPOSED_TEAM_PARALLEL_SIMD\n");
+#endif
+#ifdef OPENMP_GPU_IMPL_SHARED_TILE_ILP
+  printf("Using OpenMP GPU implementation: SHARED_TILE_ILP\n");
 #endif
 #ifdef USE_BUILTIN_POPCOUNT
   printf("Using OpenMP GPU popcount: builtin\n");

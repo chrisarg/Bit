@@ -6,7 +6,7 @@
 
     * Author : Christos Argyropoulos
     * Created : April 1st 2025
-    * License : Free
+    * License : BSD-2
 
 
     The Bit_T is a simple uncompressed bitset implementation based
@@ -26,14 +26,14 @@
                           bitset was allocated by the library.
     * Bit_load          : Load an externally allocated bitset into a (new) T.
                           The buffer must be large enough to hold the bitset (so
-                          please ensure that you use Bit_buffer_size(length) to 
-                          obtain the size of the buffer you need). 
-                          The library expects the buffer size to be a multiple 
-                          of uint64_t, so if the length is not a multiple of 
-                          64 bits, the buffer should be padded to the next 
-                          multiple of 8 bytes. If you allocate a shorter buffer, 
-                          contratulations, you just inserted an overrun buffer 
-                          bug in your application. 
+                          please ensure that you use Bit_buffer_size(length) to
+                          obtain the size of the buffer you need).
+                          The library expects the buffer size to be a multiple
+                          of uint64_t, so if the length is not a multiple of
+                          64 bits, the buffer should be padded to the next
+                          multiple of 8 bytes. If you allocate a shorter buffer,
+                          contratulations, you just inserted an overrun buffer
+                          bug in your application.
     * Bit_extract       : Extract the bitset from a T into an externally
                           allocated buffer. Returns the number of bytes written.
 
@@ -86,7 +86,7 @@
 
     * BitDB_new         : Create a new packed container of bitsets
     * BitDB_load        : Load a packed container of bitsets from an
-                          externally allocated buffer. See warnings under 
+                          externally allocated buffer. See warnings under
                           Bit_load about buffer size and padding.
     * BitDB_free        : Free the packed container of bitsets
     * BitDB_length      : Get the length of bitsets in the packed container.
@@ -110,6 +110,7 @@
    index with the contents of a buffer.
     * BitDB_insert_at    : Insert a new bitset into the packed container at
     *                     a given index.
+
 
     * BitDB_SETOP_count : Count the number of bits set in the SETOP
                           of all the bitsets in the container with all the
@@ -168,6 +169,10 @@ typedef struct {
   bool release_1st_operand; // if true, release the first container in the GPU
   bool release_2nd_operand; // if true, release the second container in the GPU
   bool release_counts;      // if true, release the counts buffer in the GPU
+  enum {
+    TRANSPOSED_TEAM_PARALLEL_SIMD = 0, // transpose + team parallel + SIMD
+    SHARED_TILE_ILP = 1,               // Shared tile + Instruction level parallelism
+  } algorithm; // algorithm to use for GPU set operations
 } SETOP_COUNT_OPTS;
 
 /*
@@ -179,7 +184,7 @@ typedef struct {
                           that was not allocated by the library.
     * Bit_load          : Checked runtime error if length is less than 0 or
                           greater than INT_MAX. Also checks if buffer is NULL
-                          Cannot possibly check if the buffer is padded to 
+                          Cannot possibly check if the buffer is padded to
                           the next multiple of the size of a uint64_t.
     * Bit_buffer_size   : Checked runtime error if length is less than 0 or
                           greater than INT_MAX.
