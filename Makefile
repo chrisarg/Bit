@@ -171,7 +171,7 @@ ifeq ($(findstring clang,$(COMPILER_ID)),clang)
   HOST_OPENMP_LIBS := -L$(ROCM_LLVM_LIB_PATH) -lomp
 else ifeq ($(COMPILER_ID),icx)
   OPENMP_FLAG := -fiopenmp
-  HOST_OPENMP_LIBS := -liomp5
+  HOST_OPENMP_LIBS := -liomp5 -lomptarget
 else
   # GCC fallback
   HOST_OPENMP_LIBS := -lgomp
@@ -244,6 +244,7 @@ $(shell mkdir -p $(BUILD_DIR))
 CFLAGS0 := -Wall -Wextra -Iinclude -D_POSIX_C_SOURCE=199309L -std=c11 -fPIC -O3 -march=native -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable
 CFLAGS0 += -DGPU_TILE_J=$(GPU_TILE_J) -DGPU_ILP=$(GPU_ILP) -DCPU_TILE=$(CPU_TILE)
 
+
 REPORT_CFLAGS :=
 ifeq ($(BUG_REPORT),1)
   ifneq ($(filter gcc%,$(COMPILER_ID)),)
@@ -255,6 +256,11 @@ endif
 
 CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) $(REPORT_CFLAGS)
 HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS)
+
+# icx add target 
+ifeq ($(COMPILER_ID),icx)
+  HOST_ONLY_CFLAGS += -lomptarget
+endif
 
 COMPILE_CMD = $(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
 HOST_COMPILE_CMD = $(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -c $< -o $@
