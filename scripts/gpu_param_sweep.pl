@@ -6,7 +6,7 @@ use File::Path     qw(make_path);
 use File::Temp     qw(tempfile);
 use File::Spec;
 use Algorithm::Loops qw(NestedLoops);
-use List::Util qw(shuffle);
+use List::Util       qw(shuffle);
 use Text::ParseWords qw(shellwords);
 use Getopt::Long     qw(GetOptions);
 use POSIX            qw(strftime);
@@ -31,18 +31,24 @@ GetOptions(
     'dry-run'       => \$dry_run,
   )
   or die
-"Usage: $0 [--summary file] [--log file] [--out-dir dir] [--backend comma,separated] [--make-args '...'] [--iterations list] [--repeat N] [--dry-run]\n";
+"Usage: $0 [--summary file] [--log file] [--out-dir dir] [--backend comma,separated] "
+  . "[--make-args '...'] [--iterations list] [--repeat N] [--dry-run]\n"
+  . "    CAUTION: Do not pass GPU=xyz to make args; use --backend=xyz "
+  . "instead. GPU_ARCH can be passed via make-args if needed.\n";
 
+# example calls:
+#   CUDA_VISIBLE_DEVICES=0 perl ./scripts/gpu_param_sweep.pl --backend=NVIDIA --make-args='CC=clang GPU_ARCH=sm_70'
+#   ROCR_VISIBLE_DEVICES=0 perl ./scripts/gpu_param_sweep.pl --backend=AMD --make-args='CC=clang ARCH=gfx1010'
 set_default_output_paths();
 normalize_output_paths();
 
 my %parameters = (
     backend     => [ split( /\s*,\s*/, $backend_list ) ],
     tile_j      => [ 512, 1024, 2048, 4096 ],
-    ilp         => [ 4,   8,    16,   32, 64 ],
-    num_bits    => [ 16384, 65536, 262144 ],
-    num_queries => [ 1000, 5000, 10000 ],
-    num_refs    => [ 1024, 2048, 4096, 8192 ],
+    ilp         => [ 4,   8,    16,   32,    64 ],
+    num_bits    => [ 256, 1024, 4096, 16384, 65536, 262144 ],
+    num_queries => [10000],
+    num_refs    => [1024],
     iterations  => [ map { int($_) } split( /\s*,\s*/, $iterations_list ) ],
 );
 
@@ -152,20 +158,15 @@ sub run_benchmark {
     );
     close $logfh;
 
-# 1. Define the command and arguments as an array
+    # 1. Define the command and arguments as an array
     my @command = (
-        'make',
-        '-B',
-        "GPU=$opts{backend}",
-        'gpu_bench_csv',
-        "GPU_TILE_J=$opts{tile_j}",
-        "GPU_ILP=$opts{ilp}",
-        "GPU_NUM_BITS=$opts{num_bits}",
-        "GPU_NUM_QUERIES=$opts{num_queries}",
-        "GPU_NUM_REFS=$opts{num_refs}",
-        "GPU_ITERATIONS=$opts{iterations}",
-        "GPU_CSV_OUTPUT=$tmpfile",
-        "GPU_LOG_OUTPUT=$tmplog"
+        'make',                         '-f',
+        'Makefile_bench.mak',           '-B',
+        "GPU=$opts{backend}",           'gpu_bench_csv',
+        "GPU_TILE_J=$opts{tile_j}",     "GPU_ILP=$opts{ilp}",
+        "GPU_NUM_BITS=$opts{num_bits}", "GPU_NUM_QUERIES=$opts{num_queries}",
+        "GPU_NUM_REFS=$opts{num_refs}", "GPU_ITERATIONS=$opts{iterations}",
+        "GPU_CSV_OUTPUT=$tmpfile",      "GPU_LOG_OUTPUT=$tmplog"
     );
 
     # 2. Safely handle user-provided make_args by splitting them on spaces
@@ -174,23 +175,22 @@ sub run_benchmark {
     }
 
     # 3. Log it for debugging (join it just for the log)
-    log_message("RUN: " . join(' ', @command) . "\n");
+    log_message( "RUN: " . join( ' ', @command ) . "\n" );
     return if $dry_run;
 
     # 4. Execute safely bypassing the shell.
-    # Remove any conflicting GPU architecture environment variables that
-    # would otherwise affect make even when explicit make-args are provided.
-    local $ENV{AMD_ARCH}   if $opts{backend} eq 'NVIDIA';
-    local $ENV{NVIDIA_ARCH} if $opts{backend} eq 'AMD';
+    local $ENV{GPU_ARCH};
+
     my $rc = system(@command);
-    
+
     if ( $rc != 0 ) {
-        log_message("ERROR: benchmark failed with exit code " . ( $rc >> 8 ) . "\n");
+        log_message(
+            "ERROR: benchmark failed with exit code " . ( $rc >> 8 ) . "\n" );
         die "Benchmark command failed.\n";
     }
 
     append_tmp_csv( $tmpfile, $opts{backend}, $arch );
-    append_tmp_log( $tmplog );
+    append_tmp_log($tmplog);
     unlink $tmpfile;
     unlink $tmplog;
 }
@@ -216,44 +216,33 @@ sub check_log_size {
         my $size = -s $raw_log;
         if ( defined $size && $size > $max_bytes ) {
             die sprintf(
-                "Raw log '%s' is too large (%.2f GB); stopping to avoid runaway logs.\n",
-                $raw_log, $size / (1024 * 1024 * 1024)
-            );
+"Raw log '%s' is too large (%.2f GB); stopping to avoid runaway logs.\n",
+                $raw_log, $size / ( 1024 * 1024 * 1024 ) );
         }
     }
 }
 
 sub infer_architecture {
     my ( $backend, $make_args ) = @_;
-    if ( $architecture && $architecture ne '' ) {
-        return $architecture;
+
+    # 1. Return global variable if already set
+    return $architecture if $architecture && $architecture ne '';
+
+    # 2. Only proceed if backend is valid
+    return 'implicit' unless $backend eq 'NVIDIA' || $backend eq 'AMD';
+
+    # Ensure $make_args is defined
+    $make_args //= '';
+
+    # 3. Lenient regex check covering the whole string
+    # This single regex handles both spaces and strict formatting
+    if ( $make_args =~
+        /(?:^|\s)GPU_ARCH\s*=\s*(?:'([^']*)'|"([^\"]*)"|([^\s]+))/ )
+    {
+        return defined $1 ? $1 : defined $2 ? $2 : $3;
     }
-    for my $token ( split /\s+/, $make_args // '' ) {
-        if (   $backend eq 'NVIDIA'
-            && $token =~ /^NVIDIA_ARCH=(?:'([^']*)'|"([^\"]*)"|(.+))$/ )
-        {
-            return defined $1 ? $1 : defined $2 ? $2 : $3;
-        }
-        if (   $backend eq 'AMD'
-            && $token =~ /^AMD_ARCH=(?:'([^']*)'|"([^\"]*)"|(.+))$/ )
-        {
-            return defined $1 ? $1 : defined $2 ? $2 : $3;
-        }
-    }
-    if ( $backend eq 'NVIDIA' ) {
-        if ( $make_args =~
-            /(?:^|\s)NVIDIA_ARCH\s*=\s*(?:'([^']*)'|"([^\"]*)"|([^\s]+))/ )
-        {
-            return defined $1 ? $1 : defined $2 ? $2 : $3;
-        }
-    }
-    if ( $backend eq 'AMD' ) {
-        if ( $make_args =~
-            /(?:^|\s)AMD_ARCH\s*=\s*(?:'([^']*)'|"([^\"]*)"|([^\s]+))/ )
-        {
-            return defined $1 ? $1 : defined $2 ? $2 : $3;
-        }
-    }
+
+    # 4. Default fallback
     return 'implicit';
 }
 
