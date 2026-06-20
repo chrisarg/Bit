@@ -102,6 +102,9 @@ int main(int argc, char* argv []) {
   printf("Debug mode is disabled.\n");
 #endif
 
+
+  print_Bit_configuration();
+
   printf("Starting OMP and SIMD benchmarks\n");
   // allocate the bitsets
   Bit_T* bits = malloc(num_of_bits * sizeof(Bit_T));
