@@ -73,14 +73,15 @@ typedef hipEvent_t gpu_event_t;
 #include <stdint.h>
 #include <stddef.h>
 
-#ifndef TILE_J
-#define TILE_J 2048
+/*
+#ifndef GPU_TILE_J
+#define GPU_TILE_J 2048
 #endif
 
-#ifndef ILP
-#define ILP 16
+#ifndef GPU_ILP
+#define GPU_ILP 16
 #endif
-
+*/
 // ===========================================================================
 // All-pairs (matrix) popcount intersection kernels
 // Each thread block processes a tile of query/ref pairs.
@@ -139,7 +140,7 @@ GPU_KERNEL void compute_setop_popcount_coarsened_kernel(
     extern __shared__ unsigned char s_query_raw[];
     T *s_query = reinterpret_cast<T *>(s_query_raw);
 
-    const int cols_per_block = blockDim.x * ILP;
+    const int cols_per_block = blockDim.x * GPU_ILP;
     const int blocks_per_row = (N + cols_per_block - 1) / cols_per_block;
     const int total_jobs = K * blocks_per_row;
     const int job = blockIdx.x;
@@ -147,16 +148,16 @@ GPU_KERNEL void compute_setop_popcount_coarsened_kernel(
     for (int job_idx = job; job_idx < total_jobs; job_idx += gridDim.x) {
         const int k = job_idx / blocks_per_row;
         const int i_base = (job_idx % blocks_per_row) * cols_per_block;
-        int i[ILP];
-        int sum[ILP] = {0};
+        int i[GPU_ILP];
+        int sum[GPU_ILP] = {0};
 
         #pragma unroll
-        for (int u = 0; u < ILP; ++u) {
+        for (int u = 0; u < GPU_ILP; ++u) {
             i[u] = i_base + threadIdx.x + u * blockDim.x;
         }
 
-        for (int j_tile = 0; j_tile < J; j_tile += TILE_J) {
-            const int current_tile = ((j_tile + TILE_J) > J) ? (J - j_tile) : TILE_J;
+        for (int j_tile = 0; j_tile < J; j_tile += GPU_TILE_J) {
+            const int current_tile = ((j_tile + GPU_TILE_J) > J) ? (J - j_tile) : GPU_TILE_J;
             for (int t = threadIdx.x; t < current_tile; t += blockDim.x) {
                 s_query[t] = bit_qwords[k * J + j_tile + t];
             }
@@ -167,7 +168,7 @@ GPU_KERNEL void compute_setop_popcount_coarsened_kernel(
                 for (int j = 0; j < current_tile; ++j) {
                     const T sk = s_query[j];
                     #pragma unroll
-                    for (int u = 0; u < ILP; ++u) {
+                    for (int u = 0; u < GPU_ILP; ++u) {
                         sum[u] += popcount_pair_word(sk,
                                                      bits_qwords_T[(j_tile + j) * N + i[u]]);
                     }
@@ -176,7 +177,7 @@ GPU_KERNEL void compute_setop_popcount_coarsened_kernel(
                 for (int j = 0; j < current_tile; ++j) {
                     const T sk = s_query[j];
                     #pragma unroll
-                    for (int u = 0; u < ILP; ++u) {
+                    for (int u = 0; u < GPU_ILP; ++u) {
                         if (i[u] < N) {
                             sum[u] += popcount_pair_word(sk,
                                                          bits_qwords_T[(j_tile + j) * N + i[u]]);
@@ -188,7 +189,7 @@ GPU_KERNEL void compute_setop_popcount_coarsened_kernel(
         }
 
         #pragma unroll
-        for (int u = 0; u < ILP; ++u) {
+        for (int u = 0; u < GPU_ILP; ++u) {
             if (i[u] < N) {
                 counts[k * N + i[u]] = sum[u];
             }
@@ -206,12 +207,12 @@ static inline void launch_setop_coarsened(
     int J)
 {
     const dim3 blockDim(256);
-    const int cols_per_block = blockDim.x * ILP;
+    const int cols_per_block = blockDim.x * GPU_ILP;
     const int blocks_per_row = (N + cols_per_block - 1) / cols_per_block;
     const int total_jobs = K * blocks_per_row;
     const int max_physical_blocks = 65536;
     const dim3 gridDim(total_jobs < max_physical_blocks ? total_jobs : max_physical_blocks);
-    const size_t shared_mem_bytes = static_cast<size_t>(TILE_J) * sizeof(T);
+    const size_t shared_mem_bytes = static_cast<size_t>(GPU_TILE_J) * sizeof(T);
 
     gpu_event_t start, stop;
     GPU_CHECK(GPU_EVENT_CREATE(&start));

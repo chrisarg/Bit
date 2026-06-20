@@ -408,4 +408,6 @@ extern int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
 #undef T
 #undef T_DB
+
+void print_Bit_configuration(void);
 #endif

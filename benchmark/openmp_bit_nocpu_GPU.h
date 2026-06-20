@@ -98,10 +98,12 @@ static uint64_t tree_adder_GPU(unsigned long long v);
   /* --- 4. STANDARD FINALIZE --- */                                           \
   _Pragma(STRINGIFY(omp target exit data map(                                  \
       from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+        release_gpu_layout(bit_qwords, opts.device_id);                        \
     SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
                        bit_size_in_qwords * num_targets, opts.device_id)       \
   }                                                                            \
   if (opts.release_2nd_operand) {                                              \
+    release_gpu_layout(bits_qwords, opts.device_id);                           \
     SETOP_FINALIZE_GPU(release, bits->qwords, 0, bit_size_in_qwords * n,       \
                        opts.device_id)                                         \
   }                                                                            \
@@ -192,10 +194,12 @@ static uint64_t tree_adder_GPU(unsigned long long v);
   /* --- 4. STANDARD FINALIZE --- */                                           \
   _Pragma(STRINGIFY(omp target exit data map(                                  \
       from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+        release_gpu_layout(bit_qwords, opts.device_id);                        \
     SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
                        bit_size_in_qwords * num_targets, opts.device_id)       \
   }                                                                            \
   if (opts.release_2nd_operand) {                                              \
+      release_gpu_layout(bits_qwords, opts.device_id);                         \
     SETOP_FINALIZE_GPU(release, bits->qwords, 0, bit_size_in_qwords * n,       \
                        opts.device_id)                                         \
   }                                                                            \
@@ -233,10 +237,12 @@ static uint64_t tree_adder_GPU(unsigned long long v);
   clock_gettime(CLOCK_MONOTONIC, &instr->end_time);                            \
   _Pragma(STRINGIFY(omp target exit data map(                                  \
       from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+        release_gpu_layout(bit_qwords, opts.device_id);                        \
     SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
                        bit_size_in_qwords * num_targets, opts.device_id)       \
   }                                                                            \
   if (opts.release_2nd_operand) {                                              \
+    release_gpu_layout(bits_qwords, opts.device_id);                           \
     SETOP_FINALIZE_GPU(release, bits->qwords, 0, bit_size_in_qwords * n,       \
                        opts.device_id)                                         \
   }                                                                            \

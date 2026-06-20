@@ -3,6 +3,45 @@
 # ----------------------------------------------------------------------------
 include Makefile
 
+# used to configure gpu_bench_csv target parameters (can be overridden by \
+# environment variables or command-line arguments)
+GPU_TILE_DIM ?= 32
+GPU_BLOCK_ROWS ?= 8
+GPU_DEVICE_ID ?= 0
+GPU_NUM_BITS ?= 16384
+GPU_NUM_QUERIES ?= 1000
+GPU_NUM_REFS ?= 1024
+GPU_ITERATIONS ?= 100
+GPU_CSV_OUTPUT ?= gpu_bench_summary.csv
+GPU_LOG_OUTPUT ?= gpu_bench_raw.log
+
+GPU_CSV_NUMERICS := GPU_TILE_DIM GPU_BLOCK_ROWS GPU_DEVICE_ID GPU_NUM_BITS GPU_NUM_QUERIES GPU_NUM_REFS GPU_ITERATIONS
+GPU_CSV_STRINGS := GPU_CSV_OUTPUT GPU_LOG_OUTPUT
+$(foreach var,$(GPU_CSV_NUMERICS), \
+    $(if $(shell echo "$($(var))" | grep -Eq '^[0-9]+$$' && echo ok),, \
+        $(eval $(call APPEND_ERROR, $(var) must be a positive integer. Got: '$($(var))')) \
+    ) \
+)
+
+$(foreach var,$(GPU_CSV_STRINGS), \
+    $(if $(strip $($(var))),, \
+        $(eval $(call APPEND_ERROR, $(var) must be a non-empty string. Got: '$($(var))')) \
+    ) \
+)
+  
+# Warn about configuration errors and exit early if any are found
+ifneq ($(strip $(ERRORS)),)
+  FORMATTED_ERRORS := $(subst |,$(newline) -> ,$(ERRORS))
+  $(info )
+  $(info =============================================)
+  $(info ===       Build Configuration Errors      ===)
+  $(info =============================================)
+  $(info $(FORMATTED_ERRORS))
+  $(info )
+  $(error Build configuration is invalid - see details above)
+endif
+
+
 CUDA_BENCH_SRC := benchmark/native_device_code.cpp
 CUDA_BENCH_EXEC := $(BUILD_DIR)/cuda_gpu_benchmark
 CUDA_BENCH_OBJ := $(BUILD_DIR)/cuda_gpu_benchmark.o
@@ -16,12 +55,15 @@ HIP_BENCH_OBJ := $(BUILD_DIR)/hip_gpu_benchmark.o
 HIPCC ?= hipcc
 HIPCC_FLAGS ?= -O3 -std=c++17 -x hip -I./include -I./src
 
+
 GPU_BENCH_EXECS :=
 ifeq ($(filter NVIDIA,$(GPU_LIST)),NVIDIA)
   GPU_BENCH_EXECS += $(CUDA_BENCH_EXEC)
+  NVCC_FLAGS += -DGPU_TILE_J=$(GPU_TILE_J) -DGPU_ILP=$(GPU_ILP) -DGPU_TILE_DIM=$(GPU_TILE_DIM) -DGPU_BLOCK_ROWS=$(GPU_BLOCK_ROWS)
 endif
 ifeq ($(filter AMD,$(GPU_LIST)),AMD)
   GPU_BENCH_EXECS += $(HIP_BENCH_EXEC)
+  HIPCC_FLAGS += -DGPU_TILE_J=$(GPU_TILE_J) -DGPU_ILP=$(GPU_ILP) -DGPU_TILE_DIM=$(GPU_TILE_DIM) -DGPU_BLOCK_ROWS=$(GPU_BLOCK_ROWS)
 endif
 
 # Cleanly extract just the numeric version for NVCC & inject JIT fallback code payload
@@ -54,15 +96,17 @@ CFLAGS += $(OPENMP_GPU_IMPL_MACRO) -I./src
 
 .PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu clean-bench distclean-bench
 
+
 gpu_bench_csv: $(GPU_BENCH_EXECS)
-	@if [ -z "$(GPU_BENCH_EXECS)" ]; \
-	then echo "Execution Halted: GPU benchmark routines require target configuration (GPU=NVIDIA and/or GPU=AMD)"; exit 1; \
-	fi
-	@mkdir -p $(BUILD_DIR)
-	@for target_exec in $(GPU_BENCH_EXECS); do \
-	  echo "Launching Native GPU Target: $$target_exec"; \
-	  ./$$target_exec; \
+	@mkdir -p $(dir $(GPU_CSV_OUTPUT)) 2>/dev/null || true
+	@mkdir -p $(dir $(GPU_LOG_OUTPUT)) 2>/dev/null || true
+	@echo "Running GPU bench..."
+	# Loop through the list of executables and run each one
+	@for exec in $(GPU_BENCH_EXECS); do \
+		echo "Executing $$exec"; \
+		GPU_CSV_OUTPUT="$(GPU_CSV_OUTPUT)" ./$$exec $(GPU_NUM_BITS) $(GPU_NUM_QUERIES) $(GPU_NUM_REFS) $(GPU_ITERATIONS) $(GPU_DEVICE_ID) >> "$(GPU_LOG_OUTPUT)" 2>&1; \
 	done
+
 
 ifeq ($(filter NVIDIA,$(GPU_LIST)),NVIDIA)
 cuda_gpu_bench: $(CUDA_BENCH_EXEC)

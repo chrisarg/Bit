@@ -24,8 +24,12 @@
 #define POPCOUNT_METHOD_LABEL "WWG"
 #endif
 
-#define TILE_DIM 32
-#define BLOCK_ROWS 8
+#ifndef GPU_TILE_DIM
+#define GPU_TILE_DIM 32
+#endif
+#ifndef GPU_BLOCK_ROWS
+#define GPU_BLOCK_ROWS 8
+#endif
 // Typical working parameter ranges for the benchmark:
 //   num_queries: 10k - 100k
 //   num_refs:    2k  - 16k
@@ -34,12 +38,12 @@
 // which reduces loop overhead while keeping per-block shared memory small.
 #define QUERY_WORD_TILE 128
 
-#ifndef TILE_J
-#define TILE_J 2048
+#ifndef GPU_TILE_J
+#define GPU_TILE_J 2048
 #endif
 
-#ifndef ILP
-#define ILP 16
+#ifndef GPU_ILP
+#define GPU_ILP 16
 #endif
 
 #include <algorithm>
@@ -135,7 +139,7 @@ static bool csv_path_is_set(char **csv_path) {
 }
 
 static void append_csv_header(FILE *csv_file) {
-  fprintf(csv_file, "TILE_J,ILP,number of bits in bitsets,number of "
+  fprintf(csv_file, "GPU_TILE_J,GPU_ILP,number of bits in bitsets,number of "
                     "queries,number of reference sequences,iteration "
                     "count,timing type,timing (ns),iterations per second\n");
 }
@@ -252,12 +256,12 @@ struct NativeBenchmarkResult {
 template <typename T>
 __global__ void transpose_kernel(const T *__restrict__ in, T *__restrict__ out,
                                  int width, int height) {
-  __shared__ T tile[TILE_DIM][TILE_DIM + 1];
+  __shared__ T tile[GPU_TILE_DIM][GPU_TILE_DIM + 1];
 
-  int x = blockIdx.x * TILE_DIM + threadIdx.x;
-  int y = blockIdx.y * TILE_DIM + threadIdx.y;
+  int x = blockIdx.x * GPU_TILE_DIM + threadIdx.x;
+  int y = blockIdx.y * GPU_TILE_DIM + threadIdx.y;
 
-  for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+  for (int j = 0; j < GPU_TILE_DIM; j += GPU_BLOCK_ROWS) {
     if (x < width && (y + j) < height) {
       tile[threadIdx.y + j][threadIdx.x] = in[(y + j) * width + x];
     }
@@ -265,10 +269,10 @@ __global__ void transpose_kernel(const T *__restrict__ in, T *__restrict__ out,
 
   __syncthreads();
 
-  int x_t = blockIdx.y * TILE_DIM + threadIdx.x;
-  int y_t = blockIdx.x * TILE_DIM + threadIdx.y;
+  int x_t = blockIdx.y * GPU_TILE_DIM + threadIdx.x;
+  int y_t = blockIdx.x * GPU_TILE_DIM + threadIdx.y;
 
-  for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+  for (int j = 0; j < GPU_TILE_DIM; j += GPU_BLOCK_ROWS) {
     if (x_t < height && (y_t + j) < width) {
       out[(y_t + j) * height + x_t] = tile[threadIdx.x][threadIdx.y + j];
     }
@@ -313,9 +317,9 @@ benchmark_native_gpu(const T *h_queries, const T *h_refs,
   GPU_CHECK(GPU_EVENT_CREATE(&transpose_stop));
   GPU_CHECK(GPU_EVENT_RECORD(transpose_start, 0));
   {
-    dim3 grid_dim_T((words_per_bitset + TILE_DIM - 1) / TILE_DIM,
-                    ((unsigned int)num_refs + TILE_DIM - 1) / TILE_DIM, 1);
-    dim3 block_dim_T(TILE_DIM, BLOCK_ROWS, 1);
+    dim3 grid_dim_T((words_per_bitset + GPU_TILE_DIM - 1) / GPU_TILE_DIM,
+                    ((unsigned int)num_refs + GPU_TILE_DIM - 1) / GPU_TILE_DIM, 1);
+    dim3 block_dim_T(GPU_TILE_DIM, GPU_BLOCK_ROWS, 1);
     transpose_kernel<T><<<grid_dim_T, block_dim_T>>>(
         d_refs, d_refs_T, static_cast<int>(words_per_bitset),
         static_cast<int>(num_refs));
@@ -421,11 +425,11 @@ benchmark_native_gpu(const T *h_queries, const T *h_refs,
           (total_ns_ull > kernel_ns + cpu_ns_ull)
               ? (total_ns_ull - kernel_ns - cpu_ns_ull)
               : 0ULL;
-      write_csv_row(csv_file, TILE_J, ILP, bitset_bits, num_queries, num_refs,
+      write_csv_row(csv_file, GPU_TILE_J, GPU_ILP, bitset_bits, num_queries, num_refs,
                     repeat + 1, "kernel", kernel_ns);
-      write_csv_row(csv_file, TILE_J, ILP, bitset_bits, num_queries, num_refs,
+      write_csv_row(csv_file, GPU_TILE_J, GPU_ILP, bitset_bits, num_queries, num_refs,
                     repeat + 1, "total", total_ns_ull);
-      write_csv_row(csv_file, TILE_J, ILP, bitset_bits, num_queries, num_refs,
+      write_csv_row(csv_file, GPU_TILE_J, GPU_ILP, bitset_bits, num_queries, num_refs,
                     repeat + 1, "PCIe", pcie_ns);
       fflush(csv_file);
     }
@@ -547,7 +551,7 @@ int main(int argc, char *argv[]) {
 
   GPU_CHECK(GPU_SET_DEVICE(gpu_id));
   printf("Starting GPU-only benchmark\n");
-  printf("TILE_J: %d, ILP: %d, word_bits: %u\n", TILE_J, ILP, word_bits);
+  printf("GPU_TILE_J: %d, GPU_ILP: %d, word_bits: %u\n", GPU_TILE_J, GPU_ILP, word_bits);
 
   const size_t words_per_bitset = (size_t)(size + word_bits - 1) / word_bits;
   const size_t query_words = words_per_bitset * (size_t)num_of_bits;

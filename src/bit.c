@@ -69,11 +69,12 @@
   Tune these tiles to fit in L2/L3 cache. e.g., 32x32 or 32x64 for your
   OpenMP CPU implementation.
 */
-#ifndef CPU_TILE_BIT
+#ifndef CPU_TILE
 #define CPU_TILE_BIT 32
-#endif
-#ifndef CPU_TILE_BITS
 #define CPU_TILE_BITS 32
+#else
+#define CPU_TILE_BIT CPU_TILE
+#define CPU_TILE_BITS CPU_TILE
 #endif
 
 #define T Bit_T
@@ -183,7 +184,7 @@ typedef struct {
   int kernel_id;
 } StateTransition;
 
-// This is  Thread-Safe Ready
+// This is Thread-Safe Ready
 typedef struct GPUAllocationState {
   const void *host_ptr;
   int device_id;
@@ -600,6 +601,12 @@ int Bit_minus_count(T s, T t) { setop_count(0, 0, Bit_count(s), &~); }
 int Bit_inter_count(T s, T t) { setop_count(Bit_count(t), 0, 0, &); }
 int Bit_union_count(T s, T t) {
   setop_count(Bit_count(t), Bit_count(t), Bit_count(s), |);
+}
+
+void print_Bit_configuration(void) {
+
+  printf("CPU_TILE : %d, GPU_TILE_J: %d, GPU_ILP: %d\n", CPU_TILE_BIT, GPU_TILE_J, GPU_ILP);
+  printf("CPU_TILE_BIT %d, CPU_TILE_BITS: %d\n", CPU_TILE_BIT, CPU_TILE_BITS);
 }
 
 /* --- End Section 10: PUBLIC API — SINGLE BITSET --- */

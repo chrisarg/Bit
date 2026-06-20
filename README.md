@@ -438,7 +438,7 @@ contains benchmarks against other bitset/bitvector/bitmaps in C and Perl.
 
 ### OpenMP Parallel Region/Worksharing strategies in CPU and GPU
 
-The CPU OpenMP implementation is a tiled implementation of a collapsed `omp parallel for` region that attempts to squeeze as much performance as possible by exploiting memory alignment (or lack thereof) of the containerized buffers. This is an enhancement over the very first implementation of the OpenMP code that did not use tiling. The code as is, is similar to the `SHARED_TILE_ILP` experimental GPU kernel in which both containers are presented to the algorithm in their untransposed version. In the present implementation the GPU kernel follows the `TEAM_PARALLEL_SIMD` algorithm (see the gpuOpt branch for details of this and other algorithms that are currently being evaluated). Currently I am evaluating numerous alternative approaches to see how much OpenMP can be pushed to deliver performance comparable to native CUDA and HIP implementations. Internally these algorithms are implemented via highly structured, modular preprocessor macros.
+The CPU OpenMP implementation is a tiled implementation of a collapsed `omp parallel for` region that attempts to squeeze as much performance as possible by exploiting memory alignment (or lack thereof) of the containerized buffers. This is an enhancement over the very first implementation of the OpenMP code that did not use tiling. The code as is, is similar to the `SHARED_TILE_ILP` experimental GPU kernel in which both containers are presented to the algorithm in their untransposed version. In the present implementation the GPU kernel follows the `TEAM_PARALLEL_SIMD` algorithm (see the gpuOpt branch for details of this and other algorithms that are currently being evaluated). Currently I am evaluating numerous alternative approaches to see how much OpenMP can be pushed to deliver performance comparable to native CUDA and HIP implementations. Internally these algorithms are implemented via highly structured, modular preprocessor macros, so extension is fairly straightforward.
 
 ### Working with the gpuOpt branch
 
@@ -509,7 +509,7 @@ make CC=clang GPU=NVIDIA OPENMP_GPU_IMPL=SHARED_TILE_ILP
 
 The `TEAM_PARALLEL_SIMD` utilizes all three levels of parallelization that OpenMP uses to map  concepts from the OpenMP CPU world to the GPU universe. GCC seems to like this strategy especially for NVIDIA cards.
 The `TRANPOSED_TEAM_PARALLEL_SIMD` is effectively the same algorithm, but "transposes" the reference bitsets before carrying out the same operations. While this approach will generate less performant code with gcc, code generated via clang will often boost performance by 200% or more relative to `TEAM_PARALLEL_SIMD` in the same cards. See the section about Concurrency Safety regarding the "mechanics" and potential for racing conditions with this approach.
-`SHARED_TILE_ILP` uses tiling and instruction level parallelism, ILP (this is also approach used by the CUDA and HIP backends in the gpuOpt branch) within OpenMP. When computing the population count after a bitlevel operation (e.g. AND or XOR) in the GPU, one faces similar challenges as writing matrix multiplication kernels in the GPU. By manipulating the size of the tiles and the extent of the ILP one can squeeze extremely high level of performance from the native code, and this performance seems to transplate to the OpenMP world as well. 
+`SHARED_TILE_ILP` uses tiling and instruction level parallelism, ILP (this is also approach used by the CUDA and HIP backends in the gpuOpt branch) within OpenMP. When computing the population count after a bitlevel operation (e.g. AND or XOR) in the GPU, one faces similar challenges as writing matrix multiplication kernels in the GPU. By manipulating the size of the tiles,  the extent of the ILP and thread local memory one can squeeze extremely high level of performance from the native code, and this performance seems to transplate to the OpenMP world as well. Unfortunately this kernel will not generate correct results with gcc (v 12,13), though it is the most performant method when clang is used to build the library. 
 
 ## Usage Example
 
@@ -870,6 +870,14 @@ encounter, especially in your GPU deployments.
 The checked runtime errors for each function are described in the header file of
 the API.
 
+## Concurency safety in the CPU and GPU
+
+The library has the aspiration to eventually be absolutely safe for concurency operations, but the implementation only partially lives up to the aspiration. 
+
+1. For individual Bitsets, you the user are absoluterly responsible for ensuring concurency safety as with any buffer in a C program. People can play with atomics, native C thread or OpenMP, but at the end of the day you are only as safe as the context of use of `Bit`. The section "rationale for multi-threaded CPU and GPU deployments" provides one such implementation using OpenMP, but I encourage you to explore others e.g. tasks. 
+2. For containerized operations in the CPU, OpenMP provides some form of concurency safety assuming you utilize the OpenMP functionality of containers from a single (main) thread: the fork-join model will allow you to use threads and cores of your processor in a safe manner, but the parent thread one should only be one. I have not for example tried to use these containerized operations within tasks, but I welcome you to try and share the results! Another area with the potential of reward, but also pain is the use of multi-processing to _fork_ distinct processes that then utilize containerized operations. This may seem like a weird thing to do, but it may be absolutely necessary if one were to squeeze the last drop of compute power in multi-socket systems,  if one were to use the library to go through large amounts of work when the scaling of the OpenMP containerized operations starts dropping off, or for parallel scripting with the Perl interface. In that case be aware that you must pause OpenMP  e.g. by including `omp_pause_resource_all(omp_pause_hard);` in your C code before forking.
+3. Containerized operations in the GPU pause an interesting dilemna. Currently the library allows the launching of a large number of GPU threads from a single (blocking) CPU thread. There is no asynchronous communication and no opportunity to use devices for offloading from the controlling CPU thread (though one could _fork_ multiple processes and offload to multiple CPUs if they are present in the system). The infrastructure for creating multithread safe applications across CPU and GPU is present (i.e. the relevant data structures have been created), but the functionality has not been implemented. This infrastructure is currently used to ensure that buffers that must be transposed in certain GPU algorithms are transposed only once during the execution of a single task in the experimental gpuOpt branch, but are currently not used in the main branch. 
+
 ## Libraries Used
 
 This project incorporates or is inspired by several open-source libraries:
@@ -909,7 +917,7 @@ the _population count_ for different CPU architectures:
 The Wilkes-Wheeler-Gill algorithm is used as default for GPU deployments given
 the straightforward translation into highly efficient GPU code (under -O3). Native GPU popcount instructions do exist and are 2.5x faster ONLY is one can stage their data to operate in registers or in shared (thread local) memory. For practical applications, performance is memory bound so it makes absolutely no practical difference is one is using the builtin directive or the WWG function in the GPU.
 
-## A note about the rationale and the implementation details for multi-threaded CPU and GPU deployments
+## A note about the rationale for multi-threaded CPU and GPU deployments
 
 The non-containerized bitset operations can be very easily parallelized on the CPU using OpenMP or
 even native C threads. By far the easiest path to parallelization on the CPU is
@@ -956,9 +964,6 @@ build (`GPU=NONE`) routes all GPU calls to CPU implementations. Pass `GPU=NVIDIA
 #pragma directives from macro expansions. At some unspecified point in thefuture, these and possibly other macros may be split into a header only library
 to manage the expressive complexity of OpenMP for beginners.
 
-### Concurency safety in the CPU and GPU
-
-
 
 ## Applications
 
@@ -972,9 +977,10 @@ Bit is particularly useful for:
 
 ## TO-DO
 
-- Build the entire library in the CPU using [SIMDe](https://github.com/simd-everywhere/simde) (SIMD everywhere). This will allow portable, vectorized operations for both bitsets and containers. At that point we will no longer rely on `libpopcnt`. 
+- Build the entire library in the CPU using [SIMDe](https://github.com/simd-everywhere/simde) (SIMD everywhere). This will allow portable, vectorized operations for both bitsets and containers. At that point we will no longer rely on `libpopcnt`.
+- Port experimental algorithms for setop count operations from the gpuOpt branch to the main branch
 - Implement additional set-op operations (e.g. the Jaccard index)
-- Implement additional, OS agnostic build systems 
+- Implement additional, OS agnostic build systems (lowest priority)
 - Code the setop functions (e.g. and, not, xor etc) using SIMD directives. This will require us to redesign the `cii` set-op interface for these operations. 
 - Ensure that gcc and clang are fully tested across CPU, NVIDIA, and AMD paths
 - CUDA and HIP implementations to replace OpenMP implementations in systems that feature the `nvcc` or the `hipcc` compiler

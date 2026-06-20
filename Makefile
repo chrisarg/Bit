@@ -211,6 +211,22 @@ ifeq ($(COMPILER_ID),amdclang)
   OFFLOAD_FL += --rocm-path=$(ROCM_PATH) --rocm-device-lib-path=$(ROCM_DEVICE_LIB_PATH) --libomptarget-amdgpu-bc-path=$(ROCM_DEVICE_LIB_PATH) $(AMD_CLANG_ARCH_FLAGS)
 endif
 
+# =====================================================================
+# PUT TILES FOR OPENMP (CPU AND GPU)
+# =====================================================================
+GPU_TILE_J      ?= 2048
+GPU_ILP         ?= 16
+CPU_TILE        ?= 32
+
+TILE_VARS := GPU_TILE_J GPU_ILP CPU_TILE
+$(foreach var,$(TILE_VARS), \
+    $(if $(shell echo "$($(var))" | grep -Eq '^[0-9]+$$' && echo ok),, \
+        $(eval $(call APPEND_ERROR, $(var) must be a positive integer. Got: '$($(var))')) \
+    ) \
+)
+
+  
+# Warn about configuration errors and exit early if any are found
 ifneq ($(strip $(ERRORS)),)
   FORMATTED_ERRORS := $(subst |,$(newline) -> ,$(ERRORS))
   $(info )
@@ -226,6 +242,7 @@ BUILD_DIR ?= build
 $(shell mkdir -p $(BUILD_DIR))
 
 CFLAGS0 := -Wall -Wextra -Iinclude -D_POSIX_C_SOURCE=199309L -std=c11 -fPIC -O3 -march=native -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable
+CFLAGS0 += -DGPU_TILE_J=$(GPU_TILE_J) -DGPU_ILP=$(GPU_ILP) -DCPU_TILE=$(CPU_TILE)
 
 REPORT_CFLAGS :=
 ifeq ($(BUG_REPORT),1)
