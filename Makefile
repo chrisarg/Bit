@@ -211,6 +211,12 @@ ifeq ($(COMPILER_ID),amdclang)
   OFFLOAD_FL += --rocm-path=$(ROCM_PATH) --rocm-device-lib-path=$(ROCM_DEVICE_LIB_PATH) --libomptarget-amdgpu-bc-path=$(ROCM_DEVICE_LIB_PATH) $(AMD_CLANG_ARCH_FLAGS)
 endif
 
+ifeq ($(COMPILER_ID),icx)
+  ifeq ($(filter INTEL,$(GPU_LIST)),INTEL)
+    OFFLOAD_FL += -fopenmp-targets=spir64 -liomp5 -lomptarget
+  endif
+endif
+
 # =====================================================================
 # PUT TILES FOR OPENMP (CPU AND GPU)
 # =====================================================================
@@ -257,10 +263,6 @@ endif
 CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) $(REPORT_CFLAGS)
 HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS)
 
-# icx add target 
-ifeq ($(COMPILER_ID),icx)
-  HOST_ONLY_CFLAGS += -lomptarget
-endif
 
 COMPILE_CMD = $(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
 HOST_COMPILE_CMD = $(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -c $< -o $@
