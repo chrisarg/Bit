@@ -218,8 +218,6 @@ static unsigned const char msbmask[] = {
 static unsigned const char lsbmask[] = {0x01, 0x03, 0x07, 0x0F,
                                         0x1F, 0x3F, 0x7F, 0xFF};
 
-
-
 /* --- End Section 6: STATIC DATA --- */
 
 /* ===========================================================================
@@ -259,8 +257,6 @@ static T copy(T t) {
   }
   return set;
 }
-
-
 
 /* --- 8b. Wilks-Wheeler-Gill (WWG) popcount ---
    Highly portable and fast.
@@ -304,8 +300,6 @@ static inline uint64_t tree_adder(uint64_t v) {
   v = (v & C9_TRADD) + ((v & C10_TRADD) >> 32);
   return v;
 }
-
-
 
 /* --- 8d. Portable aligned calloc ---
    Allocates `size` bytes aligned to `alignment` and zeroes the memory.
@@ -353,7 +347,6 @@ static void *portable_aligned_calloc(size_t alignment, size_t size) {
 #pragma omp declare target(tree_adder)
 // GPU popcount alias — change this line to swap the GPU popcount implementation
 #define POPCOUNT_GPU count_WWG
-
 
 /* --- End Section 9: GPU KERNEL HELPERS --- */
 
@@ -585,27 +578,144 @@ int Bit_lt(T s, T t) {
 }
 /* --- 10e. Set operations (return a new Bit_T) --- */
 
-T Bit_diff(T s, T t) { setop(Bit_new(s->length), copy(t), copy(s), ^); }
-T Bit_minus(T s, T t) {
-  setop(Bit_new(s->length), Bit_new(t->length), copy(s), &~);
+T Bit_diff(T s, T t) {
+  setop_validate(Bit_new(s->length), copy(t), copy(s));
+  T set = Bit_new(s->length);
+#pragma omp simd /* SIMD directive for the set operation */
+  for (int i = 0; i < s->size_in_qwords; i++) {
+    set->qwords[i] = s->qwords[i] BIT_XOR t->qwords[i];
+  }
+  return set;
 }
-T Bit_inter(T s, T t){setop(copy(t), Bit_new(t -> length),
-                            Bit_new(s->length), &)} T Bit_union(T s, T t) {
-  setop(copy(t), copy(t), copy(s), |)
+T Bit_minus(T s, T t) {
+  setop_validate(Bit_new(s->length), Bit_new(t->length), copy(s));
+  T set = Bit_new(s->length);
+#pragma omp simd /* SIMD directive for the set operation */
+  for (int i = 0; i < s->size_in_qwords; i++) {
+    set->qwords[i] = s->qwords[i] BIT_AND_NOT t->qwords[i];
+  }
+  return set;
+}
+T Bit_inter(T s, T t) {
+  setop_validate(copy(t), Bit_new(t->length), Bit_new(s->length));
+  T set = Bit_new(s->length);
+#pragma omp simd /* SIMD directive for the set operation */
+  for (int i = 0; i < s->size_in_qwords; i++) {
+    set->qwords[i] = s->qwords[i] BIT_AND t->qwords[i];
+  }
+  return set;
+}
+
+T Bit_union(T s, T t) {
+  setop_validate(copy(t), copy(t), copy(s));
+  T set = Bit_new(s->length);
+#pragma omp simd /* SIMD directive for the set operation */
+  for (int i = 0; i < s->size_in_qwords; i++) {
+    set->qwords[i] = s->qwords[i] BIT_OR t->qwords[i];
+  }
+  return set;
 }
 
 /* --- 10f. Set operations (return population count of result) --- */
 
-int Bit_diff_count(T s, T t) { setop_count(0, Bit_count(t), Bit_count(s), ^); }
-int Bit_minus_count(T s, T t) { setop_count(0, 0, Bit_count(s), &~); }
-int Bit_inter_count(T s, T t) { setop_count(Bit_count(t), 0, 0, &); }
+int Bit_diff_count(T s, T t) {
+  setop_validate(0, Bit_count(t), Bit_count(s));
+  uint64_t count = 0;
+#ifndef USE_LIBPOPCNT
+  for (int i = 0; i < s->size_in_qwords; i++) {
+    count += POPCOUNT(s->qwords[i] BIT_XOR t->qwords[i]);
+  }
+#else
+  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
+  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
+  int i = 0;
+  for (; i < limit; i += SETOP_BUFFER_SIZE) {
+    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
+      setop_buffer[j] = s->qwords[i + j] BIT_XOR t->qwords[i + j];
+    }
+    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
+  }
+  for (; i < s->size_in_qwords; i++) {
+    count += POPCOUNT(s->qwords[i] BIT_XOR t->qwords[i]);
+  }
+#endif
+  return (int)count;
+}
+int Bit_minus_count(T s, T t) {
+  setop_validate(0, 0, Bit_count(s));
+  uint64_t count = 0;
+#ifndef USE_LIBPOPCNT
+  for (int i = 0; i < s->size_in_qwords; i++) {
+    count += POPCOUNT(s->qwords[i] BIT_AND_NOT t->qwords[i]);
+  }
+#else
+  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
+  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
+  int i = 0;
+  for (; i < limit; i += SETOP_BUFFER_SIZE) {
+    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
+      setop_buffer[j] = s->qwords[i + j] BIT_AND_NOT t->qwords[i + j];
+    }
+    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
+  }
+  for (; i < s->size_in_qwords; i++) {
+    count += POPCOUNT(s->qwords[i] BIT_AND_NOT t->qwords[i]);
+  }
+#endif
+  return (int)count;
+}
+int Bit_inter_count(T s, T t) {
+  setop_validate(Bit_count(t), 0, 0);
+  uint64_t count = 0;
+#ifndef USE_LIBPOPCNT
+  for (int i = 0; i < s->size_in_qwords; i++) {
+    count += POPCOUNT(s->qwords[i] BIT_AND t->qwords[i]);
+  }
+#else
+  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
+  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
+  int i = 0;
+  for (; i < limit; i += SETOP_BUFFER_SIZE) {
+    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
+      setop_buffer[j] = s->qwords[i + j] BIT_AND t->qwords[i + j];
+    }
+    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
+  }
+  for (; i < s->size_in_qwords; i++) {
+    count += POPCOUNT(s->qwords[i] BIT_AND t->qwords[i]);
+  }
+#endif
+  return (int)count;
+}
 int Bit_union_count(T s, T t) {
-  setop_count(Bit_count(t), Bit_count(t), Bit_count(s), |);
+  setop_validate(Bit_count(t), Bit_count(t), Bit_count(s));
+  uint64_t count = 0;
+#ifndef USE_LIBPOPCNT
+  for (int i = 0; i < s->size_in_qwords; i++) {
+    count += POPCOUNT(s->qwords[i] BIT_OR t->qwords[i]);
+  }
+#else
+  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
+  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
+  int i = 0;
+  for (; i < limit; i += SETOP_BUFFER_SIZE) {
+    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
+      setop_buffer[j] = s->qwords[i + j] BIT_OR t->qwords[i + j];
+    }
+    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
+  }
+  for (; i < s->size_in_qwords; i++) {
+    count += POPCOUNT(s->qwords[i] BIT_OR t->qwords[i]);
+  }
+#endif
+  return (int)count;
 }
 
 void print_Bit_configuration(void) {
 
-  printf("CPU_TILE : %d, GPU_TILE_J: %d, GPU_ILP: %d\n", CPU_TILE_BIT, GPU_TILE_J, GPU_ILP);
+  printf("CPU_TILE : %d, GPU_TILE_J: %d, GPU_ILP: %d\n", CPU_TILE_BIT,
+         GPU_TILE_J, GPU_ILP);
+  printf("Using LIBPOPCNT: %s\n", (USING_LIBPOPCNT == 1) ? "Yes" : "No");
   printf("CPU_TILE_BIT %d, CPU_TILE_BITS: %d\n", CPU_TILE_BIT, CPU_TILE_BITS);
 }
 

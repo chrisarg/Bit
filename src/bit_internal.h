@@ -44,8 +44,13 @@
    SECTION B: SINGLE-BITSET SET OPERATION MACROS (Bit_T)
    =========================================================================== */
 
-/* Set operation that creates a new Bit_T result (from Hanson's book) */
-#define setop(sequal, snull, tnull, op)                                        \
+#define BIT_AND &
+#define BIT_OR |
+#define BIT_XOR ^
+#define BIT_AND_NOT &~
+
+/* Set operation that creates a new Bit_T result (modified from Hanson's book) */
+#define setop_validate(sequal, snull, tnull)                                              \
   if (s == t) {                                                                \
     assert(s);                                                                 \
     return sequal;                                                             \
@@ -56,14 +61,12 @@
     return tnull;                                                              \
   } else {                                                                     \
     assert(s->length == t->length);                                            \
-    T set = Bit_new(s->length);                                                \
-    for (int i = 0; i < s->size_in_qwords; i++) {                              \
-      set->qwords[i] = s->qwords[i] op t->qwords[i];                           \
-    }                                                                          \
-    return set;                                                                \
   }
 
+
+
 /* Set operation that returns the population count of the result */
+
 #ifndef USE_LIBPOPCNT
 #define setop_count(sequal, snull, tnull, op)                                  \
   if (s == t) {                                                                \
@@ -77,6 +80,7 @@
   } else {                                                                     \
     assert(s->length == t->length);                                            \
     uint64_t count = 0;                                                        \
+    _Pragma(STRINGIFY(omp simd)) /* SIMD directive for the set operation */    \
     for (int i = 0; i < s->size_in_qwords; i++) {                              \
       count += POPCOUNT(s->qwords[i] op t->qwords[i]);                         \
     }                                                                          \
