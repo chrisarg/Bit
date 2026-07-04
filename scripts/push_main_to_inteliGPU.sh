@@ -51,7 +51,15 @@ if (( ${#missing[@]} )); then
   exit 1
 fi
 
-git checkout "${BRANCH_SRC}" -- "${checkout_paths[@]}"
-git add "${checkout_paths[@]}"
-git commit -m "Copy selected gpuOpt files into main"
-git push origin "${BRANCH_DST}"
+git fetch origin "$BRANCH_DST"
+git switch "$BRANCH_DST"
+git pull origin "$BRANCH_DST"
+
+git checkout "$BRANCH_SRC" -- include "${FILES[@]}"
+
+git add include "${FILES[@]}"
+git commit -m "Copy selected main files into gpuOpt"
+git push origin "$BRANCH_DST"
+
+git switch "$BRANCH_SRC"
+echo "Switched back to '$BRANCH_SRC'"
