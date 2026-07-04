@@ -14,7 +14,6 @@ FILES=(
   include/bit.h
   src/bit_internal.h
   src/bit.c
-  src/bit_internal.c
   benchmark/benchmark.c
   benchmark/openmp_bit_helpers.c
   benchmark/openmp_bit_helpers.h
