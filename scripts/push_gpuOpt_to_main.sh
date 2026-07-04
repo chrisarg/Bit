@@ -17,6 +17,18 @@ FILES=(
   tests/test_offload.c
 )
 
+cd "$(git rev-parse --show-toplevel)"
+
+if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
+  echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
+  exit 1
+fi
+
+if ! git show-ref --verify --quiet "refs/heads/${BRANCH_DST}"; then
+  echo "ERROR: branch ${BRANCH_DST} does not exist locally."
+  exit 1
+fi
+
 if [[ "$CURRENT_BRANCH" != "$BRANCH_SRC" ]]; then
   echo "ERROR: must run from branch '$BRANCH_SRC'"
   exit 1
@@ -25,6 +37,20 @@ fi
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "ERROR: working tree is not clean; commit or stash changes first."
   git status --short
+  exit 1
+fi
+
+CHECKOUT_PATHS=(include "${FILES[@]}")
+missing=()
+for path in "${CHECKOUT_PATHS[@]}"; do
+  if ! git cat-file -e "${BRANCH_SRC}:${path}" 2>/dev/null; then
+    missing+=("$path")
+  fi
+done
+
+if (( ${#missing[@]} > 0 )); then
+  echo "ERROR: the following paths are not present in ${BRANCH_SRC}:"
+  printf "  %s\n" "${missing[@]}"
   exit 1
 fi
 
@@ -37,9 +63,9 @@ git fetch origin "$BRANCH_DST"
 git switch "$BRANCH_DST"
 git pull --ff-only origin "$BRANCH_DST"
 
-git checkout "$BRANCH_SRC" -- include "${FILES[@]}"
+git checkout "$BRANCH_SRC" -- "${CHECKOUT_PATHS[@]}"
 
-git add include "${FILES[@]}"
+git add -- "${CHECKOUT_PATHS[@]}"
 if git diff --cached --quiet; then
   echo "No selected-file changes to commit."
 else
