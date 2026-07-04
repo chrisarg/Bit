@@ -621,95 +621,19 @@ T Bit_union(T s, T t) {
 
 int Bit_diff_count(T s, T t) {
   setop_validate(0, Bit_count(t), Bit_count(s));
-  uint64_t count = 0;
-#if !USE_LIBPOPCNT
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_XOR(s->qwords[i], t->qwords[i]));
-  }
-#else
-  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
-  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
-  int i = 0;
-  for (; i < limit; i += SETOP_BUFFER_SIZE) {
-    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = BIT_XOR(s->qwords[i + j], t->qwords[i + j]);
-    }
-    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
-  }
-  for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_XOR(s->qwords[i], t->qwords[i]));
-  }
-#endif
-  return (int)count;
+  setop_count(_XOR);
 }
 int Bit_minus_count(T s, T t) {
   setop_validate(0, 0, Bit_count(s));
-  uint64_t count = 0;
-#if !USE_LIBPOPCNT
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_AND_NOT(s->qwords[i], t->qwords[i]));
-  }
-#else
-  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
-  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
-  int i = 0;
-  for (; i < limit; i += SETOP_BUFFER_SIZE) {
-    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = BIT_AND_NOT(s->qwords[i + j], t->qwords[i + j]);
-    }
-    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
-  }
-  for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_AND_NOT(s->qwords[i], t->qwords[i]));
-  }
-#endif
-  return (int)count;
+  setop_count(_AND_NOT);
 }
 int Bit_inter_count(T s, T t) {
   setop_validate(Bit_count(t), 0, 0);
-  uint64_t count = 0;
-#if !USE_LIBPOPCNT
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_AND(s->qwords[i], t->qwords[i]));
-  }
-#else
-  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
-  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
-  int i = 0;
-  for (; i < limit; i += SETOP_BUFFER_SIZE) {
-    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = BIT_AND(s->qwords[i + j], t->qwords[i + j]);
-    }
-    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
-  }
-  for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_AND(s->qwords[i], t->qwords[i]));
-  }
-#endif
-  return (int)count;
+  setop_count(_AND);
 }
 int Bit_union_count(T s, T t) {
   setop_validate(Bit_count(t), Bit_count(t), Bit_count(s));
-  uint64_t count = 0;
-#if !USE_LIBPOPCNT
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_OR(s->qwords[i], t->qwords[i]));
-  }
-#else
-  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
-  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
-  int i = 0;
-  for (; i < limit; i += SETOP_BUFFER_SIZE) {
-    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = BIT_OR(s->qwords[i + j], t->qwords[i + j]);
-    }
-    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
-  }
-  for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_OR(s->qwords[i], t->qwords[i]));
-  }
-#endif
-  return (int)count;
+  setop_count(_OR);
 }
 
 void print_Bit_configuration(void) {

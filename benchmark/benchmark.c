@@ -1,10 +1,9 @@
 // Benchmarking code for the bit library
 #define _POSIX_C_SOURCE 199309L
 #include "bit.h"
+#include "simde_integration.h"
 #include <assert.h>
-#if defined(__AVX512__) || defined(__AVX2__) || defined(__SSE2__)
-#include <immintrin.h> // For AVX, AVX2, SSE2 intrinsics
-#endif
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -191,45 +190,45 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
     bit2[i] = ~i;
   }
   clock_gettime(CLOCK_MONOTONIC, &start_time);
-#if defined(__AVX512__)
-  // AVX512 version - process 8 qwords (512 bits) at once
+#if defined(BIT_SIMD_PATH_AVX512)
+  // SIMDe AVX512 version - process 8 qwords (512 bits) at once
   for (int i = 0; i < iterations; i++) {
     int j = size_in_qwords;
     // Process 8 qwords at a time
     for (; j >= 8; j -= 8) {
-      __m512i a = _mm512_loadu_si512((__m512i *)(bit1 + j - 8));
-      __m512i b = _mm512_loadu_si512((__m512i *)(bit2 + j - 8));
-      volatile __m512i c = _mm512_and_si512(a, b);
+      simde__m512i a = simde_mm512_loadu_si512(bit1 + j - 8);
+      simde__m512i b = simde_mm512_loadu_si512(bit2 + j - 8);
+      volatile simde__m512i c = simde_mm512_and_si512(a, b);
     }
     // Handle remaining elements
     for (; j > 0; j--) {
       volatile unsigned long long result = bit1[j - 1] & bit2[j - 1];
     }
   }
-#elif defined(__AVX2__)
-  // AVX2 version - process 4 qwords (256 bits) at once
+#elif defined(BIT_SIMD_PATH_AVX2)
+  // SIMDe AVX2 version - process 4 qwords (256 bits) at once
   for (int i = 0; i < iterations; i++) {
     int j = size_in_qwords;
     // Process 4 qwords at a time
     for (; j >= 4; j -= 4) {
-      __m256i a = _mm256_loadu_si256((__m256i *)(bit1 + j - 4));
-      __m256i b = _mm256_loadu_si256((__m256i *)(bit2 + j - 4));
-      volatile __m256i c = _mm256_and_si256(a, b);
+      simde__m256i a = simde_mm256_loadu_si256(bit1 + j - 4);
+      simde__m256i b = simde_mm256_loadu_si256(bit2 + j - 4);
+      volatile simde__m256i c = simde_mm256_and_si256(a, b);
     }
     // Handle remaining elements
     for (; j > 0; j--) {
       volatile unsigned long long result = bit1[j - 1] & bit2[j - 1];
     }
   }
-#elif defined(__SSE2__)
-  // SSE2 version - process 2 qwords (128 bits) at once
+#elif defined(BIT_SIMD_PATH_AVX)
+  // SIMDe AVX version - process 2 qwords (128 bits) at once
   for (int i = 0; i < iterations; i++) {
     int j = size_in_qwords;
     // Process 2 qwords at a time
     for (; j >= 2; j -= 2) {
-      __m128i a = _mm_loadu_si128((__m128i *)(bit1 + j - 2));
-      __m128i b = _mm_loadu_si128((__m128i *)(bit1 + j - 2));
-      volatile __m128i c = _mm_and_si128(a, b);
+      simde__m128i a = simde_mm_loadu_si128(bit1 + j - 2);
+      simde__m128i b = simde_mm_loadu_si128(bit2 + j - 2);
+      volatile simde__m128i c = simde_mm_and_si128(a, b);
     }
     // Handle remaining elements
     for (; j > 0; j--) {

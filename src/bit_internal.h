@@ -50,6 +50,11 @@
 #define BIT_SCALAR_AND(op1, op2) ((op1) & (op2))
 #define BIT_SCALAR_OR(op1, op2) ((op1) | (op2))
 #define BIT_SCALAR_XOR(op1, op2) ((op1) ^ (op2))
+#define BIT_SCALAR_AND_NOT(op1, op2) ((op1) & ~(op2))
+
+#define BIT_AND(op1, op2) ((op1) & (op2))
+#define BIT_OR(op1, op2) ((op1) | (op2))
+#define BIT_XOR(op1, op2) ((op1) ^ (op2))
 #define BIT_AND_NOT(op1, op2) ((op1) & ~(op2))
 
 /* Set operation that creates a new Bit_T result (modified from Hanson's book)
@@ -73,52 +78,34 @@
 #endif
 
 #if !USE_LIBPOPCNT
-#define setop_count(sequal, snull, tnull, op)                                  \
-  if (s == t) {                                                                \
-    assert(s);                                                                 \
-    return sequal;                                                             \
-  } else if (s == NULL) {                                                      \
-    assert(t);                                                                 \
-    return snull;                                                              \
-  } else if (t == NULL) {                                                      \
-    return tnull;                                                              \
-  } else {                                                                     \
-    assert(s->length == t->length);                                            \
+#define setop_count(op)                                                        \
+  do {                                                                         \
     uint64_t count = 0;                                                        \
     _Pragma(STRINGIFY(omp simd)) /* SIMD directive for the set operation */    \
         for (int i = 0; i < s->size_in_qwords; i++) {                          \
-      count += POPCOUNT(s->qwords[i] op t->qwords[i]);                         \
+      count += POPCOUNT(BIT_SCALAR##op(s->qwords[i], t->qwords[i]));           \
     }                                                                          \
     return (int)count;                                                         \
-  }
+  } while (0)
 #else
-#define setop_count(sequal, snull, tnull, op)                                  \
-  if (s == t) {                                                                \
-    assert(s);                                                                 \
-    return sequal;                                                             \
-  } else if (s == NULL) {                                                      \
-    assert(t);                                                                 \
-    return snull;                                                              \
-  } else if (t == NULL) {                                                      \
-    return tnull;                                                              \
-  } else {                                                                     \
-    assert(s->length == t->length);                                            \
+#define setop_count(op)                                                        \
+  do {                                                                         \
     uint64_t count = 0;                                                        \
     uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/          \
     int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;     \
     int i = 0;                                                                 \
     for (; i < limit; i += SETOP_BUFFER_SIZE) {                                \
       for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {                            \
-        setop_buffer[j] = s->qwords[i + j] op t->qwords[i + j];                \
+        setop_buffer[j] = BIT_SCALAR##op(s->qwords[i + j], t->qwords[i + j]);  \
       }                                                                        \
       count +=                                                                 \
           popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));  \
     }                                                                          \
     for (; i < s->size_in_qwords; i++) {                                       \
-      count += POPCOUNT(s->qwords[i] op t->qwords[i]);                         \
+      count += POPCOUNT(BIT_SCALAR##op(s->qwords[i], t->qwords[i]));           \
     }                                                                          \
     return (int)count;                                                         \
-  }
+  } while (0)
 #endif
 
 /* --- End Section B: SINGLE-BITSET SET OPERATION MACROS --- */
@@ -243,12 +230,12 @@
     /* SIMD SYNCHRONIZATION DIRECTIVE */                                       \
     SIMD_DIRECTIVE                                                             \
     for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                              \
-      setop_buffer[k] = BIT##op(a_row[l + k], b_row[l + k]);                   \
+      setop_buffer[k] = BIT_SCALAR##op(a_row[l + k], b_row[l + k]);            \
     }                                                                          \
     POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                   \
   } /* Handle the scalar remainder */                                          \
   for (; l < bit_size_in_qwords; l++) {                                        \
-    count += POPCOUNT(BIT##op(a_row[l], b_row[l]));                            \
+    count += POPCOUNT(BIT_SCALAR##op(a_row[l], b_row[l]));                     \
   }                                                                            \
   result = (int)count;
 
