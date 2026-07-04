@@ -32,9 +32,9 @@
    SECTION 4: PRIVATE IMPLEMENTATION MACROS
    Reserved for file-local operational macros.
    ========================================================================== */
-
+#ifndef NOGPU
 #define GPU_KERNEL_ALLOC(dev, count) omp_target_alloc((count) * sizeof(uint64_t), (dev))
-
+#endif
 /* --- End Section 4: PRIVATE IMPLEMENTATION MACROS --- */
 
 /* ==========================================================================
@@ -69,7 +69,7 @@ static void _GPU_transpose_kernel(uint64_t *bits, size_t rows,
    SECTION 8: INTERNAL HELPER FUNCTION DEFINITIONS
    Low-level helpers and device kernels.
    ========================================================================== */
-
+#ifndef NOGPU
 static void _GPU_transpose_kernel(uint64_t *bits, size_t rows,
                                   size_t columns, int device_id) {
     size_t t_elements = rows * columns;
@@ -93,6 +93,29 @@ static void _GPU_transpose_kernel(uint64_t *bits, size_t rows,
 
     omp_target_free(bits_T, device_id);
 }
+#endif
+static void _host_transpose_kernel(uint64_t *bits, size_t rows,
+                                  size_t columns) {
+    size_t t_elements = rows * columns;
+    uint64_t *bits_T = (uint64_t *)malloc(t_elements * sizeof(uint64_t));
+    if (!bits_T) {
+        return;
+    }
+
+#pragma omp parallel for collapse(2)
+    for (size_t i = 0; i < rows; i++) {
+        for (size_t j = 0; j < columns; j++) {
+            bits_T[j * rows + i] = bits[i * columns + j];
+        }
+    }
+
+#pragma omp parallel for
+    for (size_t idx = 0; idx < t_elements; idx++) {
+        bits[idx] = bits_T[idx];
+    }
+
+    free(bits_T);
+}
 
 /* --- End Section 8: INTERNAL HELPER FUNCTION DEFINITIONS --- */
 
@@ -101,6 +124,7 @@ static void _GPU_transpose_kernel(uint64_t *bits, size_t rows,
    GPU and CPU region transformation entry points.
    ========================================================================== */
 
+#ifndef NOGPU
 void GPU_region_transpose(GPUDataState from, GPUDataState to, uint64_t *bits,
                           size_t rows, size_t columns, int device_id,
                           void *params, size_t params_size) {
@@ -111,16 +135,26 @@ void GPU_region_transpose(GPUDataState from, GPUDataState to, uint64_t *bits,
 
     _GPU_transpose_kernel(bits, rows, columns, device_id);
 }
-
-void cpu_universal_transpose(GPUDataState from, GPUDataState to,
-                             uint64_t *bits, size_t rows, size_t columns,
-                             int device_id, void *params, size_t params_size) {
+#else
+void GPU_region_transpose(GPUDataState from, GPUDataState to, uint64_t *bits,
+                          size_t rows, size_t columns, int device_id,
+                          void *params, size_t params_size) {
     (void)from;
     (void)to;
     (void)params;
     (void)params_size;
 
-    _GPU_transpose_kernel(bits, rows, columns, device_id);
+    _host_transpose_kernel(bits, rows, columns);
 }
+#endif
+void cpu_universal_transpose(GPUDataState from, GPUDataState to,
+                             uint64_t *bits, size_t rows, size_t columns,
+                             void *params, size_t params_size) {
+    (void)from;
+    (void)to;
+    (void)params;
+    (void)params_size;
 
+    _host_transpose_kernel(bits, rows, columns);
+}
 /* --- End Section 9: PUBLIC API --- */

@@ -8,5 +8,5 @@ void GPU_region_transpose(GPUDataState from, GPUDataState to, uint64_t *bits,
                           void *params, size_t params_size);
 
 void cpu_universal_transpose(GPUDataState from, GPUDataState to, uint64_t *bits,
-                             size_t rows, size_t columns, int device_id,
+                             size_t rows, size_t columns, 
                              void *params, size_t params_size);

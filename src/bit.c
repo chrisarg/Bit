@@ -31,12 +31,13 @@
 /*---------------------------------------------------------------------------
   Environmental and configuration macros/defines and enums
 ----------------------------------------------------------------------------*/
+#ifndef USE_LIBPOPCNT
+#define USE_LIBPOPCNT 1
+#endif
 
-#if defined(USE_LIBPOPCNT)
+#if USE_LIBPOPCNT
 #include "libpopcnt.h"
-#define USING_LIBPOPCNT 1 // Flag to indicate the use of libpopcnt
 #else
-#define USING_LIBPOPCNT 0
 #endif
 
 /* --- End Section 1: INCLUDES --- */
@@ -426,7 +427,7 @@ int Bit_length(T set) {
 int Bit_count(T set) {
   assert(set);
   int length = 0;
-#ifndef USE_LIBPOPCNT
+#if !USE_LIBPOPCNT
   for (size_t i = 0; i < nqwords(set->length); i++) {
     length += POPCOUNT(set->qwords[i]);
   }
@@ -583,7 +584,7 @@ T Bit_diff(T s, T t) {
   T set = Bit_new(s->length);
 #pragma omp simd /* SIMD directive for the set operation */
   for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = s->qwords[i] BIT_XOR t->qwords[i];
+    set->qwords[i] = BIT_XOR(s->qwords[i], t->qwords[i]);
   }
   return set;
 }
@@ -592,7 +593,7 @@ T Bit_minus(T s, T t) {
   T set = Bit_new(s->length);
 #pragma omp simd /* SIMD directive for the set operation */
   for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = s->qwords[i] BIT_AND_NOT t->qwords[i];
+    set->qwords[i] = BIT_AND_NOT(s->qwords[i], t->qwords[i]);
   }
   return set;
 }
@@ -601,7 +602,7 @@ T Bit_inter(T s, T t) {
   T set = Bit_new(s->length);
 #pragma omp simd /* SIMD directive for the set operation */
   for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = s->qwords[i] BIT_AND t->qwords[i];
+    set->qwords[i] = BIT_AND(s->qwords[i], t->qwords[i]);
   }
   return set;
 }
@@ -611,7 +612,7 @@ T Bit_union(T s, T t) {
   T set = Bit_new(s->length);
 #pragma omp simd /* SIMD directive for the set operation */
   for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = s->qwords[i] BIT_OR t->qwords[i];
+    set->qwords[i] = BIT_OR(s->qwords[i], t->qwords[i]);
   }
   return set;
 }
@@ -621,9 +622,9 @@ T Bit_union(T s, T t) {
 int Bit_diff_count(T s, T t) {
   setop_validate(0, Bit_count(t), Bit_count(s));
   uint64_t count = 0;
-#ifndef USE_LIBPOPCNT
+#if !USE_LIBPOPCNT
   for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(s->qwords[i] BIT_XOR t->qwords[i]);
+    count += POPCOUNT(BIT_XOR(s->qwords[i], t->qwords[i]));
   }
 #else
   uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
@@ -631,12 +632,12 @@ int Bit_diff_count(T s, T t) {
   int i = 0;
   for (; i < limit; i += SETOP_BUFFER_SIZE) {
     for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = s->qwords[i + j] BIT_XOR t->qwords[i + j];
+      setop_buffer[j] = BIT_XOR(s->qwords[i + j], t->qwords[i + j]);
     }
     count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
   }
   for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(s->qwords[i] BIT_XOR t->qwords[i]);
+    count += POPCOUNT(BIT_XOR(s->qwords[i], t->qwords[i]));
   }
 #endif
   return (int)count;
@@ -644,9 +645,9 @@ int Bit_diff_count(T s, T t) {
 int Bit_minus_count(T s, T t) {
   setop_validate(0, 0, Bit_count(s));
   uint64_t count = 0;
-#ifndef USE_LIBPOPCNT
+#if !USE_LIBPOPCNT
   for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(s->qwords[i] BIT_AND_NOT t->qwords[i]);
+    count += POPCOUNT(BIT_AND_NOT(s->qwords[i], t->qwords[i]));
   }
 #else
   uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
@@ -654,12 +655,12 @@ int Bit_minus_count(T s, T t) {
   int i = 0;
   for (; i < limit; i += SETOP_BUFFER_SIZE) {
     for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = s->qwords[i + j] BIT_AND_NOT t->qwords[i + j];
+      setop_buffer[j] = BIT_AND_NOT(s->qwords[i + j], t->qwords[i + j]);
     }
     count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
   }
   for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(s->qwords[i] BIT_AND_NOT t->qwords[i]);
+    count += POPCOUNT(BIT_AND_NOT(s->qwords[i], t->qwords[i]));
   }
 #endif
   return (int)count;
@@ -667,9 +668,9 @@ int Bit_minus_count(T s, T t) {
 int Bit_inter_count(T s, T t) {
   setop_validate(Bit_count(t), 0, 0);
   uint64_t count = 0;
-#ifndef USE_LIBPOPCNT
+#if !USE_LIBPOPCNT
   for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(s->qwords[i] BIT_AND t->qwords[i]);
+    count += POPCOUNT(BIT_AND(s->qwords[i], t->qwords[i]));
   }
 #else
   uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
@@ -677,12 +678,12 @@ int Bit_inter_count(T s, T t) {
   int i = 0;
   for (; i < limit; i += SETOP_BUFFER_SIZE) {
     for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = s->qwords[i + j] BIT_AND t->qwords[i + j];
+      setop_buffer[j] = BIT_AND(s->qwords[i + j], t->qwords[i + j]);
     }
     count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
   }
   for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(s->qwords[i] BIT_AND t->qwords[i]);
+    count += POPCOUNT(BIT_AND(s->qwords[i], t->qwords[i]));
   }
 #endif
   return (int)count;
@@ -690,9 +691,9 @@ int Bit_inter_count(T s, T t) {
 int Bit_union_count(T s, T t) {
   setop_validate(Bit_count(t), Bit_count(t), Bit_count(s));
   uint64_t count = 0;
-#ifndef USE_LIBPOPCNT
+#if !USE_LIBPOPCNT
   for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(s->qwords[i] BIT_OR t->qwords[i]);
+    count += POPCOUNT(BIT_OR(s->qwords[i], t->qwords[i]));
   }
 #else
   uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
@@ -700,12 +701,12 @@ int Bit_union_count(T s, T t) {
   int i = 0;
   for (; i < limit; i += SETOP_BUFFER_SIZE) {
     for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = s->qwords[i + j] BIT_OR t->qwords[i + j];
+      setop_buffer[j] = BIT_OR(s->qwords[i + j], t->qwords[i + j]);
     }
     count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
   }
   for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(s->qwords[i] BIT_OR t->qwords[i]);
+    count += POPCOUNT(BIT_OR(s->qwords[i], t->qwords[i]));
   }
 #endif
   return (int)count;
@@ -715,7 +716,7 @@ void print_Bit_configuration(void) {
 
   printf("CPU_TILE : %d, GPU_TILE_J: %d, GPU_ILP: %d\n", CPU_TILE_BIT,
          GPU_TILE_J, GPU_ILP);
-  printf("Using LIBPOPCNT: %s\n", (USING_LIBPOPCNT == 1) ? "Yes" : "No");
+  printf("Using LIBPOPCNT: %s\n", (USE_LIBPOPCNT == 1) ? "Yes" : "No");
   printf("CPU_TILE_BIT %d, CPU_TILE_BITS: %d\n", CPU_TILE_BIT, CPU_TILE_BITS);
 }
 
@@ -808,7 +809,7 @@ int BitDB_count_at(T_DB set, int index) {
   assert(set);
   assert(index >= 0 && index < set->nelem);
   int count = 0;
-#ifndef USE_LIBPOPCNT
+#if !USE_LIBPOPCNT
   uint64_t *qwords = set->qwords + index * set->size_in_qwords;
   for (int i = 0; i < set->size_in_qwords; i++)
     count += POPCOUNT(qwords[i]);
@@ -823,7 +824,7 @@ int *BitDB_count(T_DB set) {
   assert(set);
   int *counts = malloc(set->nelem * sizeof(int));
   assert(counts != NULL);
-#ifndef USE_LIBPOPCNT
+#if !USE_LIBPOPCNT
   uint64_t *qwords = set->qwords;
   for (int i = 0; i < set->nelem; i++, qwords += set->size_in_qwords) {
     int count = 0;
@@ -912,7 +913,7 @@ int *BitDB_inter_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 void BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
 
-  setop_count_db_cpu(bit, bits, counts, &, opts)
+  setop_count_db_cpu(bit, bits, counts, _AND, opts);
 }
 
 int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
@@ -930,9 +931,9 @@ int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, &, opts)
+  setop_count_db_gpu(bit, bits, counts, &, opts);
 #else
-  setop_count_db_cpu(bit, bits, counts, &, opts)
+  setop_count_db_cpu(bit, bits, counts, _AND, opts)
 #endif
 }
 
@@ -946,7 +947,7 @@ int *BitDB_union_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
 void BitDB_union_count_store_cpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
-  setop_count_db_cpu(bit, bits, counts, |, opts);
+  setop_count_db_cpu(bit, bits, counts, _OR, opts);
 }
 
 int *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
@@ -964,9 +965,9 @@ int *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, |, opts)
+  setop_count_db_gpu(bit, bits, counts, |, opts);
 #else
-  setop_count_db_cpu(bit, bits, counts, |, opts)
+  setop_count_db_cpu(bit, bits, counts, _OR, opts);
 #endif
 }
 
@@ -980,7 +981,7 @@ int *BitDB_diff_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
 void BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, int *counts,
                                 SETOP_COUNT_OPTS opts) {
-  setop_count_db_cpu(bit, bits, counts, ^, opts)
+  setop_count_db_cpu(bit, bits, counts, _XOR, opts);
 }
 
 int *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
@@ -1000,7 +1001,7 @@ void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, ^, opts)
 #else
-  setop_count_db_cpu(bit, bits, counts, ^, opts)
+  setop_count_db_cpu(bit, bits, counts, _XOR, opts)
 #endif
 }
 
@@ -1014,7 +1015,7 @@ int *BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
 void BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
-  setop_count_db_cpu(bit, bits, counts, &~, opts)
+  setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts); 
 }
 
 int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
@@ -1034,7 +1035,7 @@ void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *counts,
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, &~, opts)
 #else
-  setop_count_db_cpu(bit, bits, counts, &~, opts)
+  setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts);
 #endif
 }
 

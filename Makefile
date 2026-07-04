@@ -285,7 +285,14 @@ $(CONFIG_STAMP): FORCE
 	then rm -f $(CONFIG_STAMP).tmp; else mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP); fi
 
 SRC := src/bit.c
-OBJ := $(BUILD_DIR)/bit.o $(BUILD_DIR)/gpu_layout_registry.o $(BUILD_DIR)/gpu_layout_fsm.o $(BUILD_DIR)/gpu_layout_kernels.o
+OBJ_CORE := $(BUILD_DIR)/bit.o
+OBJ_GPU := $(BUILD_DIR)/bit.o $(BUILD_DIR)/gpu_layout_registry.o $(BUILD_DIR)/gpu_layout_fsm.o $(BUILD_DIR)/gpu_layout_kernels.o
+ifeq ($(filter NONE,$(GPU_LIST)),NONE)
+  OBJ := $(OBJ_CORE)
+else
+  OBJ := $(OBJ_GPU)
+endif
+
 TARGET := $(BUILD_DIR)/libbit.so
 TARGET_STATIC := $(BUILD_DIR)/libbit.a
 TEST_SRC := tests/test_bit.c
@@ -305,12 +312,20 @@ BENCH_OMP_GPU_OBJ := $(BUILD_DIR)/openmp_bit_nogpu.o
 BENCH_OMP_GPU_EXEC := $(BUILD_DIR)/openmp_bit_nogpu
 OPENMP_BIT_HELPERS_OBJ := $(BUILD_DIR)/openmp_bit_helpers.o
 
-LIBPOPCNT ?= 1
-LIBPOPCNT_LC := $(shell echo $(LIBPOPCNT) | tr A-Z a-z)
-ifneq ($(filter $(LIBPOPCNT_LC),0 no n false f off),)
-  $(info libpopcnt integration disabled)
-else
-  CFLAGS += -DUSE_LIBPOPCNT
+
+# use libpopcnt integration by default, but allow user to disable it 
+# via LIBPOPCNT=0 or LIBPOPCNT=no
+ifeq ($(IS_CLEAN_GOAL),)
+  LIBPOPCNT ?= 1
+  LIBPOPCNT_LC := $(shell echo $(LIBPOPCNT) | tr A-Z a-z)
+  ifneq ($(filter $(LIBPOPCNT_LC),0 no n false f off),)
+    $(info libpopcnt integration disabled)
+    LIBPOPCNT := 0
+  else
+    $(info libpopcnt integration enabled)
+    LIBPOPCNT := 1
+  endif
+  CFLAGS += -DUSE_LIBPOPCNT=$(LIBPOPCNT)
 endif
 
 ifeq ($(strip $(USE_BUILTIN_POPCOUNT)),1)

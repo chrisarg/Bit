@@ -22,7 +22,8 @@
 
 /* ===========================================================================
    SECTION A: OPENMP CPU PARALLELIZATION HELPERS
-   =========================================================================== */
+   ===========================================================================
+ */
 
 /* Collapse `levels` loops with the given schedule */
 #define OMP_CPU_LOOP(levels, sched)                                            \
@@ -42,15 +43,17 @@
 
 /* ===========================================================================
    SECTION B: SINGLE-BITSET SET OPERATION MACROS (Bit_T)
-   =========================================================================== */
+   ===========================================================================
+ */
 
-#define BIT_AND &
-#define BIT_OR |
-#define BIT_XOR ^
-#define BIT_AND_NOT &~
+#define BIT_AND(op1, op2) ((op1) & (op2))
+#define BIT_OR(op1, op2) ((op1) | (op2))
+#define BIT_XOR(op1, op2) ((op1) ^ (op2))
+#define BIT_AND_NOT(op1, op2) ((op1) & ~(op2))
 
-/* Set operation that creates a new Bit_T result (modified from Hanson's book) */
-#define setop_validate(sequal, snull, tnull)                                              \
+/* Set operation that creates a new Bit_T result (modified from Hanson's book)
+ */
+#define setop_validate(sequal, snull, tnull)                                   \
   if (s == t) {                                                                \
     assert(s);                                                                 \
     return sequal;                                                             \
@@ -63,11 +66,12 @@
     assert(s->length == t->length);                                            \
   }
 
-
-
 /* Set operation that returns the population count of the result */
-
 #ifndef USE_LIBPOPCNT
+#define USE_LIBPOPCNT 1
+#endif
+
+#if !USE_LIBPOPCNT
 #define setop_count(sequal, snull, tnull, op)                                  \
   if (s == t) {                                                                \
     assert(s);                                                                 \
@@ -81,7 +85,7 @@
     assert(s->length == t->length);                                            \
     uint64_t count = 0;                                                        \
     _Pragma(STRINGIFY(omp simd)) /* SIMD directive for the set operation */    \
-    for (int i = 0; i < s->size_in_qwords; i++) {                              \
+        for (int i = 0; i < s->size_in_qwords; i++) {                          \
       count += POPCOUNT(s->qwords[i] op t->qwords[i]);                         \
     }                                                                          \
     return (int)count;                                                         \
@@ -120,11 +124,12 @@
 
 /* ===========================================================================
    SECTION C: DB SET OPERATION MACROS — CPU
-   =========================================================================== */
+   ===========================================================================
+ */
 
 /* Validate two Bit_DB_T operands have the same bitset length */
 #define SETOP_DB_CHECKS(bit, bits)                                             \
-  assert(bit && bits);                                                         \
+  assert(bit &&bits);                                                          \
   assert(bit->length == bits->length);
 
 /* Extract raw pointers and dimensions from two Bit_DB_T operands */
@@ -146,7 +151,7 @@
   omp_set_num_threads(numthreads);
 
 /* Accumulate popcount over a tile buffer (libpopcnt vs WWG dispatch) */
-#ifndef USE_LIBPOPCNT
+#if !USE_LIBPOPCNT
 
 #define POPULATION_COUNT(count, setop_buffer, buffer_size)                     \
   /* SIMD SYNCHRONIZATION DIRECTIVE */                                         \
@@ -191,9 +196,9 @@
 
 /* Close the tiled double loop — matches the four { in OMP_CPU_TILE_START */
 #define OMP_CPU_TILE_END                                                       \
-        }                                                                      \
-      }                                                                        \
-    }                                                                          \
+  }                                                                            \
+  }                                                                            \
+  }                                                                            \
   }
 
 /* Top-level DB CPU set-operation dispatch (architecture and alignment aware) */
@@ -210,20 +215,19 @@
     setop_count_db_cpu_kernel(                                                 \
         a_row, b_row, bit_size_in_qwords, counts[(uint64_t)i * n + j], op,     \
         OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, a_row, b_row, setop_buffer))      \
-    OMP_CPU_TILE_END                                                           \
+        OMP_CPU_TILE_END                                                       \
   } else {                                                                     \
     if (aligned) {                                                             \
       OMP_CPU_TILE_START                                                       \
       setop_count_db_cpu_kernel(                                               \
           a_row, b_row, bit_size_in_qwords, counts[(uint64_t)i * n + j], op,   \
           OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, a_row, b_row, setop_buffer))    \
-      OMP_CPU_TILE_END                                                         \
+          OMP_CPU_TILE_END                                                     \
     } else {                                                                   \
       OMP_CPU_TILE_START                                                       \
       setop_count_db_cpu_kernel(                                               \
           a_row, b_row, bit_size_in_qwords, counts[(uint64_t)i * n + j], op,   \
-          OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, setop_buffer))                  \
-      OMP_CPU_TILE_END                                                         \
+          OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, setop_buffer)) OMP_CPU_TILE_END \
     }                                                                          \
   }
 
@@ -238,12 +242,12 @@
     /* SIMD SYNCHRONIZATION DIRECTIVE */                                       \
     SIMD_DIRECTIVE                                                             \
     for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                              \
-      setop_buffer[k] = a_row[l + k] op b_row[l + k];                          \
+      setop_buffer[k] = BIT ## op(a_row[l + k], b_row[l + k]);                  \
     }                                                                          \
     POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                   \
   } /* Handle the scalar remainder */                                          \
   for (; l < bit_size_in_qwords; l++) {                                        \
-    count += POPCOUNT(a_row[l] op b_row[l]);                                   \
+    count += POPCOUNT(BIT ## op(a_row[l], b_row[l]));                           \
   }                                                                            \
   result = (int)count;
 
@@ -251,7 +255,8 @@
 
 /* ===========================================================================
    SECTION D: DB SET OPERATION MACROS — GPU
-   =========================================================================== */
+   ===========================================================================
+ */
 #ifndef NOGPU
 
 /* Update a device array from the host (or vice versa) */
