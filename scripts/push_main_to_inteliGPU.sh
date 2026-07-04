@@ -11,9 +11,9 @@ DIRS=(
 FILES=(
   Makefile
   README.md
+  include/bit.h
+  include/bit_internal.h
   src/bit.c
-  src/bit.h
-  src/bit_internal.h
   src/bit_internal.c
   benchmark/benchmark.c
   benchmark/openmp_bit_helpers.c
