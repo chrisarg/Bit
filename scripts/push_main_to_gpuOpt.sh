@@ -5,10 +5,6 @@ BRANCH_SRC="main"
 BRANCH_DST="gpuOpt"
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
-DIRS=(
-  include
-)
-
 FILES=(
   Makefile
   README.md
@@ -26,6 +22,16 @@ FILES=(
 
 cd "$(git rev-parse --show-toplevel)"
 
+if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
+  echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
+  exit 1
+fi
+
+if ! git show-ref --verify --quiet "refs/heads/${BRANCH_DST}"; then
+  echo "ERROR: branch ${BRANCH_DST} does not exist locally."
+  exit 1
+fi
+
 if [[ "$CURRENT_BRANCH" != "$BRANCH_SRC" ]]; then
   echo "ERROR: must run from branch '$BRANCH_SRC'"
   exit 1
@@ -37,28 +43,15 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
-  echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
-  exit 1
-fi
-
-if ! git show-ref --verify --quiet "refs/heads/${BRANCH_DST}"; then
-  echo "ERROR: branch ${BRANCH_DST} does not exist locally."
-  exit 1
-fi
-
+CHECKOUT_PATHS=(include "${FILES[@]}")
 missing=()
-checkout_paths=()
-
-for path in "${DIRS[@]}" "${FILES[@]}"; do
-  if git cat-file -e "${BRANCH_SRC}:${path}" 2>/dev/null; then
-    checkout_paths+=("$path")
-  else
+for path in "${CHECKOUT_PATHS[@]}"; do
+  if ! git cat-file -e "${BRANCH_SRC}:${path}" 2>/dev/null; then
     missing+=("$path")
   fi
 done
 
-if (( ${#missing[@]} )); then
+if (( ${#missing[@]} > 0 )); then
   echo "ERROR: the following paths are not present in ${BRANCH_SRC}:"
   printf "  %s\n" "${missing[@]}"
   exit 1
@@ -73,9 +66,9 @@ git fetch origin "$BRANCH_DST"
 git switch "$BRANCH_DST"
 git pull --ff-only origin "$BRANCH_DST"
 
-git checkout "$BRANCH_SRC" -- "${checkout_paths[@]}"
+git checkout "$BRANCH_SRC" -- "${CHECKOUT_PATHS[@]}"
 
-git add -- "${checkout_paths[@]}"
+git add -- "${CHECKOUT_PATHS[@]}"
 if git diff --cached --quiet; then
   echo "No selected-file changes to commit."
 else
