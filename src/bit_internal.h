@@ -242,12 +242,12 @@
     /* SIMD SYNCHRONIZATION DIRECTIVE */                                       \
     SIMD_DIRECTIVE                                                             \
     for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                              \
-      setop_buffer[k] = BIT ## op(a_row[l + k], b_row[l + k]);                  \
+      setop_buffer[k] = BIT##op(a_row[l + k], b_row[l + k]);                   \
     }                                                                          \
     POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                   \
   } /* Handle the scalar remainder */                                          \
   for (; l < bit_size_in_qwords; l++) {                                        \
-    count += POPCOUNT(BIT ## op(a_row[l], b_row[l]));                           \
+    count += POPCOUNT(BIT##op(a_row[l], b_row[l]));                            \
   }                                                                            \
   result = (int)count;
 

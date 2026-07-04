@@ -880,12 +880,19 @@ The library has the aspiration to eventually be absolutely safe for concurency o
 
 ## Libraries Used
 
-This project incorporates or is inspired by several open-source libraries:
+This project incorporates other open-source libraries:
 
 - **libpopcnt**: A C/C++ library for counting the number of 1 bits (bit
   population count) specialized for different CPU architectures. Licensed under
   BSD 2-Clause.
   https://github.com/kimwalisch/libpopcnt
+
+- **SIMDe**: The SIMDe header-only library provides fast, portable implementations of SIMD intrinsics on hardware which doesn't natively support them, such as calling SSE functions on ARM. There is no performance penalty if the hardware supports the native implementation (e.g., SSE/AVX runs at full speed on x86, NEON on ARM, etc.).
+https://github.com/simd-everywhere/simde
+
+## Libraries that inspired this project
+
+All the libraries below inspired me to dive in the C preprocessor, learn new stuff or simply structure my code in a better manner.
 
 - **sse-popcount**: The SIMD population count implementation of the Harley-Seal
   algorithm based on the paper "Faster Population Counts using AVX2
@@ -915,7 +922,7 @@ the _population count_ for different CPU architectures:
   Computer".
 
 The Wilkes-Wheeler-Gill algorithm is used as default for GPU deployments given
-the straightforward translation into highly efficient GPU code (under -O3). Native GPU popcount instructions do exist and are 2.5x faster ONLY is one can stage their data to operate in registers or in shared (thread local) memory. For practical applications, performance is memory bound so it makes absolutely no practical difference is one is using the builtin directive or the WWG function in the GPU.
+the straightforward translation into highly efficient GPU code (under -O3). Native GPU popcount instructions do exist and are 2.5x faster ONLY is one can stage their data to operate in registers or in shared (thread local) memory. For naive implementations of the container operations (such as mine!), performance is memory bound so it makes absolutely no practical difference is one is using the builtin directive or the WWG function in the GPU.
 
 ## A note about the rationale for multi-threaded CPU and GPU deployments
 
@@ -977,7 +984,7 @@ Bit is particularly useful for:
 
 ## TO-DO
 
-- Build the entire library in the CPU using [SIMDe](https://github.com/simd-everywhere/simde) (SIMD everywhere). This will allow portable, vectorized operations for both bitsets and containers. At that point we will no longer rely on `libpopcnt`.
+- Build the entire library in the CPU using [SIMDe](https://github.com/simd-everywhere/simde) (SIMD everywhere). This will allow portable, vectorized operations for both bitsets and containers. At that point we may no longer rely on `libpopcnt`.
 - Port experimental algorithms for setop count operations from the gpuOpt branch to the main branch
 - Implement additional set-op operations (e.g. the Jaccard index)
 - Implement additional, OS agnostic build systems (lowest priority)

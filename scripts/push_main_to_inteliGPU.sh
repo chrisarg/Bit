@@ -9,6 +9,7 @@ FILES=(
   Makefile
   README.md
   include/bit.h
+  include/simde/*
   src/bit_internal.h
   src/bit.c
   benchmark/benchmark.c
