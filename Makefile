@@ -49,10 +49,19 @@ PREFERRED_CXX := amdclang++ clang++ g++ icpx
 # =============================================================
 
 ifeq ($(IS_CLEAN_GOAL),)
+  GPU ?= NONE
+  override GPU_LIST := $(subst $(comma),$(space),$(shell printf '%s' '$(GPU)' | tr 'a-z' 'A-Z' | tr -d '[:space:]'))
+
+  ifeq ($(filter AMD,$(GPU_LIST)),AMD)
+    AUTO_PREFERRED_CC := amdclang clang gcc icx
+  else
+    AUTO_PREFERRED_CC := clang gcc icx amdclang
+  endif
+
   ifeq ($(origin CC),default)
-    DETECTED_CC := $(firstword $(foreach c,$(PREFERRED_CC),$(shell which $(c) 2>/dev/null)))
+    DETECTED_CC := $(firstword $(foreach c,$(AUTO_PREFERRED_CC),$(shell which $(c) 2>/dev/null)))
     ifeq ($(strip $(DETECTED_CC)),)
-     $(eval $(call APPEND_ERROR,No suitable compiler found. Install one of: $(PREFERRED_CC) or set CC= explicitly))
+     $(eval $(call APPEND_ERROR,No suitable compiler found. Install one of: $(AUTO_PREFERRED_CC) or set CC= explicitly))
     else
       CC := $(DETECTED_CC)
     endif
@@ -60,9 +69,6 @@ ifeq ($(IS_CLEAN_GOAL),)
 
   override CC_BASENAME := $(notdir $(shell printf '%s' '$(CC)' | tr 'A-Z' 'a-z' | tr -d '[:space:]'))
   override CC          := $(CC_BASENAME)
-
-  GPU ?= NONE
-  override GPU_LIST := $(subst $(comma),$(space),$(shell printf '%s' '$(GPU)' | tr 'a-z' 'A-Z' | tr -d '[:space:]'))
 
   ifneq ($(filter NONE,$(GPU_LIST)),)
     ifneq ($(words $(GPU_LIST)),1)
@@ -249,6 +255,11 @@ $(shell mkdir -p $(BUILD_DIR))
 
 CFLAGS0 := -Wall -Wextra -Iinclude -D_POSIX_C_SOURCE=199309L -std=c11 -fPIC -O3 -march=native -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable
 CFLAGS0 += -DGPU_TILE_J=$(GPU_TILE_J) -DGPU_ILP=$(GPU_ILP) -DCPU_TILE=$(CPU_TILE)
+
+SIMD_DIAGNOSTICS ?= 0
+ifeq ($(SIMD_DIAGNOSTICS),1)
+  CFLAGS0 += -DBIT_SIMD_DIAGNOSTICS=1
+endif
 
 
 REPORT_CFLAGS :=

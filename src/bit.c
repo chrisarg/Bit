@@ -17,17 +17,17 @@
    ===========================================================================
  */
 
-#include "bit.h"       // Contains your public API declarations
-#include "omp.h"       // For OpenMP parallelization
-#include <assert.h>    // For assert() validation
-#include <limits.h>    // For INT_MAX
-#include <stdatomic.h> // For atomic operations
-#include <stdbool.h>   // For bool type (is_Bit_T_allocated)
-#include <stdint.h>    // For uintptr_t and UINT64_C macros
-#include <stdio.h>     // For printf (if needed for debugging)
-#include <stdlib.h>    // For malloc, free
-#include <string.h>    // For memset
-
+#include "bit.h"               // Contains your public API declarations
+#include "omp.h"               // For OpenMP parallelization
+#include "simde_integration.h" // For SIMD operations
+#include <assert.h>            // For assert() validation
+#include <limits.h>            // For INT_MAX
+#include <stdatomic.h>         // For atomic operations
+#include <stdbool.h>           // For bool type (is_Bit_T_allocated)
+#include <stdint.h>            // For uintptr_t and UINT64_C macros
+#include <stdio.h>             // For printf (if needed for debugging)
+#include <stdlib.h>            // For malloc, free
+#include <string.h>            // For memset
 /*---------------------------------------------------------------------------
   Environmental and configuration macros/defines and enums
 ----------------------------------------------------------------------------*/
@@ -1015,7 +1015,7 @@ int *BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
 void BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
-  setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts); 
+  setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts);
 }
 
 int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {

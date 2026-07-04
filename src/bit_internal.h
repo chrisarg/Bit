@@ -15,13 +15,13 @@
 
     * Author : Christos Argyropoulos
     * Created : April 1st 2025 (refactored June 2026)
-    * Copyright : (c) 2025
+    * Copyright : (c) 2025 - 2026
     * License : BSD-2
 */
 #pragma once
 
 /* ===========================================================================
-   SECTION A: OPENMP CPU PARALLELIZATION HELPERS
+   SECTION 1: OPENMP CPU PARALLELIZATION HELPERS
    ===========================================================================
  */
 
@@ -42,13 +42,14 @@
 /* --- End Section A: OPENMP CPU PARALLELIZATION HELPERS --- */
 
 /* ===========================================================================
-   SECTION B: SINGLE-BITSET SET OPERATION MACROS (Bit_T)
+   SECTION 2: SINGLE-BITSET SET OPERATION MACROS (Bit_T)
    ===========================================================================
  */
 
-#define BIT_AND(op1, op2) ((op1) & (op2))
-#define BIT_OR(op1, op2) ((op1) | (op2))
-#define BIT_XOR(op1, op2) ((op1) ^ (op2))
+// Scalar bitwise operations
+#define BIT_SCALAR_AND(op1, op2) ((op1) & (op2))
+#define BIT_SCALAR_OR(op1, op2) ((op1) | (op2))
+#define BIT_SCALAR_XOR(op1, op2) ((op1) ^ (op2))
 #define BIT_AND_NOT(op1, op2) ((op1) & ~(op2))
 
 /* Set operation that creates a new Bit_T result (modified from Hanson's book)
@@ -123,7 +124,7 @@
 /* --- End Section B: SINGLE-BITSET SET OPERATION MACROS --- */
 
 /* ===========================================================================
-   SECTION C: DB SET OPERATION MACROS — CPU
+   SECTION 3: DB SET OPERATION MACROS — CPU
    ===========================================================================
  */
 
@@ -254,7 +255,7 @@
 /* --- End Section C: DB SET OPERATION MACROS — CPU --- */
 
 /* ===========================================================================
-   SECTION D: DB SET OPERATION MACROS — GPU
+   SECTION 4: DB SET OPERATION MACROS — GPU
    ===========================================================================
  */
 #ifndef NOGPU
