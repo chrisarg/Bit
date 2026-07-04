@@ -28,15 +28,25 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
+restore_branch() {
+  git switch "$CURRENT_BRANCH" >/dev/null 2>&1 || true
+}
+trap restore_branch EXIT
+
 git fetch origin "$BRANCH_DST"
 git switch "$BRANCH_DST"
-git pull origin "$BRANCH_DST"
+git pull --ff-only origin "$BRANCH_DST"
 
 git checkout "$BRANCH_SRC" -- include "${FILES[@]}"
 
 git add include "${FILES[@]}"
-git commit -m "Cherry-pick selected gpuOpt files into main"
-git push origin "$BRANCH_DST"
+if git diff --cached --quiet; then
+  echo "No selected-file changes to commit."
+else
+  git commit -m "Copy selected gpuOpt files into main"
+  git push origin "$BRANCH_DST"
+fi
 
 git switch "$CURRENT_BRANCH"
 echo "Switched back to '$CURRENT_BRANCH'"
+trap - EXIT
