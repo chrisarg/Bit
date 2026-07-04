@@ -73,7 +73,7 @@ int main(int argc, char* argv []) {
 #else
   printf("Debug mode is disabled.\n");
 #endif
-
+puts("Starting benchmark for bitset intersection count...");  
   print_Bit_configuration();
   // allocate the bitsets
   Bit_T* bits = malloc(num_of_bits * sizeof(Bit_T));
