@@ -3,6 +3,7 @@ set -euo pipefail
 
 BRANCH_SRC="main"
 BRANCH_DST="gpuOpt"
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 DIRS=(
   include
@@ -25,20 +26,32 @@ FILES=(
 
 cd "$(git rev-parse --show-toplevel)"
 
+if [[ "$CURRENT_BRANCH" != "$BRANCH_SRC" ]]; then
+  echo "ERROR: must run from branch '$BRANCH_SRC'"
+  exit 1
+fi
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "ERROR: working tree is not clean; commit or stash changes first."
+  git status --short
+  exit 1
+fi
+
 if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
   echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
   exit 1
 fi
 
-git fetch origin "${BRANCH_DST}"
-git switch "${BRANCH_DST}"
-git pull origin "${BRANCH_DST}"
+if ! git show-ref --verify --quiet "refs/heads/${BRANCH_DST}"; then
+  echo "ERROR: branch ${BRANCH_DST} does not exist locally."
+  exit 1
+fi
 
 missing=()
 checkout_paths=()
 
 for path in "${DIRS[@]}" "${FILES[@]}"; do
-  if git ls-tree --name-only -r "${BRANCH_SRC}" -- "$path" >/dev/null 2>&1; then
+  if git cat-file -e "${BRANCH_SRC}:${path}" 2>/dev/null; then
     checkout_paths+=("$path")
   else
     missing+=("$path")
@@ -51,15 +64,25 @@ if (( ${#missing[@]} )); then
   exit 1
 fi
 
+restore_branch() {
+  git switch "$CURRENT_BRANCH" >/dev/null 2>&1 || true
+}
+trap restore_branch EXIT
+
 git fetch origin "$BRANCH_DST"
 git switch "$BRANCH_DST"
-git pull origin "$BRANCH_DST"
+git pull --ff-only origin "$BRANCH_DST"
 
-git checkout "$BRANCH_SRC" -- include "${FILES[@]}"
+git checkout "$BRANCH_SRC" -- "${checkout_paths[@]}"
 
-git add include "${FILES[@]}"
-git commit -m "Copy selected main files into gpuOpt"
-git push origin "$BRANCH_DST"
+git add -- "${checkout_paths[@]}"
+if git diff --cached --quiet; then
+  echo "No selected-file changes to commit."
+else
+  git commit -m "Copy selected main files into gpuOpt"
+  git push origin "$BRANCH_DST"
+fi
 
-git switch "$BRANCH_SRC"
-echo "Switched back to '$BRANCH_SRC'"
+git switch "$CURRENT_BRANCH"
+echo "Switched back to '$CURRENT_BRANCH'"
+trap - EXIT
