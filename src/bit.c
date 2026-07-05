@@ -428,7 +428,39 @@ int Bit_count(T set) {
   assert(set);
   int length = 0;
 #if !USE_LIBPOPCNT
-  for (size_t i = 0; i < nqwords(set->length); i++) {
+  size_t limit = (set->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;
+  size_t i = 0;
+  VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;
+  VECTOR_TYPE sum1 = SIMDe_ZERO_VECTOR;
+  VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;
+  VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;
+  for (; i < limit; i += VECTOR_BLOCK_SIZE) {
+    VECTOR_TYPE a0 =
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(0)]);
+    VECTOR_TYPE a1 =
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)]);
+    VECTOR_TYPE a2 =
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)]);
+    VECTOR_TYPE a3 =
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)]);
+
+    sum0 = SIMDe_VECTOR_ADD(sum0, SIMDe_POPCOUNT(a0));
+    sum1 = SIMDe_VECTOR_ADD(sum1, SIMDe_POPCOUNT(a1));
+    sum2 = SIMDe_VECTOR_ADD(sum2, SIMDe_POPCOUNT(a2));
+    sum3 = SIMDe_VECTOR_ADD(sum3, SIMDe_POPCOUNT(a3));
+  }
+  // Horizontal sum of the vector elements
+  sum0 = SIMDe_VECTOR_ADD(sum0, sum1);
+  sum2 = SIMDe_VECTOR_ADD(sum2, sum3);
+  sum0 = SIMDe_VECTOR_ADD(sum0, sum2);
+  uint64_t sum_array[VECTOR_QWORDS];
+  SIMDe_STORE_VECTOR(sum_array, sum0);
+  for (size_t j = 0; j < VECTOR_QWORDS; j++) {
+    length += sum_array[j];
+  }
+
+  // Handle remaining elements
+  for (; i < set->size_in_qwords; i++) {
     length += POPCOUNT(set->qwords[i]);
   }
 #else
@@ -582,38 +614,26 @@ int Bit_lt(T s, T t) {
 T Bit_diff(T s, T t) {
   setop_validate(Bit_new(s->length), copy(t), copy(s));
   T set = Bit_new(s->length);
-#pragma omp simd /* SIMD directive for the set operation */
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = BIT_XOR(s->qwords[i], t->qwords[i]);
-  }
+  setop(set, _XOR, s, t);
   return set;
 }
 T Bit_minus(T s, T t) {
   setop_validate(Bit_new(s->length), Bit_new(t->length), copy(s));
   T set = Bit_new(s->length);
-#pragma omp simd /* SIMD directive for the set operation */
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = BIT_AND_NOT(s->qwords[i], t->qwords[i]);
-  }
+  setop(set, _AND_NOT, s, t);
   return set;
 }
 T Bit_inter(T s, T t) {
   setop_validate(copy(t), Bit_new(t->length), Bit_new(s->length));
   T set = Bit_new(s->length);
-#pragma omp simd /* SIMD directive for the set operation */
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = BIT_AND(s->qwords[i], t->qwords[i]);
-  }
+  setop(set, _AND, s, t);
   return set;
 }
 
 T Bit_union(T s, T t) {
   setop_validate(copy(t), copy(t), copy(s));
   T set = Bit_new(s->length);
-#pragma omp simd /* SIMD directive for the set operation */
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = BIT_OR(s->qwords[i], t->qwords[i]);
-  }
+  setop(set, _OR, s, t);
   return set;
 }
 
@@ -621,19 +641,19 @@ T Bit_union(T s, T t) {
 
 int Bit_diff_count(T s, T t) {
   setop_validate(0, Bit_count(t), Bit_count(s));
-  setop_count(_XOR);
+  setop_count(_XOR, s, t);
 }
 int Bit_minus_count(T s, T t) {
   setop_validate(0, 0, Bit_count(s));
-  setop_count(_AND_NOT);
+  setop_count(_AND_NOT, s, t);
 }
 int Bit_inter_count(T s, T t) {
   setop_validate(Bit_count(t), 0, 0);
-  setop_count(_AND);
+  setop_count(_AND, s, t);
 }
 int Bit_union_count(T s, T t) {
   setop_validate(Bit_count(t), Bit_count(t), Bit_count(s));
-  setop_count(_OR);
+  setop_count(_OR, s, t);
 }
 
 void print_Bit_configuration(void) {

@@ -19,7 +19,7 @@
     * License : BSD-2
 */
 #pragma once
-
+#include "simde_integration.h"
 /* ===========================================================================
    SECTION 1: OPENMP CPU PARALLELIZATION HELPERS
    ===========================================================================
@@ -52,11 +52,6 @@
 #define BIT_SCALAR_XOR(op1, op2) ((op1) ^ (op2))
 #define BIT_SCALAR_AND_NOT(op1, op2) ((op1) & ~(op2))
 
-#define BIT_AND(op1, op2) ((op1) & (op2))
-#define BIT_OR(op1, op2) ((op1) | (op2))
-#define BIT_XOR(op1, op2) ((op1) ^ (op2))
-#define BIT_AND_NOT(op1, op2) ((op1) & ~(op2))
-
 /* Set operation that creates a new Bit_T result (modified from Hanson's book)
  */
 #define setop_validate(sequal, snull, tnull)                                   \
@@ -78,7 +73,7 @@
 #endif
 
 #if !USE_LIBPOPCNT
-#define setop_count(op)                                                        \
+#define setop_count(op, s, t)                                                  \
   do {                                                                         \
     uint64_t count = 0;                                                        \
     _Pragma(STRINGIFY(omp simd)) /* SIMD directive for the set operation */    \
@@ -88,7 +83,7 @@
     return (int)count;                                                         \
   } while (0)
 #else
-#define setop_count(op)                                                        \
+#define setop_count(op, s, t)                                                  \
   do {                                                                         \
     uint64_t count = 0;                                                        \
     uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/          \
@@ -108,6 +103,65 @@
   } while (0)
 #endif
 
+// unified macro for intersection, union, minus and difference operations
+// note we can support scalar paths!
+#if BIT_SIMD_PATH_SCALAR
+#define setop(set, op, s, t)                                                   \
+  do {                                                                         \
+    _Pragma(STRINGIFY(omp simd)) /* SIMD directive for the set operation */    \
+        for (int i = 0; i < s->size_in_qwords; i++)                            \
+            set->qwords[i] = BIT_SCALAR##op(s->qwords[i], t->qwords[i]);       \
+  } while (0)
+#else
+#define setop(set, op, s, t)                                                   \
+  do {                                                                         \
+    size_t limit =                                                             \
+        (s->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;           \
+    size_t i = 0;                                                              \
+    for (; i < limit; i += VECTOR_BLOCK_SIZE) {                                \
+      /* Load First operand */                                                 \
+      VECTOR_TYPE a0 = VECTOR_UNALIGNED_LOAD(                                  \
+          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)]);                    \
+      VECTOR_TYPE a1 = VECTOR_UNALIGNED_LOAD(                                  \
+          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)]);                    \
+      VECTOR_TYPE a2 = VECTOR_UNALIGNED_LOAD(                                  \
+          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)]);                    \
+      VECTOR_TYPE a3 = VECTOR_UNALIGNED_LOAD(                                  \
+          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(3)]);                    \
+                                                                               \
+      /* Load Second operand  */                                               \
+      VECTOR_TYPE b0 = VECTOR_UNALIGNED_LOAD(                                  \
+          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(0)]);                    \
+      VECTOR_TYPE b1 = VECTOR_UNALIGNED_LOAD(                                  \
+          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(1)]);                    \
+      VECTOR_TYPE b2 = VECTOR_UNALIGNED_LOAD(                                  \
+          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(2)]);                    \
+      VECTOR_TYPE b3 = VECTOR_UNALIGNED_LOAD(                                  \
+          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(3)]);                    \
+                                                                               \
+      /* Compute the operation using intrinsics */                             \
+      VECTOR_TYPE r0 = BIT##op(a0, b0);                                        \
+      VECTOR_TYPE r1 = BIT##op(a1, b1);                                        \
+      VECTOR_TYPE r2 = BIT##op(a2, b2);                                        \
+      VECTOR_TYPE r3 = BIT##op(a3, b3);                                        \
+                                                                               \
+      /* Store - Address logic fixed */                                        \
+      VECTOR_UNALIGNED_STORE(                                                  \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(0)], r0);              \
+      VECTOR_UNALIGNED_STORE(                                                  \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)], r1);              \
+      VECTOR_UNALIGNED_STORE(                                                  \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)], r2);              \
+      VECTOR_UNALIGNED_STORE(                                                  \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)], r3);              \
+    }                                                                          \
+                                                                               \
+    /* Scalar remainder loop */                                                \
+    for (; i < s->size_in_qwords; i++) {                                       \
+      set->qwords[i] = BIT_SCALAR##op(s->qwords[i], t->qwords[i]);             \
+    }                                                                          \
+  } while (0)
+#endif
 /* --- End Section B: SINGLE-BITSET SET OPERATION MACROS --- */
 
 /* ===========================================================================
