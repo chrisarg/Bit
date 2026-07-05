@@ -295,9 +295,9 @@ $(CONFIG_STAMP): FORCE
 	@if cmp -s $(CONFIG_STAMP).tmp $(CONFIG_STAMP) 2>/dev/null; \
 	then rm -f $(CONFIG_STAMP).tmp; else mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP); fi
 
-SRC := src/bit.c
-OBJ_CORE := $(BUILD_DIR)/bit.o
-OBJ_GPU := $(BUILD_DIR)/bit.o $(BUILD_DIR)/gpu_layout_registry.o $(BUILD_DIR)/gpu_layout_fsm.o $(BUILD_DIR)/gpu_layout_kernels.o
+SRC := src/bit.c src/bit_gpu.c
+OBJ_CORE := $(BUILD_DIR)/bit.o $(BUILD_DIR)/bit_gpu.o
+OBJ_GPU := $(BUILD_DIR)/bit.o $(BUILD_DIR)/bit_gpu.o $(BUILD_DIR)/gpu_layout_registry.o $(BUILD_DIR)/gpu_layout_fsm.o $(BUILD_DIR)/gpu_layout_kernels.o
 ifeq ($(filter NONE,$(GPU_LIST)),NONE)
   OBJ := $(OBJ_CORE)
 else
@@ -349,6 +349,9 @@ $(BUILD_DIR)/%.o: src/%.c $(CONFIG_STAMP)
 	$(COMPILE_CMD)
 
 $(BUILD_DIR)/bit.o: src/bit.c src/bit_internal.h $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
+$(BUILD_DIR)/bit_gpu.o: src/bit_gpu.c src/bit_internal.h $(CONFIG_STAMP)
 	$(COMPILE_CMD)
 
 $(BUILD_DIR)/gpu_layout_registry.o: src/gpu_layout_registry.c src/gpu_layout_registry.h src/gpu_layout.h src/gpu_layout_fsm.h $(CONFIG_STAMP)

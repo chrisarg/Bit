@@ -123,85 +123,9 @@
 /* ===========================================================================
    SECTION 5: INTERNAL DATA STRUCTURES AND ENUMS
    Concrete definitions of the opaque types declared in bit.h, plus internal
-   bookkeeping structures.
+   bookkeeping structures have been moved to src/bit_internal.h.
    ===========================================================================
  */
-
-/* --- 5a. Single bitset (Bit_T) ---
- The ADT provides access to the bitset as bytes,or qwords,
- anticipating optimization of the code *down the road*,
- including loading of externally allocated buffers into it
- The interface is effectively the one for Bit_T presented by D. Hanson
- in C Interfaces and Implementations, ISBN 0-201-49841-3 Ch13, 1997.
- Changes made by the author include
- 1) the introduction of the set_count operations to avoid
- forming the intermediate Bit_T
- 2) using optimized popcount functions and defaulting to the
-    WWG algorithm for popcount if the user elects not to use the
-    libpopcnt library.
-*/
-struct T {
-  int length;              // capacity of the bitset in bits
-  int size_in_bytes;       // number of bytes of the 8 bit container
-  int size_in_qwords;      // number of qwords of the 64 bit container
-  bool is_Bit_T_allocated; // true if allocated by the library
-  unsigned char *bytes;    // pointer to the first byte
-  uint64_t *qwords;        // pointer to the first qword
-};
-
-/* --- 5b. Packed bitset database (Bit_DB_T) ---
- The ADT provides access to containers of bitsets that pack fixed number of
-  the bitset data in a single container for locality of memory access when
-  processing large number of bitsets.
-*/
-struct T_DB {
-  int nelem;               // number of bitsets in the packed container
-  int length;              // capacity of the bitset in bits
-  int size_in_bytes;       // number of bytes of the 8 bit set container
-  int size_in_qwords;      // number of qwords of the 64 bit set container
-  bool is_Bit_T_allocated; // true if allocated by the library
-  unsigned char *bytes;    // pointer to the first byte
-  uint64_t *qwords;        // pointer to the first qword
-};
-
-/* --- 5c. GPU allocation state tracker and flags --- */
-/*
-  Single linked list structure to track GPU allocations to manage
-  operations that require synchronization (e.g., transposition)
-  of Bitset containers in the GPU.
-*/
-
-typedef enum {
-  STATE_ROW_MAJOR = 0,
-  STATE_COL_MAJOR = 1,
-} GPUDataLayout;
-
-typedef enum { FLAG_NONE = 0 } GPUDataFlags;
-
-// GPU state transition structure
-typedef struct {
-  GPUDataLayout from;
-  GPUDataFlags to;
-  int kernel_id;
-} StateTransition;
-
-// This is Thread-Safe Ready
-typedef struct GPUAllocationState {
-  const void *host_ptr;
-  int device_id;
-
-  // The Partitioned Bitfield: holds BOTH GPUDataLayout and GPUDataFlags
-  _Atomic uint32_t state_word;
-
-  // --- MULTITHREADING EXTENSIBILITY ---
-  // Even in multi-processing, these ensure absolute safety if you
-  // ever spawn threads inside your processes later.
-  _Atomic int transition_lock; // 0 = Free, 1 = Currently transposing
-  _Atomic int
-      active_users; // Reader count to prevent layout shifts while in use
-
-  struct GPUAllocationState *next;
-} GPUAllocationState;
 
 /* --- End Section 5: INTERNAL DATA STRUCTURES AND ENUMS --- */
 
@@ -231,11 +155,7 @@ static unsigned const char lsbmask[] = {0x01, 0x03, 0x07, 0x0F,
 // Bitset copy helper (used by single-bitset set-operation macros)
 // Forward declarations
 static T copy(T t);
-static inline uint64_t count_WWG(uint64_t x);
-static void GPU_transpose_kernel(uint64_t *bits, size_t rows, size_t columns,
-                                 int device_id);
 static void *portable_aligned_calloc(size_t alignment, size_t size);
-static inline uint64_t tree_adder(uint64_t v);
 
 /* TODO: add new CPU/GPU helper forward declarations here */
 
@@ -259,50 +179,7 @@ static T copy(T t) {
   return set;
 }
 
-/* --- 8b. Wilks-Wheeler-Gill (WWG) popcount ---
-   Highly portable and fast.
-   References:
-     https://en.wikipedia.org/wiki/The_Preparation_of_Programs_for_an_Electronic_Digital_Computer
-     https://arxiv.org/abs/1611.07612
-     https://github.com/kimwalisch/libpopcnt/tree/master
-*/
-#define C1_WWG UINT64_C(0X5555555555555555)
-#define C2_WWG UINT64_C(0x3333333333333333)
-#define C3_WWG UINT64_C(0x0F0F0F0F0F0F0F0F)
-#define C4_WWG UINT64_C(0x0101010101010101)
-static inline uint64_t count_WWG(uint64_t x) {
-  x -= (x >> 1) & C1_WWG;
-  x = ((x >> 2) & C2_WWG) + (x & C2_WWG);
-  x = (x + (x >> 4)) & C3_WWG;
-  x *= C4_WWG;
-
-  return (x >> 56);
-}
-
-/* --- 8c. Tree-adder popcount ---
-   Reference: https://metacpan.org/pod/Bit::Fast
-*/
-#define C1_TRADD UINT64_C(0xAAAAAAAAAAAAAAAA)
-#define C2_TRADD UINT64_C(0xCCCCCCCCCCCCCCCC)
-#define C3_TRADD UINT64_C(0xF0F0F0F0F0F0F0F0)
-#define C4_TRADD UINT64_C(0xFF00FF00FF00FF00)
-#define C5_TRADD UINT64_C(0x00FF00FF00FF00FF)
-#define C6_TRADD UINT64_C(0xFF00FF00FF00FF00)
-#define C7_TRADD UINT64_C(0x0000FFFF0000FFFF)
-#define C8_TRADD UINT64_C(0xFFFF0000FFFF0000)
-#define C9_TRADD UINT64_C(0x00000000FFFFFFFF)
-#define C10_TRADD UINT64_C(0xFFFFFFFF00000000)
-static inline uint64_t tree_adder(uint64_t v) {
-  v = (v & C1_WWG) + ((v & C1_TRADD) >> 1);
-  v = (v & C2_WWG) + ((v & C2_TRADD) >> 2);
-  v = (v & C3_WWG) + ((v & C3_TRADD) >> 4);
-  v = (v & C5_TRADD) + ((v & C6_TRADD) >> 8);
-  v = (v & C7_TRADD) + ((v & C8_TRADD) >> 16);
-  v = (v & C9_TRADD) + ((v & C10_TRADD) >> 32);
-  return v;
-}
-
-/* --- 8d. Portable aligned calloc ---
+/* --- 8b. Portable aligned calloc ---
    Allocates `size` bytes aligned to `alignment` and zeroes the memory.
    Does not rely on platform-specific APIs (posix_memalign, _aligned_malloc);
    instead uses pointer arithmetic for portability.
@@ -336,20 +213,6 @@ static void *portable_aligned_calloc(size_t alignment, size_t size) {
 }
 
 /* --- End Section 8: INTERNAL HELPER FUNCTION DEFINITIONS --- */
-
-/* ===========================================================================
-   SECTION 9: GPU KERNEL HELPERS
-   Device-side data transformation routines and popcounts.
-   ===========================================================================
- */
-
-// Make popcount functions available on GPU device targets
-#pragma omp declare target(count_WWG)
-#pragma omp declare target(tree_adder)
-// GPU popcount alias — change this line to swap the GPU popcount implementation
-#define POPCOUNT_GPU count_WWG
-
-/* --- End Section 9: GPU KERNEL HELPERS --- */
 
 /* ===========================================================================
    SECTION 10: PUBLIC API — SINGLE BITSET (Bit_T)
@@ -860,27 +723,6 @@ void BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, int *counts,
   setop_count_db_cpu(bit, bits, counts, _AND, opts);
 }
 
-int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
-#ifndef NOGPU
-  BitDB_inter_count_store_gpu(bit, bits, counts, opts);
-#else
-  BitDB_inter_count_store_cpu(bit, bits, counts, opts);
-#endif
-  return counts;
-}
-
-void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                 SETOP_COUNT_OPTS opts) {
-#ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, &, opts);
-#else
-  setop_count_db_cpu(bit, bits, counts, _AND, opts)
-#endif
-}
-
 int *BitDB_union_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
@@ -892,27 +734,6 @@ int *BitDB_union_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 void BitDB_union_count_store_cpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
   setop_count_db_cpu(bit, bits, counts, _OR, opts);
-}
-
-int *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
-#ifndef NOGPU
-  BitDB_union_count_store_gpu(bit, bits, counts, opts);
-#else
-  BitDB_union_count_store_cpu(bit, bits, counts, opts);
-#endif
-  return counts;
-}
-
-void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                 SETOP_COUNT_OPTS opts) {
-#ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, |, opts);
-#else
-  setop_count_db_cpu(bit, bits, counts, _OR, opts);
-#endif
 }
 
 int *BitDB_diff_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
@@ -928,27 +749,6 @@ void BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, int *counts,
   setop_count_db_cpu(bit, bits, counts, _XOR, opts);
 }
 
-int *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
-#ifndef NOGPU
-  BitDB_diff_count_store_gpu(bit, bits, counts, opts);
-#else
-  BitDB_diff_count_store_cpu(bit, bits, counts, opts);
-#endif
-  return counts;
-}
-
-void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                SETOP_COUNT_OPTS opts) {
-#ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, ^, opts)
-#else
-  setop_count_db_cpu(bit, bits, counts, _XOR, opts)
-#endif
-}
-
 int *BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
@@ -960,27 +760,6 @@ int *BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 void BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
   setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts);
-}
-
-int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
-#ifndef NOGPU
-  BitDB_minus_count_store_gpu(bit, bits, counts, opts);
-#else
-  BitDB_minus_count_store_cpu(bit, bits, counts, opts);
-#endif
-  return counts;
-}
-
-void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                 SETOP_COUNT_OPTS opts) {
-#ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, &~, opts)
-#else
-  setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts);
-#endif
 }
 
 /* --- End Section 11: PUBLIC API — BITSET DATABASE --- */

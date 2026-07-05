@@ -19,7 +19,65 @@
     * License : BSD-2
 */
 #pragma once
+#include <stdbool.h>
+#include <stdint.h>
 #include "simde_integration.h"
+
+/* --- Concrete representations of opaque types defined in bit.h --- */
+struct T {
+  int length;              // capacity of the bitset in bits
+  int size_in_bytes;       // number of bytes of the 8 bit container
+  int size_in_qwords;      // number of qwords of the 64 bit container
+  bool is_Bit_T_allocated; // true if allocated by the library
+  unsigned char *bytes;    // pointer to the first byte
+  uint64_t *qwords;        // pointer to the first qword
+};
+
+struct T_DB {
+  int nelem;               // number of bitsets in the packed container
+  int length;              // capacity of the bitset in bits
+  int size_in_bytes;       // number of bytes of the 8 bit set container
+  int size_in_qwords;      // number of qwords of the 64 bit set container
+  bool is_Bit_T_allocated; // true if allocated by the library
+  unsigned char *bytes;    // pointer to the first byte
+  uint64_t *qwords;        // pointer to the first qword
+};
+
+/* --- Fast inline WWG and Tree-Adder popcount algorithms --- */
+#define C1_WWG UINT64_C(0X5555555555555555)
+#define C2_WWG UINT64_C(0x3333333333333333)
+#define C3_WWG UINT64_C(0x0F0F0F0F0F0F0F0F)
+#define C4_WWG UINT64_C(0x0101010101010101)
+
+static inline uint64_t count_WWG(uint64_t x) {
+  x -= (x >> 1) & C1_WWG;
+  x = ((x >> 2) & C2_WWG) + (x & C2_WWG);
+  x = (x + (x >> 4)) & C3_WWG;
+  x *= C4_WWG;
+
+  return (x >> 56);
+}
+
+#define C1_TRADD UINT64_C(0xAAAAAAAAAAAAAAAA)
+#define C2_TRADD UINT64_C(0xCCCCCCCCCCCCCCCC)
+#define C3_TRADD UINT64_C(0xF0F0F0F0F0F0F0F0)
+#define C4_TRADD UINT64_C(0xFF00FF00FF00FF00)
+#define C5_TRADD UINT64_C(0x00FF00FF00FF00FF)
+#define C6_TRADD UINT64_C(0xFF00FF00FF00FF00)
+#define C7_TRADD UINT64_C(0x0000FFFF0000FFFF)
+#define C8_TRADD UINT64_C(0xFFFF0000FFFF0000)
+#define C9_TRADD UINT64_C(0x00000000FFFFFFFF)
+#define C10_TRADD UINT64_C(0xFFFFFFFF00000000)
+
+static inline uint64_t tree_adder(uint64_t v) {
+  v = (v & C1_WWG) + ((v & C1_TRADD) >> 1);
+  v = (v & C2_WWG) + ((v & C2_TRADD) >> 2);
+  v = (v & C3_WWG) + ((v & C3_TRADD) >> 4);
+  v = (v & C5_TRADD) + ((v & C6_TRADD) >> 8);
+  v = (v & C7_TRADD) + ((v & C8_TRADD) >> 16);
+  v = (v & C9_TRADD) + ((v & C10_TRADD) >> 32);
+  return v;
+}
 /* ===========================================================================
    SECTION 1: OPENMP CPU PARALLELIZATION HELPERS
    ===========================================================================
@@ -215,7 +273,7 @@
 
 /* Open the tiled double loop over (i_b, j_b) tile origins */
 #define OMP_CPU_TILE_START                                                     \
-  OMP_CPU_LOOP(2, static)                                                      \
+  OMP_CPU_LOOP(1, dynamic)                                                      \
   for (int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
     for (int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
                                                                                \

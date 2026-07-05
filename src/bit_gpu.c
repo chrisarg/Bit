@@ -1,0 +1,166 @@
+/*
+    OpenMP GPU offloading set operations for the Bit library.
+
+    * Author : Christos Argyropoulos
+    * Created : July 5th 2026
+    * Copyright : (c) 2025 - 2026
+    * License : BSD-2
+*/
+
+#include "bit.h"               // Public API declarations
+#include "omp.h"               // OpenMP parallelization
+#include <assert.h>            // assert() validation
+#include <limits.h>            // INT_MAX
+#include <stdbool.h>           // bool type
+#include <stdint.h>            // uintptr_t and UINT64_C macros
+#include <stdlib.h>            // calloc, free
+#include <string.h>            // memcpy
+
+#ifndef USE_LIBPOPCNT
+#define USE_LIBPOPCNT 1
+#endif
+
+#if USE_LIBPOPCNT
+#include "libpopcnt.h"
+#endif
+
+// Universal bitwise alignment check (Alignment must be a power of 2)
+#define IS_ALIGNED_64(ptr) (((uintptr_t)(const void *)(ptr) & 63) == 0)
+#define IS_ALIGNED_8(ptr) (((uintptr_t)(const void *)(ptr) & 7) == 0)
+
+// Architecture Detection via Pointer Size
+#if UINTPTR_MAX == 0xffffffff
+#define ARCH_32BIT 1
+#define ALIGN_CHECK(ptr) IS_ALIGNED_8(ptr)
+#define ALIGNMENT 32
+#elif UINTPTR_MAX == 0xffffffffffffffff
+#define ARCH_32BIT 0
+#define ALIGN_CHECK(ptr) IS_ALIGNED_64(ptr)
+#define ALIGNMENT 64
+#else
+#error "Unsupported pointer size. Architecture must be 32-bit or 64-bit."
+#endif
+
+/*
+  Tune these tiles to fit in L2/L3 cache.
+*/
+#ifndef CPU_TILE
+#define CPU_TILE_BIT 32
+#define CPU_TILE_BITS 32
+#else
+#define CPU_TILE_BIT CPU_TILE
+#define CPU_TILE_BITS CPU_TILE
+#endif
+
+#define STRINGIFY(x) #x
+
+#define BPQW (sizeof(uint64_t) * 8)     // bits per qword
+#define BPB (sizeof(unsigned char) * 8) // bits per byte
+#define nqwords(len)                                                           \
+  ((((len) + BPQW - 1) & (~(BPQW - 1))) / BPQW)          // ceil(len/BPQW)
+#define nbytes(len) ((((len) + 8 - 1) & (~(8 - 1))) / 8) // ceil(len/8)
+
+// Buffer size for popcount operations over DB bitsets
+#define SETOP_BUFFER_SIZE 1024
+
+// CPU popcount helper
+#define POPCOUNT(x) count_WWG((x))
+
+#define T Bit_T
+#define T_DB Bit_DB_T
+
+#define NO_SIMD /*NO SIMD*/
+
+#include "bit_internal.h"
+
+// Make popcount functions available on GPU device targets
+#pragma omp declare target(count_WWG)
+#pragma omp declare target(tree_adder)
+// GPU popcount alias
+#define POPCOUNT_GPU count_WWG
+
+/* --- 11d. GPU set operations (allocate and return counts buffer) --- */
+
+int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
+
+  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
+  assert(counts != NULL);
+#ifndef NOGPU
+  BitDB_inter_count_store_gpu(bit, bits, counts, opts);
+#else
+  BitDB_inter_count_store_cpu(bit, bits, counts, opts);
+#endif
+  return counts;
+}
+
+void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+                                 SETOP_COUNT_OPTS opts) {
+#ifndef NOGPU
+  setop_count_db_gpu(bit, bits, counts, &, opts);
+#else
+  setop_count_db_cpu(bit, bits, counts, _AND, opts);
+#endif
+}
+
+int *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
+
+  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
+  assert(counts != NULL);
+#ifndef NOGPU
+  BitDB_union_count_store_gpu(bit, bits, counts, opts);
+#else
+  BitDB_union_count_store_cpu(bit, bits, counts, opts);
+#endif
+  return counts;
+}
+
+void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+                                 SETOP_COUNT_OPTS opts) {
+#ifndef NOGPU
+  setop_count_db_gpu(bit, bits, counts, |, opts);
+#else
+  setop_count_db_cpu(bit, bits, counts, _OR, opts);
+#endif
+}
+
+int *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
+
+  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
+  assert(counts != NULL);
+#ifndef NOGPU
+  BitDB_diff_count_store_gpu(bit, bits, counts, opts);
+#else
+  BitDB_diff_count_store_cpu(bit, bits, counts, opts);
+#endif
+  return counts;
+}
+
+void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+                                SETOP_COUNT_OPTS opts) {
+#ifndef NOGPU
+  setop_count_db_gpu(bit, bits, counts, ^, opts);
+#else
+  setop_count_db_cpu(bit, bits, counts, _XOR, opts);
+#endif
+}
+
+int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
+
+  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
+  assert(counts != NULL);
+#ifndef NOGPU
+  BitDB_minus_count_store_gpu(bit, bits, counts, opts);
+#else
+  BitDB_minus_count_store_cpu(bit, bits, counts, opts);
+#endif
+  return counts;
+}
+
+void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+                                 SETOP_COUNT_OPTS opts) {
+#ifndef NOGPU
+  setop_count_db_gpu(bit, bits, counts, &~, opts);
+#else
+  setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts);
+#endif
+}
