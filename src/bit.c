@@ -78,6 +78,14 @@
 #define CPU_TILE_BITS CPU_TILE
 #endif
 
+// Buffer size for popcount operations over DB bitsets
+#ifndef BUFFER_SIZE
+#define SETOP_BUFFER_SIZE 512
+#else
+#define SETOP_BUFFER_SIZE BUFFER_SIZE
+#endif
+
+
 #define T Bit_T
 #define T_DB Bit_DB_T
 
@@ -98,8 +106,6 @@
   ((((len) + BPQW - 1) & (~(BPQW - 1))) / BPQW)          // ceil(len/BPQW)
 #define nbytes(len) ((((len) + 8 - 1) & (~(8 - 1))) / 8) // ceil(len/8)
 
-// Buffer size for popcount operations over DB bitsets
-#define SETOP_BUFFER_SIZE 1024
 
 // CPU popcount — dispatches to count_WWG (forward-declared in Section 7)
 #define POPCOUNT(x) count_WWG((x))
@@ -291,38 +297,42 @@ int Bit_count(T set) {
   assert(set);
   int length = 0;
 #if !USE_LIBPOPCNT
-  size_t limit = (set->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;
+size_t limit = (set->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;
   size_t i = 0;
+
   VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;
   VECTOR_TYPE sum1 = SIMDe_ZERO_VECTOR;
   VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;
   VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;
-  for (; i < limit; i += VECTOR_BLOCK_SIZE) {
-    VECTOR_TYPE a0 =
-        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(0)]);
-    VECTOR_TYPE a1 =
-        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)]);
-    VECTOR_TYPE a2 =
-        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)]);
-    VECTOR_TYPE a3 =
-        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)]);
 
-    sum0 = SIMDe_VECTOR_ADD(sum0, SIMDe_POPCOUNT(a0));
-    sum1 = SIMDe_VECTOR_ADD(sum1, SIMDe_POPCOUNT(a1));
-    sum2 = SIMDe_VECTOR_ADD(sum2, SIMDe_POPCOUNT(a2));
-    sum3 = SIMDe_VECTOR_ADD(sum3, SIMDe_POPCOUNT(a3));
+  for (; i < limit; i += VECTOR_BLOCK_SIZE) {
+    sum0 = SIMDe_VECTOR_ADD(sum0, SIMDe_POPCOUNT(
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(0)])));
+    
+    sum1 = SIMDe_VECTOR_ADD(sum1, SIMDe_POPCOUNT(
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)])));
+    
+    sum2 = SIMDe_VECTOR_ADD(sum2, SIMDe_POPCOUNT(
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)])));
+    
+    sum3 = SIMDe_VECTOR_ADD(sum3, SIMDe_POPCOUNT(
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)])));
   }
-  // Horizontal sum of the vector elements
+
+  // Reduce 4 accumulators down to 1 (Optimal binary reduction tree)
   sum0 = SIMDe_VECTOR_ADD(sum0, sum1);
   sum2 = SIMDe_VECTOR_ADD(sum2, sum3);
   sum0 = SIMDe_VECTOR_ADD(sum0, sum2);
+
+  // Extract vector elements to scalar
   uint64_t sum_array[VECTOR_QWORDS];
-  SIMDe_STORE_VECTOR(sum_array, sum0);
+  SIMDe_STORE_VECTOR(sum_array, sum0); 
+  
   for (size_t j = 0; j < VECTOR_QWORDS; j++) {
     length += sum_array[j];
   }
 
-  // Handle remaining elements
+  // Handle remaining elements (Fringe)
   for (; i < set->size_in_qwords; i++) {
     length += POPCOUNT(set->qwords[i]);
   }
@@ -525,6 +535,7 @@ void print_Bit_configuration(void) {
          GPU_TILE_J, GPU_ILP);
   printf("Using LIBPOPCNT: %s\n", (USE_LIBPOPCNT == 1) ? "Yes" : "No");
   printf("CPU_TILE_BIT %d, CPU_TILE_BITS: %d\n", CPU_TILE_BIT, CPU_TILE_BITS);
+    printf("SETOP_BUFFER_SIZE: %d\n", SETOP_BUFFER_SIZE);
 }
 
 /* --- End Section 10: PUBLIC API — SINGLE BITSET --- */

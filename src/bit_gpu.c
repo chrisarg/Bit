@@ -61,7 +61,9 @@
 #define nbytes(len) ((((len) + 8 - 1) & (~(8 - 1))) / 8) // ceil(len/8)
 
 // Buffer size for popcount operations over DB bitsets
+#ifndef SETOP_BUFFER_SIZE
 #define SETOP_BUFFER_SIZE 1024
+#endif
 
 // CPU popcount helper
 #define POPCOUNT(x) count_WWG((x))

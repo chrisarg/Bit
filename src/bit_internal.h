@@ -19,9 +19,14 @@
     * License : BSD-2
 */
 #pragma once
+#include "simde_integration.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include "simde_integration.h"
+
+/* Default in case the makefile was not used */
+#ifndef USE_LIBPOPCNT
+#define USE_LIBPOPCNT 1
+#endif
 
 /* --- Concrete representations of opaque types defined in bit.h --- */
 struct T {
@@ -125,12 +130,8 @@ static inline uint64_t tree_adder(uint64_t v) {
     assert(s->length == t->length);                                            \
   }
 
-/* Set operation that returns the population count of the result */
-#ifndef USE_LIBPOPCNT
-#define USE_LIBPOPCNT 1
-#endif
-
 #if !USE_LIBPOPCNT
+#if BIT_SIMD_PATH_SCALAR
 #define setop_count(op, s, t)                                                  \
   do {                                                                         \
     uint64_t count = 0;                                                        \
@@ -140,6 +141,64 @@ static inline uint64_t tree_adder(uint64_t v) {
     }                                                                          \
     return (int)count;                                                         \
   } while (0)
+#else
+#define setop_count(op, s, t)                                                  \
+  do {                                                                         \
+    uint64_t count = 0;                                                        \
+    size_t limit =                                                             \
+        (s->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;           \
+    size_t i = 0;                                                              \
+                                                                               \
+    VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
+    VECTOR_TYPE sum1 = SIMDe_ZERO_VECTOR;                                      \
+    VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;                                      \
+    VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;                                      \
+                                                                               \
+    for (; i < limit; i += VECTOR_BLOCK_SIZE) {                                \
+      /* Inline loads, op, and popcount to minimize live register state */     \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0, SIMDe_POPCOUNT(BIT##op(                                        \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)]),      \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(0)]))));   \
+                                                                               \
+      sum1 = SIMDe_VECTOR_ADD(                                                 \
+          sum1, SIMDe_POPCOUNT(BIT##op(                                        \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)]),      \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(1)]))));   \
+                                                                               \
+      sum2 = SIMDe_VECTOR_ADD(                                                 \
+          sum2, SIMDe_POPCOUNT(BIT##op(                                        \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)]),      \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(2)]))));   \
+                                                                               \
+      sum3 = SIMDe_VECTOR_ADD(                                                 \
+          sum3, SIMDe_POPCOUNT(BIT##op(                                        \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(3)]),      \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(3)]))));   \
+    }                                                                          \
+    /* Horizontal sum of the vector elements */                                \
+    sum0 = SIMDe_VECTOR_ADD(sum0, sum1);                                       \
+    sum2 = SIMDe_VECTOR_ADD(sum2, sum3);                                       \
+    sum0 = SIMDe_VECTOR_ADD(sum0, sum2);                                       \
+    uint64_t sum_array[VECTOR_QWORDS];                                         \
+    SIMDe_STORE_VECTOR(sum_array, sum0);                                       \
+    for (size_t j = 0; j < VECTOR_QWORDS; j++) {                               \
+      count += sum_array[j];                                                  \
+    }                                                                          \
+    for (; i < s->size_in_qwords; i++) {                                       \
+      count += POPCOUNT(BIT_SCALAR##op(s->qwords[i], t->qwords[i]));           \
+    }                                                                          \
+    return (int)count;                                                         \
+  } while (0)
+#endif
 #else
 #define setop_count(op, s, t)                                                  \
   do {                                                                         \
@@ -273,7 +332,7 @@ static inline uint64_t tree_adder(uint64_t v) {
 
 /* Open the tiled double loop over (i_b, j_b) tile origins */
 #define OMP_CPU_TILE_START                                                     \
-  OMP_CPU_LOOP(1, dynamic)                                                      \
+  OMP_CPU_LOOP(1, dynamic)                                                     \
   for (int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
     for (int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
                                                                                \
