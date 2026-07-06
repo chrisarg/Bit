@@ -1,10 +1,9 @@
 // Benchmarking code for the bit library
 #define _POSIX_C_SOURCE 199309L
 #include "bit.h"
+#include "simde_integration.h"
 #include <assert.h>
-#if defined(__AVX512__) || defined(__AVX2__) || defined(__SSE2__)
-#include <immintrin.h> // For AVX, AVX2, SSE2 intrinsics
-#endif
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,7 +81,7 @@ int64_t bench_Bit_count(int size, int iterations) {
   for (int i = 0; i < iterations; i++) {
     result = Bit_count(bit1);
   }
-  
+
   clock_gettime(CLOCK_MONOTONIC, &end_time);
   timeElapsed = timeDiff(&end_time, &start_time);
   Bit_free(&bit1);
@@ -182,6 +181,9 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
   size_t size_in_qwords = nqwords(size);
   size_t size_in_bytes = size_in_qwords * BPQW / BPB;
 
+  // used to prevent compiler optimization of the result
+  #define DO_NOT_OPTIMIZE_AWAY(val) __asm__ volatile("" : : "g"(val) : "memory")
+
   unsigned long long *bit1 = malloc(size_in_bytes);
   unsigned long long *bit2 = malloc(size_in_bytes);
   volatile unsigned long long result;
@@ -191,45 +193,48 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
     bit2[i] = ~i;
   }
   clock_gettime(CLOCK_MONOTONIC, &start_time);
-#if defined(__AVX512__)
-  // AVX512 version - process 8 qwords (512 bits) at once
+#if defined(BIT_SIMD_PATH_AVX512)
+  // SIMDe AVX512 version - process 8 qwords (512 bits) at once
   for (int i = 0; i < iterations; i++) {
     int j = size_in_qwords;
     // Process 8 qwords at a time
     for (; j >= 8; j -= 8) {
-      __m512i a = _mm512_loadu_si512((__m512i *)(bit1 + j - 8));
-      __m512i b = _mm512_loadu_si512((__m512i *)(bit2 + j - 8));
-      volatile __m512i c = _mm512_and_si512(a, b);
+      simde__m512i a = simde_mm512_loadu_si512(bit1 + j - 8);
+      simde__m512i b = simde_mm512_loadu_si512(bit2 + j - 8);
+      volatile simde__m512i c = simde_mm512_and_si512(a, b);
+      DO_NOT_OPTIMIZE_AWAY(c);
     }
     // Handle remaining elements
     for (; j > 0; j--) {
       volatile unsigned long long result = bit1[j - 1] & bit2[j - 1];
     }
   }
-#elif defined(__AVX2__)
-  // AVX2 version - process 4 qwords (256 bits) at once
+#elif defined(BIT_SIMD_PATH_AVX2)
+  // SIMDe AVX2 version - process 4 qwords (256 bits) at once
   for (int i = 0; i < iterations; i++) {
     int j = size_in_qwords;
     // Process 4 qwords at a time
     for (; j >= 4; j -= 4) {
-      __m256i a = _mm256_loadu_si256((__m256i *)(bit1 + j - 4));
-      __m256i b = _mm256_loadu_si256((__m256i *)(bit2 + j - 4));
-      volatile __m256i c = _mm256_and_si256(a, b);
+      simde__m256i a = simde_mm256_loadu_si256(bit1 + j - 4);
+      simde__m256i b = simde_mm256_loadu_si256(bit2 + j - 4);
+      volatile simde__m256i c = simde_mm256_and_si256(a, b);
+      DO_NOT_OPTIMIZE_AWAY(c);
     }
     // Handle remaining elements
     for (; j > 0; j--) {
       volatile unsigned long long result = bit1[j - 1] & bit2[j - 1];
     }
   }
-#elif defined(__SSE2__)
-  // SSE2 version - process 2 qwords (128 bits) at once
+#elif defined(BIT_SIMD_PATH_128)
+  // SIMDe AVX version - process 2 qwords (128 bits) at once
   for (int i = 0; i < iterations; i++) {
     int j = size_in_qwords;
     // Process 2 qwords at a time
     for (; j >= 2; j -= 2) {
-      __m128i a = _mm_loadu_si128((__m128i *)(bit1 + j - 2));
-      __m128i b = _mm_loadu_si128((__m128i *)(bit1 + j - 2));
-      volatile __m128i c = _mm_and_si128(a, b);
+      simde__m128i a = simde_mm_loadu_si128(bit1 + j - 2);
+      simde__m128i b = simde_mm_loadu_si128(bit2 + j - 2);
+      volatile simde__m128i c = simde_mm_and_si128(a, b);
+      DO_NOT_OPTIMIZE_AWAY(c);
     }
     // Handle remaining elements
     for (; j > 0; j--) {
@@ -262,21 +267,19 @@ int main() {
   printf("Debug mode is disabled.\n");
 #endif
 
-#if defined(__AVX512__)
-  printf("AVX512 detected\n");
-#elif defined(__AVX2__)
-  printf("AVX2 detected\n");
-#elif defined(__SSE2__)
-  printf("SSE2 detected\n");
-#else
-  printf("ENIAC detected\n");
+#if defined(BIT_SIMD_PATH_AVX512)
+  printf("AVX512 vector paths in the SIMD comparator\n");
+#elif defined(BIT_SIMD_PATH_AVX2)
+  printf("AVX2 vector paths in the SIMD comparator\n");
+#elif defined(BIT_SIMD_PATH_AVX1)
+  printf("AVX vector paths in the SIMD comparator "
+         "(native AVX and fallback via SIMDe)\n");
+#elif defined(BIT_SIMD_PATH_SSE4_2)
+  printf("SSE4.2 vector paths in the SIMD comparator "
+         "(native SSE4.2 and fallback via SIMDe)\n");
 #endif
 
-#ifdef BUILTIN_POPCOUNT
-  printf("Using builtin popcount\n");
-#else
-  printf("Using library popcount\n");
-#endif
+print_Bit_configuration();
   // Array of benchmark functions
   benchmark_func benchmark_funcs[] = {
       bench_Bit_count,       bench_Bit_inter_count, bench_Bit_inter_count_mem,
@@ -289,7 +292,7 @@ int main() {
       ("Count the number of bits set in the intersection by first\n"
        "\tforming the intersection and then counting"),
       "Intersection of two bitsets",
-      "Bitwise AND of two buffers",
+      "Bitwise AND of two buffers (no SIMD intrinsics, or #pragma omp simd)",
       "Bitwise AND of two buffers using SIMD intrinsics",
       "Set an array of bits (up to 2048) in the bitset",
       "Clear an array of bits (up to 2048) in the bitset",
