@@ -42,98 +42,7 @@
 
 /* --- End Section 1: INCLUDES --- */
 
-/* ===========================================================================
-   SECTION 2: COMPILE-TIME CONFIGURATION
-   Architecture detection, alignment constants, cache-tile tuning,
-   type aliases, and GPU-layout state codes.
-   ===========================================================================
- */
-
-// Universal bitwise alignment check (Alignment must be a power of 2)
-#define IS_ALIGNED_64(ptr) (((uintptr_t)(const void *)(ptr) & 63) == 0)
-#define IS_ALIGNED_8(ptr) (((uintptr_t)(const void *)(ptr) & 7) == 0)
-
-// Architecture Detection via Pointer Size
-#if UINTPTR_MAX == 0xffffffff
-#define ARCH_32BIT 1
-#define ALIGN_CHECK(ptr) IS_ALIGNED_8(ptr)
-#define ALIGNMENT 32
-#elif UINTPTR_MAX == 0xffffffffffffffff
-#define ARCH_32BIT 0
-#define ALIGN_CHECK(ptr) IS_ALIGNED_64(ptr)
-#define ALIGNMENT 64
-#else
-#error "Unsupported pointer size. Architecture must be 32-bit or 64-bit."
-#endif
-
-/*
-  Tune these tiles to fit in L2/L3 cache. e.g., 32x32 or 32x64 for your
-  OpenMP CPU implementation.
-*/
-#ifndef CPU_TILE
-#define CPU_TILE_BIT 32
-#define CPU_TILE_BITS 32
-#else
-#define CPU_TILE_BIT CPU_TILE
-#define CPU_TILE_BITS CPU_TILE
-#endif
-
-// Buffer size for popcount operations over DB bitsets
-#ifndef BUFFER_SIZE
-#define SETOP_BUFFER_SIZE 512
-#else
-#define SETOP_BUFFER_SIZE BUFFER_SIZE
-#endif
-
-
-#define T Bit_T
-#define T_DB Bit_DB_T
-
-/* --- End Section 2: COMPILE-TIME CONFIGURATION --- */
-
-/* ===========================================================================
-   SECTION 3: INFRASTRUCTURAL MACROS
-   Low-level bit-math helpers and popcount dispatch.
-   These must be defined before bit_internal.h is included.
-   ===========================================================================
- */
-
-#define STRINGIFY(x) #x // Macro to convert a macro argument to a string
-
-#define BPQW (sizeof(uint64_t) * 8)     // bits per qword
-#define BPB (sizeof(unsigned char) * 8) // bits per byte
-#define nqwords(len)                                                           \
-  ((((len) + BPQW - 1) & (~(BPQW - 1))) / BPQW)          // ceil(len/BPQW)
-#define nbytes(len) ((((len) + 8 - 1) & (~(8 - 1))) / 8) // ceil(len/8)
-
-
-// CPU popcount — dispatches to count_WWG (forward-declared in Section 7)
-#define POPCOUNT(x) count_WWG((x))
-
-// No-op marker to disable SIMD vectorization in CPU code when needed
-#define NO_SIMD /*NO SIMD*/
-
-/* --- End Section 3: INFRASTRUCTURAL MACROS --- */
-
-/* ===========================================================================
-   SECTION 4: PRIVATE IMPLEMENTATION MACROS
-   All large OpenMP and set-operation macros live in a separate header to
-   reduce clutter. They depend on macros defined in Sections 2 and 3 above.
-   ===========================================================================
- */
-
 #include "bit_internal.h"
-
-/* --- End Section 4: PRIVATE IMPLEMENTATION MACROS --- */
-
-/* ===========================================================================
-   SECTION 5: INTERNAL DATA STRUCTURES AND ENUMS
-   Concrete definitions of the opaque types declared in bit.h, plus internal
-   bookkeeping structures have been moved to src/bit_internal.h.
-   ===========================================================================
- */
-
-/* --- End Section 5: INTERNAL DATA STRUCTURES AND ENUMS --- */
 
 /* ===========================================================================
    SECTION 6: STATIC DATA
@@ -530,14 +439,22 @@ int Bit_union_count(T s, T t) {
 }
 
 void print_Bit_configuration(void) {
-
-  printf("CPU_TILE : %d, GPU_TILE_J: %d, GPU_ILP: %d\n", CPU_TILE_BIT,
-         GPU_TILE_J, GPU_ILP);
-  printf("Using LIBPOPCNT: %s\n", (USE_LIBPOPCNT == 1) ? "Yes" : "No");
-  printf("CPU_TILE_BIT %d, CPU_TILE_BITS: %d\n", CPU_TILE_BIT, CPU_TILE_BITS);
-    printf("SETOP_BUFFER_SIZE: %d\n", SETOP_BUFFER_SIZE);
+    printf("==========================================\n");
+    printf("        System Bit Configuration          \n");
+    printf("==========================================\n");
+    
+    // Using fixed-width specifiers for clean alignment (e.g., %-20s)
+    printf(" %-20s : %d\n", "CPU_TILE_BIT",      CPU_TILE_BIT);
+    printf(" %-20s : %d\n", "CPU_TILE_BITS",     CPU_TILE_BITS);
+    printf(" %-20s : %d\n", "GPU_TILE_J",        GPU_TILE_J);
+    printf(" %-20s : %d\n", "GPU_ILP",           GPU_ILP);
+    printf(" %-20s : %d\n", "K_BLOCK",           K_BLOCK);
+    printf(" %-20s : %d\n", "SETOP_BUFFER_SIZE", SETOP_BUFFER_SIZE);
+    
+    printf("------------------------------------------\n");
+    printf(" %-20s : %s\n", "Using LIBPOPCNT",     USE_LIBPOPCNT ? "Yes" : "No");
+    printf("==========================================\n");
 }
-
 /* --- End Section 10: PUBLIC API — SINGLE BITSET --- */
 
 /* ===========================================================================

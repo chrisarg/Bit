@@ -24,54 +24,8 @@
 #include "libpopcnt.h"
 #endif
 
-// Universal bitwise alignment check (Alignment must be a power of 2)
-#define IS_ALIGNED_64(ptr) (((uintptr_t)(const void *)(ptr) & 63) == 0)
-#define IS_ALIGNED_8(ptr) (((uintptr_t)(const void *)(ptr) & 7) == 0)
-
-// Architecture Detection via Pointer Size
-#if UINTPTR_MAX == 0xffffffff
-#define ARCH_32BIT 1
-#define ALIGN_CHECK(ptr) IS_ALIGNED_8(ptr)
-#define ALIGNMENT 32
-#elif UINTPTR_MAX == 0xffffffffffffffff
-#define ARCH_32BIT 0
-#define ALIGN_CHECK(ptr) IS_ALIGNED_64(ptr)
-#define ALIGNMENT 64
-#else
-#error "Unsupported pointer size. Architecture must be 32-bit or 64-bit."
-#endif
-
-/*
-  Tune these tiles to fit in L2/L3 cache.
-*/
-#ifndef CPU_TILE
-#define CPU_TILE_BIT 32
-#define CPU_TILE_BITS 32
-#else
-#define CPU_TILE_BIT CPU_TILE
-#define CPU_TILE_BITS CPU_TILE
-#endif
-
-#define STRINGIFY(x) #x
-
-#define BPQW (sizeof(uint64_t) * 8)     // bits per qword
-#define BPB (sizeof(unsigned char) * 8) // bits per byte
-#define nqwords(len)                                                           \
-  ((((len) + BPQW - 1) & (~(BPQW - 1))) / BPQW)          // ceil(len/BPQW)
-#define nbytes(len) ((((len) + 8 - 1) & (~(8 - 1))) / 8) // ceil(len/8)
-
-// Buffer size for popcount operations over DB bitsets
-#ifndef SETOP_BUFFER_SIZE
-#define SETOP_BUFFER_SIZE 1024
-#endif
-
-// CPU popcount helper
-#define POPCOUNT(x) count_WWG((x))
-
 #define T Bit_T
 #define T_DB Bit_DB_T
-
-#define NO_SIMD /*NO SIMD*/
 
 #include "bit_internal.h"
 

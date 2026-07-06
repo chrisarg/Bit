@@ -114,7 +114,7 @@ int main(int argc, char* argv []) {
 
 
   print_Bit_configuration();
-  printf("Q_BLOCK: %d, R_BLOCK: %d\n", Q_BLOCK, R_BLOCK);
+
 
   printf("Starting OMP and SIMD benchmarks\n");
   // allocate the bitsets

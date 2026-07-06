@@ -84,7 +84,6 @@ int main(int argc, char* argv []) {
   printf("Debug mode is disabled.\n");
 #endif
   print_Bit_configuration();
-  printf("Q_BLOCK: %d, R_BLOCK: %d\n", Q_BLOCK, R_BLOCK);
   // allocate the bitsets
   Bit_T* bits = malloc(num_of_bits * sizeof(Bit_T));
   Bit_T* bitsets = malloc(num_of_ref_bits * sizeof(Bit_T));

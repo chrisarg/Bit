@@ -386,6 +386,15 @@ ifeq ($(IS_CLEAN_GOAL),)
   HOST_ONLY_CFLAGS += -DBUFFER_SIZE=$(BUFFER_SIZE)
 endif
 
+ifeq ($(IS_CLEAN_GOAL),)
+  BITVECTOR_TILE ?= 1024
+  ifneq ($(shell echo "$(BITVECTOR_TILE)" | grep -Eq '^[1-9][0-9]*$$' && echo ok),ok)
+    $(error BITVECTOR_TILE must be a positive integer. Got: '$(BITVECTOR_TILE)')
+  endif
+  $(info bitvector tile used: $(BITVECTOR_TILE))
+  HOST_ONLY_CFLAGS += -DBITVECTOR_TILE=$(BITVECTOR_TILE)
+endif
+
 USE_BUILTIN_POPCOUNT ?= 0
 ifeq ($(call validate_boolean,USE_BUILTIN_POPCOUNT,0),1)
   DEFINES += -DUSE_BUILTIN_POPCOUNT

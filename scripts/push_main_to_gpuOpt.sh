@@ -12,6 +12,7 @@ FILES=(
   include/simde/*
   src/bit_internal.h
   src/bit.c
+  src/bit_gpu.c
   benchmark/benchmark.c
   benchmark/openmp_bit_helpers.c
   benchmark/openmp_bit_helpers.h
