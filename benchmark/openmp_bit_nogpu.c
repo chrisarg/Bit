@@ -19,6 +19,16 @@ OpenMP enabled benchmarks
 
 #define CONTAINER unsigned long long
 typedef CONTAINER* bitcontainer;
+
+// containers for search space tiling
+#ifndef CPU_TILE
+#define Q_BLOCK 32
+#define R_BLOCK 32
+#else
+#define Q_BLOCK CPU_TILE
+#define R_BLOCK CPU_TILE
+#endif
+
 static inline unsigned long long count_WWG(unsigned long long x);
 int64_t timeDiff(struct timespec* timeA_p, struct timespec* timeB_p);
 int database_match(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
@@ -190,9 +200,16 @@ int database_match(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
     fprintf(stderr, "Error: Unable to allocate memory for counts array of size %zu in %s\n", workload,__func__);
     exit(EXIT_FAILURE);
   }
-  for (int i = 0; i < num_of_bits; i++) {
-    for (int j = 0; j < num_of_ref_bits; j++) {
-      counts[i * num_of_ref_bits + j] = Bit_inter_count(bit[i], bitsets[j]);
+  for (int i = 0; i < num_of_bits; i += Q_BLOCK) {
+    for (int j = 0; j < num_of_ref_bits; j += R_BLOCK) {
+      // Calculate boundaries for the current tile (Fringe handling)
+      int i_max = (i + Q_BLOCK < num_of_bits) ? i + Q_BLOCK : num_of_bits;
+      int j_max = (j + R_BLOCK < num_of_ref_bits) ? j + R_BLOCK : num_of_ref_bits;
+      for (int qi = i; qi < i_max; qi++) {
+        for (int rj = j; rj < j_max; rj++) {
+          counts[qi * num_of_ref_bits + rj] = Bit_inter_count(bit[qi], bitsets[rj]);
+        }
+      }
     }
   }
   for (size_t i = 0; i < workload; i++) {
@@ -205,6 +222,7 @@ int database_match(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
   return max;
 }
 
+
 int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
   int num_of_ref_bits, int threads) {
   // Perform the intersection count in parallel
@@ -216,10 +234,17 @@ int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
     exit(EXIT_FAILURE);
   }
   omp_set_num_threads(threads);
-#pragma omp parallel for schedule(guided)
-  for (int i = 0; i < num_of_bits; i++) {
-    for (int j = 0; j < num_of_ref_bits; j++) {
-      counts[i * num_of_ref_bits + j] = Bit_inter_count(bit[i], bitsets[j]);
+#pragma omp parallel for schedule(dynamic)
+  for (int i = 0; i < num_of_bits; i += Q_BLOCK) {
+    for (int j = 0; j < num_of_ref_bits; j += R_BLOCK) {
+      // Calculate boundaries for the current tile (Fringe handling)
+      int i_max = (i + Q_BLOCK < num_of_bits) ? i + Q_BLOCK : num_of_bits;
+      int j_max = (j + R_BLOCK < num_of_ref_bits) ? j + R_BLOCK : num_of_ref_bits;
+      for (int qi = i; qi < i_max; qi++) {
+        for (int rj = j; rj < j_max; rj++) {
+          counts[qi * num_of_ref_bits + rj] = Bit_inter_count(bit[qi], bitsets[rj]);
+        }
+      }
     }
   }
 

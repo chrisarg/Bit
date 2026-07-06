@@ -49,10 +49,19 @@ PREFERRED_CXX := amdclang++ clang++ g++ icpx
 # =============================================================
 
 ifeq ($(IS_CLEAN_GOAL),)
+  GPU ?= NONE
+  override GPU_LIST := $(subst $(comma),$(space),$(shell printf '%s' '$(GPU)' | tr 'a-z' 'A-Z' | tr -d '[:space:]'))
+
+  ifeq ($(filter AMD,$(GPU_LIST)),AMD)
+    AUTO_PREFERRED_CC := amdclang clang gcc icx
+  else
+    AUTO_PREFERRED_CC := clang gcc icx amdclang
+  endif
+
   ifeq ($(origin CC),default)
-    DETECTED_CC := $(firstword $(foreach c,$(PREFERRED_CC),$(shell which $(c) 2>/dev/null)))
+    DETECTED_CC := $(firstword $(foreach c,$(AUTO_PREFERRED_CC),$(shell which $(c) 2>/dev/null)))
     ifeq ($(strip $(DETECTED_CC)),)
-     $(eval $(call APPEND_ERROR,No suitable compiler found. Install one of: $(PREFERRED_CC) or set CC= explicitly))
+     $(eval $(call APPEND_ERROR,No suitable compiler found. Install one of: $(AUTO_PREFERRED_CC) or set CC= explicitly))
     else
       CC := $(DETECTED_CC)
     endif
@@ -60,9 +69,6 @@ ifeq ($(IS_CLEAN_GOAL),)
 
   override CC_BASENAME := $(notdir $(shell printf '%s' '$(CC)' | tr 'A-Z' 'a-z' | tr -d '[:space:]'))
   override CC          := $(CC_BASENAME)
-
-  GPU ?= NONE
-  override GPU_LIST := $(subst $(comma),$(space),$(shell printf '%s' '$(GPU)' | tr 'a-z' 'A-Z' | tr -d '[:space:]'))
 
   ifneq ($(filter NONE,$(GPU_LIST)),)
     ifneq ($(words $(GPU_LIST)),1)
@@ -247,12 +253,45 @@ endif
 BUILD_DIR ?= build
 $(shell mkdir -p $(BUILD_DIR))
 
+# =====================================================================
+# REUSABLE BOOLEAN VALIDATION FUNCTION
+# =====================================================================
+BOOL_DISABLE_VALS := 0 no n false f off
+BOOL_ENABLE_VALS  := 1 yes y true t on
+
+# Usage: $(call validate_boolean,VARIABLE_NAME,DEFAULT_VALUE)
+# Returns '1' (enabled) or '0' (disabled), or halts execution with $(error) on typos.
+define validate_boolean
+$(strip \
+  $(eval _RAW_VAL := $(if $($(1)),$($(1)),$(2)))\
+  $(eval _LC_VAL := $(shell echo "$(_RAW_VAL)" | tr A-Z a-z))\
+  $(eval _BOOL_DIS := $(filter $(_LC_VAL),$(BOOL_DISABLE_VALS)))\
+  $(eval _BOOL_ENA := $(filter $(_LC_VAL),$(BOOL_ENABLE_VALS)))\
+  $(if $(strip $(_BOOL_DIS)$(_BOOL_ENA)),,\
+    $(error Variable $(1) has an invalid boolean value '$($(1))'. Refer to allowed enable values ($(BOOL_ENABLE_VALS)) or disable values ($(BOOL_DISABLE_VALS)).)\
+  )\
+  $(if $(_BOOL_ENA),1,0)\
+)
+endef
+
+SIMD_DIAGNOSTICS ?= 0
+BUG_REPORT ?= 0
+APPLY_LTO ?= 1
+
+VALID_SIMD_DIAGNOSTICS := $(call validate_boolean,SIMD_DIAGNOSTICS,0)
+VALID_BUG_REPORT       := $(call validate_boolean,BUG_REPORT,0)
+VALID_APPLY_LTO        := $(call validate_boolean,APPLY_LTO,1)
+
 CFLAGS0 := -Wall -Wextra -Iinclude -D_POSIX_C_SOURCE=199309L -std=c11 -fPIC -O3 -march=native -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable
 CFLAGS0 += -DGPU_TILE_J=$(GPU_TILE_J) -DGPU_ILP=$(GPU_ILP) -DCPU_TILE=$(CPU_TILE)
 
+ifeq ($(VALID_SIMD_DIAGNOSTICS),1)
+  CFLAGS0 += -DBIT_SIMD_DIAGNOSTICS=1
+endif
+
 
 REPORT_CFLAGS :=
-ifeq ($(BUG_REPORT),1)
+ifeq ($(VALID_BUG_REPORT),1)
   ifneq ($(filter gcc%,$(COMPILER_ID)),)
     REPORT_CFLAGS += -freport-bug
   else ifneq ($(filter clang%,$(COMPILER_ID)),)
@@ -262,6 +301,16 @@ endif
 
 CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) $(REPORT_CFLAGS)
 HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS)
+
+# Link Time Optimization (LTO) is enabled by default for supported compilers, 
+# but can be disabled by setting APPLY_LTO=0 or APPLY_LTO=no
+ifeq ($(VALID_APPLY_LTO),1)
+  ifneq ($(filter gcc clang amdclang icx,$(COMPILER_ID)),)
+    $(info Link Time Optimization (LTO) is enabled for compiler $(CC))
+    CFLAGS += -flto
+    HOST_ONLY_CFLAGS += -flto
+  endif
+endif
 
 
 COMPILE_CMD = $(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
@@ -284,9 +333,9 @@ $(CONFIG_STAMP): FORCE
 	@if cmp -s $(CONFIG_STAMP).tmp $(CONFIG_STAMP) 2>/dev/null; \
 	then rm -f $(CONFIG_STAMP).tmp; else mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP); fi
 
-SRC := src/bit.c
-OBJ_CORE := $(BUILD_DIR)/bit.o
-OBJ_GPU := $(BUILD_DIR)/bit.o $(BUILD_DIR)/gpu_layout_registry.o $(BUILD_DIR)/gpu_layout_fsm.o $(BUILD_DIR)/gpu_layout_kernels.o
+SRC := src/bit.c src/bit_gpu.c
+OBJ_CORE := $(BUILD_DIR)/bit.o $(BUILD_DIR)/bit_gpu.o
+OBJ_GPU := $(BUILD_DIR)/bit.o $(BUILD_DIR)/bit_gpu.o $(BUILD_DIR)/gpu_layout_registry.o $(BUILD_DIR)/gpu_layout_fsm.o $(BUILD_DIR)/gpu_layout_kernels.o
 ifeq ($(filter NONE,$(GPU_LIST)),NONE)
   OBJ := $(OBJ_CORE)
 else
@@ -317,18 +366,37 @@ OPENMP_BIT_HELPERS_OBJ := $(BUILD_DIR)/openmp_bit_helpers.o
 # via LIBPOPCNT=0 or LIBPOPCNT=no
 ifeq ($(IS_CLEAN_GOAL),)
   LIBPOPCNT ?= 1
-  LIBPOPCNT_LC := $(shell echo $(LIBPOPCNT) | tr A-Z a-z)
-  ifneq ($(filter $(LIBPOPCNT_LC),0 no n false f off),)
-    $(info libpopcnt integration disabled)
-    LIBPOPCNT := 0
-  else
+  VALID_LIBPOPCNT := $(call validate_boolean,LIBPOPCNT,1)
+  ifeq ($(VALID_LIBPOPCNT),1)
     $(info libpopcnt integration enabled)
-    LIBPOPCNT := 1
+    LIBPOPCNT_VAL := 1
+  else
+    $(info libpopcnt integration disabled)
+    LIBPOPCNT_VAL := 0
   endif
-  CFLAGS += -DUSE_LIBPOPCNT=$(LIBPOPCNT)
+  HOST_ONLY_CFLAGS += -DUSE_LIBPOPCNT=$(LIBPOPCNT_VAL)
 endif
 
-ifeq ($(strip $(USE_BUILTIN_POPCOUNT)),1)
+ifeq ($(IS_CLEAN_GOAL),)
+  BUFFER_SIZE ?= 32
+  ifneq ($(shell echo "$(BUFFER_SIZE)" | grep -Eq '^[1-9][0-9]*$$' && echo ok),ok)
+    $(error BUFFER_SIZE must be a positive integer. Got: '$(BUFFER_SIZE)')
+  endif
+  $(info setop buffer size used: $(BUFFER_SIZE))
+  HOST_ONLY_CFLAGS += -DBUFFER_SIZE=$(BUFFER_SIZE)
+endif
+
+ifeq ($(IS_CLEAN_GOAL),)
+  BITVECTOR_TILE ?= 1024
+  ifneq ($(shell echo "$(BITVECTOR_TILE)" | grep -Eq '^[1-9][0-9]*$$' && echo ok),ok)
+    $(error BITVECTOR_TILE must be a positive integer. Got: '$(BITVECTOR_TILE)')
+  endif
+  $(info bitvector tile used: $(BITVECTOR_TILE))
+  HOST_ONLY_CFLAGS += -DBITVECTOR_TILE=$(BITVECTOR_TILE)
+endif
+
+USE_BUILTIN_POPCOUNT ?= 0
+ifeq ($(call validate_boolean,USE_BUILTIN_POPCOUNT,0),1)
   DEFINES += -DUSE_BUILTIN_POPCOUNT
 endif
 
@@ -338,6 +406,9 @@ $(BUILD_DIR)/%.o: src/%.c $(CONFIG_STAMP)
 	$(COMPILE_CMD)
 
 $(BUILD_DIR)/bit.o: src/bit.c src/bit_internal.h $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
+$(BUILD_DIR)/bit_gpu.o: src/bit_gpu.c src/bit_internal.h $(CONFIG_STAMP)
 	$(COMPILE_CMD)
 
 $(BUILD_DIR)/gpu_layout_registry.o: src/gpu_layout_registry.c src/gpu_layout_registry.h src/gpu_layout.h src/gpu_layout_fsm.h $(CONFIG_STAMP)

@@ -17,17 +17,17 @@
    ===========================================================================
  */
 
-#include "bit.h"       // Contains your public API declarations
-#include "omp.h"       // For OpenMP parallelization
-#include <assert.h>    // For assert() validation
-#include <limits.h>    // For INT_MAX
-#include <stdatomic.h> // For atomic operations
-#include <stdbool.h>   // For bool type (is_Bit_T_allocated)
-#include <stdint.h>    // For uintptr_t and UINT64_C macros
-#include <stdio.h>     // For printf (if needed for debugging)
-#include <stdlib.h>    // For malloc, free
-#include <string.h>    // For memset
-
+#include "bit.h"               // Contains your public API declarations
+#include "omp.h"               // For OpenMP parallelization
+#include "simde_integration.h" // For SIMD operations
+#include <assert.h>            // For assert() validation
+#include <limits.h>            // For INT_MAX
+#include <stdatomic.h>         // For atomic operations
+#include <stdbool.h>           // For bool type (is_Bit_T_allocated)
+#include <stdint.h>            // For uintptr_t and UINT64_C macros
+#include <stdio.h>             // For printf (if needed for debugging)
+#include <stdlib.h>            // For malloc, free
+#include <string.h>            // For memset
 /*---------------------------------------------------------------------------
   Environmental and configuration macros/defines and enums
 ----------------------------------------------------------------------------*/
@@ -42,168 +42,7 @@
 
 /* --- End Section 1: INCLUDES --- */
 
-/* ===========================================================================
-   SECTION 2: COMPILE-TIME CONFIGURATION
-   Architecture detection, alignment constants, cache-tile tuning,
-   type aliases, and GPU-layout state codes.
-   ===========================================================================
- */
-
-// Universal bitwise alignment check (Alignment must be a power of 2)
-#define IS_ALIGNED_64(ptr) (((uintptr_t)(const void *)(ptr) & 63) == 0)
-#define IS_ALIGNED_8(ptr) (((uintptr_t)(const void *)(ptr) & 7) == 0)
-
-// Architecture Detection via Pointer Size
-#if UINTPTR_MAX == 0xffffffff
-#define ARCH_32BIT 1
-#define ALIGN_CHECK(ptr) IS_ALIGNED_8(ptr)
-#define ALIGNMENT 32
-#elif UINTPTR_MAX == 0xffffffffffffffff
-#define ARCH_32BIT 0
-#define ALIGN_CHECK(ptr) IS_ALIGNED_64(ptr)
-#define ALIGNMENT 64
-#else
-#error "Unsupported pointer size. Architecture must be 32-bit or 64-bit."
-#endif
-
-/*
-  Tune these tiles to fit in L2/L3 cache. e.g., 32x32 or 32x64 for your
-  OpenMP CPU implementation.
-*/
-#ifndef CPU_TILE
-#define CPU_TILE_BIT 32
-#define CPU_TILE_BITS 32
-#else
-#define CPU_TILE_BIT CPU_TILE
-#define CPU_TILE_BITS CPU_TILE
-#endif
-
-#define T Bit_T
-#define T_DB Bit_DB_T
-
-/* --- End Section 2: COMPILE-TIME CONFIGURATION --- */
-
-/* ===========================================================================
-   SECTION 3: INFRASTRUCTURAL MACROS
-   Low-level bit-math helpers and popcount dispatch.
-   These must be defined before bit_internal.h is included.
-   ===========================================================================
- */
-
-#define STRINGIFY(x) #x // Macro to convert a macro argument to a string
-
-#define BPQW (sizeof(uint64_t) * 8)     // bits per qword
-#define BPB (sizeof(unsigned char) * 8) // bits per byte
-#define nqwords(len)                                                           \
-  ((((len) + BPQW - 1) & (~(BPQW - 1))) / BPQW)          // ceil(len/BPQW)
-#define nbytes(len) ((((len) + 8 - 1) & (~(8 - 1))) / 8) // ceil(len/8)
-
-// Buffer size for popcount operations over DB bitsets
-#define SETOP_BUFFER_SIZE 1024
-
-// CPU popcount — dispatches to count_WWG (forward-declared in Section 7)
-#define POPCOUNT(x) count_WWG((x))
-
-// No-op marker to disable SIMD vectorization in CPU code when needed
-#define NO_SIMD /*NO SIMD*/
-
-/* --- End Section 3: INFRASTRUCTURAL MACROS --- */
-
-/* ===========================================================================
-   SECTION 4: PRIVATE IMPLEMENTATION MACROS
-   All large OpenMP and set-operation macros live in a separate header to
-   reduce clutter. They depend on macros defined in Sections 2 and 3 above.
-   ===========================================================================
- */
-
 #include "bit_internal.h"
-
-/* --- End Section 4: PRIVATE IMPLEMENTATION MACROS --- */
-
-/* ===========================================================================
-   SECTION 5: INTERNAL DATA STRUCTURES AND ENUMS
-   Concrete definitions of the opaque types declared in bit.h, plus internal
-   bookkeeping structures.
-   ===========================================================================
- */
-
-/* --- 5a. Single bitset (Bit_T) ---
- The ADT provides access to the bitset as bytes,or qwords,
- anticipating optimization of the code *down the road*,
- including loading of externally allocated buffers into it
- The interface is effectively the one for Bit_T presented by D. Hanson
- in C Interfaces and Implementations, ISBN 0-201-49841-3 Ch13, 1997.
- Changes made by the author include
- 1) the introduction of the set_count operations to avoid
- forming the intermediate Bit_T
- 2) using optimized popcount functions and defaulting to the
-    WWG algorithm for popcount if the user elects not to use the
-    libpopcnt library.
-*/
-struct T {
-  int length;              // capacity of the bitset in bits
-  int size_in_bytes;       // number of bytes of the 8 bit container
-  int size_in_qwords;      // number of qwords of the 64 bit container
-  bool is_Bit_T_allocated; // true if allocated by the library
-  unsigned char *bytes;    // pointer to the first byte
-  uint64_t *qwords;        // pointer to the first qword
-};
-
-/* --- 5b. Packed bitset database (Bit_DB_T) ---
- The ADT provides access to containers of bitsets that pack fixed number of
-  the bitset data in a single container for locality of memory access when
-  processing large number of bitsets.
-*/
-struct T_DB {
-  int nelem;               // number of bitsets in the packed container
-  int length;              // capacity of the bitset in bits
-  int size_in_bytes;       // number of bytes of the 8 bit set container
-  int size_in_qwords;      // number of qwords of the 64 bit set container
-  bool is_Bit_T_allocated; // true if allocated by the library
-  unsigned char *bytes;    // pointer to the first byte
-  uint64_t *qwords;        // pointer to the first qword
-};
-
-/* --- 5c. GPU allocation state tracker and flags --- */
-/*
-  Single linked list structure to track GPU allocations to manage
-  operations that require synchronization (e.g., transposition)
-  of Bitset containers in the GPU.
-*/
-
-typedef enum {
-  STATE_ROW_MAJOR = 0,
-  STATE_COL_MAJOR = 1,
-} GPUDataLayout;
-
-typedef enum { FLAG_NONE = 0 } GPUDataFlags;
-
-// GPU state transition structure
-typedef struct {
-  GPUDataLayout from;
-  GPUDataFlags to;
-  int kernel_id;
-} StateTransition;
-
-// This is Thread-Safe Ready
-typedef struct GPUAllocationState {
-  const void *host_ptr;
-  int device_id;
-
-  // The Partitioned Bitfield: holds BOTH GPUDataLayout and GPUDataFlags
-  _Atomic uint32_t state_word;
-
-  // --- MULTITHREADING EXTENSIBILITY ---
-  // Even in multi-processing, these ensure absolute safety if you
-  // ever spawn threads inside your processes later.
-  _Atomic int transition_lock; // 0 = Free, 1 = Currently transposing
-  _Atomic int
-      active_users; // Reader count to prevent layout shifts while in use
-
-  struct GPUAllocationState *next;
-} GPUAllocationState;
-
-/* --- End Section 5: INTERNAL DATA STRUCTURES AND ENUMS --- */
 
 /* ===========================================================================
    SECTION 6: STATIC DATA
@@ -231,11 +70,7 @@ static unsigned const char lsbmask[] = {0x01, 0x03, 0x07, 0x0F,
 // Bitset copy helper (used by single-bitset set-operation macros)
 // Forward declarations
 static T copy(T t);
-static inline uint64_t count_WWG(uint64_t x);
-static void GPU_transpose_kernel(uint64_t *bits, size_t rows, size_t columns,
-                                 int device_id);
 static void *portable_aligned_calloc(size_t alignment, size_t size);
-static inline uint64_t tree_adder(uint64_t v);
 
 /* TODO: add new CPU/GPU helper forward declarations here */
 
@@ -259,50 +94,7 @@ static T copy(T t) {
   return set;
 }
 
-/* --- 8b. Wilks-Wheeler-Gill (WWG) popcount ---
-   Highly portable and fast.
-   References:
-     https://en.wikipedia.org/wiki/The_Preparation_of_Programs_for_an_Electronic_Digital_Computer
-     https://arxiv.org/abs/1611.07612
-     https://github.com/kimwalisch/libpopcnt/tree/master
-*/
-#define C1_WWG UINT64_C(0X5555555555555555)
-#define C2_WWG UINT64_C(0x3333333333333333)
-#define C3_WWG UINT64_C(0x0F0F0F0F0F0F0F0F)
-#define C4_WWG UINT64_C(0x0101010101010101)
-static inline uint64_t count_WWG(uint64_t x) {
-  x -= (x >> 1) & C1_WWG;
-  x = ((x >> 2) & C2_WWG) + (x & C2_WWG);
-  x = (x + (x >> 4)) & C3_WWG;
-  x *= C4_WWG;
-
-  return (x >> 56);
-}
-
-/* --- 8c. Tree-adder popcount ---
-   Reference: https://metacpan.org/pod/Bit::Fast
-*/
-#define C1_TRADD UINT64_C(0xAAAAAAAAAAAAAAAA)
-#define C2_TRADD UINT64_C(0xCCCCCCCCCCCCCCCC)
-#define C3_TRADD UINT64_C(0xF0F0F0F0F0F0F0F0)
-#define C4_TRADD UINT64_C(0xFF00FF00FF00FF00)
-#define C5_TRADD UINT64_C(0x00FF00FF00FF00FF)
-#define C6_TRADD UINT64_C(0xFF00FF00FF00FF00)
-#define C7_TRADD UINT64_C(0x0000FFFF0000FFFF)
-#define C8_TRADD UINT64_C(0xFFFF0000FFFF0000)
-#define C9_TRADD UINT64_C(0x00000000FFFFFFFF)
-#define C10_TRADD UINT64_C(0xFFFFFFFF00000000)
-static inline uint64_t tree_adder(uint64_t v) {
-  v = (v & C1_WWG) + ((v & C1_TRADD) >> 1);
-  v = (v & C2_WWG) + ((v & C2_TRADD) >> 2);
-  v = (v & C3_WWG) + ((v & C3_TRADD) >> 4);
-  v = (v & C5_TRADD) + ((v & C6_TRADD) >> 8);
-  v = (v & C7_TRADD) + ((v & C8_TRADD) >> 16);
-  v = (v & C9_TRADD) + ((v & C10_TRADD) >> 32);
-  return v;
-}
-
-/* --- 8d. Portable aligned calloc ---
+/* --- 8b. Portable aligned calloc ---
    Allocates `size` bytes aligned to `alignment` and zeroes the memory.
    Does not rely on platform-specific APIs (posix_memalign, _aligned_malloc);
    instead uses pointer arithmetic for portability.
@@ -336,20 +128,6 @@ static void *portable_aligned_calloc(size_t alignment, size_t size) {
 }
 
 /* --- End Section 8: INTERNAL HELPER FUNCTION DEFINITIONS --- */
-
-/* ===========================================================================
-   SECTION 9: GPU KERNEL HELPERS
-   Device-side data transformation routines and popcounts.
-   ===========================================================================
- */
-
-// Make popcount functions available on GPU device targets
-#pragma omp declare target(count_WWG)
-#pragma omp declare target(tree_adder)
-// GPU popcount alias — change this line to swap the GPU popcount implementation
-#define POPCOUNT_GPU count_WWG
-
-/* --- End Section 9: GPU KERNEL HELPERS --- */
 
 /* ===========================================================================
    SECTION 10: PUBLIC API — SINGLE BITSET (Bit_T)
@@ -428,7 +206,43 @@ int Bit_count(T set) {
   assert(set);
   int length = 0;
 #if !USE_LIBPOPCNT
-  for (size_t i = 0; i < nqwords(set->length); i++) {
+size_t limit = (set->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;
+  size_t i = 0;
+
+  VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;
+  VECTOR_TYPE sum1 = SIMDe_ZERO_VECTOR;
+  VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;
+  VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;
+
+  for (; i < limit; i += VECTOR_BLOCK_SIZE) {
+    sum0 = SIMDe_VECTOR_ADD(sum0, SIMDe_POPCOUNT(
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(0)])));
+    
+    sum1 = SIMDe_VECTOR_ADD(sum1, SIMDe_POPCOUNT(
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)])));
+    
+    sum2 = SIMDe_VECTOR_ADD(sum2, SIMDe_POPCOUNT(
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)])));
+    
+    sum3 = SIMDe_VECTOR_ADD(sum3, SIMDe_POPCOUNT(
+        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)])));
+  }
+
+  // Reduce 4 accumulators down to 1 (Optimal binary reduction tree)
+  sum0 = SIMDe_VECTOR_ADD(sum0, sum1);
+  sum2 = SIMDe_VECTOR_ADD(sum2, sum3);
+  sum0 = SIMDe_VECTOR_ADD(sum0, sum2);
+
+  // Extract vector elements to scalar
+  uint64_t sum_array[VECTOR_QWORDS];
+  SIMDe_STORE_VECTOR(sum_array, sum0); 
+  
+  for (size_t j = 0; j < VECTOR_QWORDS; j++) {
+    length += sum_array[j];
+  }
+
+  // Handle remaining elements (Fringe)
+  for (; i < set->size_in_qwords; i++) {
     length += POPCOUNT(set->qwords[i]);
   }
 #else
@@ -582,38 +396,26 @@ int Bit_lt(T s, T t) {
 T Bit_diff(T s, T t) {
   setop_validate(Bit_new(s->length), copy(t), copy(s));
   T set = Bit_new(s->length);
-#pragma omp simd /* SIMD directive for the set operation */
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = BIT_XOR(s->qwords[i], t->qwords[i]);
-  }
+  setop(set, _XOR, s, t);
   return set;
 }
 T Bit_minus(T s, T t) {
   setop_validate(Bit_new(s->length), Bit_new(t->length), copy(s));
   T set = Bit_new(s->length);
-#pragma omp simd /* SIMD directive for the set operation */
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = BIT_AND_NOT(s->qwords[i], t->qwords[i]);
-  }
+  setop(set, _AND_NOT, s, t);
   return set;
 }
 T Bit_inter(T s, T t) {
   setop_validate(copy(t), Bit_new(t->length), Bit_new(s->length));
   T set = Bit_new(s->length);
-#pragma omp simd /* SIMD directive for the set operation */
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = BIT_AND(s->qwords[i], t->qwords[i]);
-  }
+  setop(set, _AND, s, t);
   return set;
 }
 
 T Bit_union(T s, T t) {
   setop_validate(copy(t), copy(t), copy(s));
   T set = Bit_new(s->length);
-#pragma omp simd /* SIMD directive for the set operation */
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    set->qwords[i] = BIT_OR(s->qwords[i], t->qwords[i]);
-  }
+  setop(set, _OR, s, t);
   return set;
 }
 
@@ -621,105 +423,38 @@ T Bit_union(T s, T t) {
 
 int Bit_diff_count(T s, T t) {
   setop_validate(0, Bit_count(t), Bit_count(s));
-  uint64_t count = 0;
-#if !USE_LIBPOPCNT
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_XOR(s->qwords[i], t->qwords[i]));
-  }
-#else
-  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
-  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
-  int i = 0;
-  for (; i < limit; i += SETOP_BUFFER_SIZE) {
-    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = BIT_XOR(s->qwords[i + j], t->qwords[i + j]);
-    }
-    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
-  }
-  for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_XOR(s->qwords[i], t->qwords[i]));
-  }
-#endif
-  return (int)count;
+  setop_count(_XOR, s, t);
 }
 int Bit_minus_count(T s, T t) {
   setop_validate(0, 0, Bit_count(s));
-  uint64_t count = 0;
-#if !USE_LIBPOPCNT
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_AND_NOT(s->qwords[i], t->qwords[i]));
-  }
-#else
-  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
-  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
-  int i = 0;
-  for (; i < limit; i += SETOP_BUFFER_SIZE) {
-    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = BIT_AND_NOT(s->qwords[i + j], t->qwords[i + j]);
-    }
-    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
-  }
-  for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_AND_NOT(s->qwords[i], t->qwords[i]));
-  }
-#endif
-  return (int)count;
+  setop_count(_AND_NOT, s, t);
 }
 int Bit_inter_count(T s, T t) {
   setop_validate(Bit_count(t), 0, 0);
-  uint64_t count = 0;
-#if !USE_LIBPOPCNT
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_AND(s->qwords[i], t->qwords[i]));
-  }
-#else
-  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
-  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
-  int i = 0;
-  for (; i < limit; i += SETOP_BUFFER_SIZE) {
-    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = BIT_AND(s->qwords[i + j], t->qwords[i + j]);
-    }
-    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
-  }
-  for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_AND(s->qwords[i], t->qwords[i]));
-  }
-#endif
-  return (int)count;
+  setop_count(_AND, s, t);
 }
 int Bit_union_count(T s, T t) {
   setop_validate(Bit_count(t), Bit_count(t), Bit_count(s));
-  uint64_t count = 0;
-#if !USE_LIBPOPCNT
-  for (int i = 0; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_OR(s->qwords[i], t->qwords[i]));
-  }
-#else
-  uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/
-  int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;
-  int i = 0;
-  for (; i < limit; i += SETOP_BUFFER_SIZE) {
-    for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {
-      setop_buffer[j] = BIT_OR(s->qwords[i + j], t->qwords[i + j]);
-    }
-    count += popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));
-  }
-  for (; i < s->size_in_qwords; i++) {
-    count += POPCOUNT(BIT_OR(s->qwords[i], t->qwords[i]));
-  }
-#endif
-  return (int)count;
+  setop_count(_OR, s, t);
 }
 
 void print_Bit_configuration(void) {
-
-  printf("CPU_TILE : %d, GPU_TILE_J: %d, GPU_ILP: %d\n", CPU_TILE_BIT,
-         GPU_TILE_J, GPU_ILP);
-  printf("Using LIBPOPCNT: %s\n", (USE_LIBPOPCNT == 1) ? "Yes" : "No");
-  printf("CPU_TILE_BIT %d, CPU_TILE_BITS: %d\n", CPU_TILE_BIT, CPU_TILE_BITS);
+    printf("==========================================\n");
+    printf("        System Bit Configuration          \n");
+    printf("==========================================\n");
+    
+    // Using fixed-width specifiers for clean alignment (e.g., %-20s)
+    printf(" %-20s : %d\n", "CPU_TILE_BIT",      CPU_TILE_BIT);
+    printf(" %-20s : %d\n", "CPU_TILE_BITS",     CPU_TILE_BITS);
+    printf(" %-20s : %d\n", "GPU_TILE_J",        GPU_TILE_J);
+    printf(" %-20s : %d\n", "GPU_ILP",           GPU_ILP);
+    printf(" %-20s : %d\n", "K_BLOCK",           K_BLOCK);
+    printf(" %-20s : %d\n", "SETOP_BUFFER_SIZE", SETOP_BUFFER_SIZE);
+    
+    printf("------------------------------------------\n");
+    printf(" %-20s : %s\n", "Using LIBPOPCNT",     USE_LIBPOPCNT ? "Yes" : "No");
+    printf("==========================================\n");
 }
-
 /* --- End Section 10: PUBLIC API — SINGLE BITSET --- */
 
 /* ===========================================================================
@@ -916,27 +651,6 @@ void BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, int *counts,
   setop_count_db_cpu(bit, bits, counts, _AND, opts);
 }
 
-int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
-#ifndef NOGPU
-  BitDB_inter_count_store_gpu(bit, bits, counts, opts);
-#else
-  BitDB_inter_count_store_cpu(bit, bits, counts, opts);
-#endif
-  return counts;
-}
-
-void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                 SETOP_COUNT_OPTS opts) {
-#ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, &, opts);
-#else
-  setop_count_db_cpu(bit, bits, counts, _AND, opts)
-#endif
-}
-
 int *BitDB_union_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
@@ -948,27 +662,6 @@ int *BitDB_union_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 void BitDB_union_count_store_cpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
   setop_count_db_cpu(bit, bits, counts, _OR, opts);
-}
-
-int *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
-#ifndef NOGPU
-  BitDB_union_count_store_gpu(bit, bits, counts, opts);
-#else
-  BitDB_union_count_store_cpu(bit, bits, counts, opts);
-#endif
-  return counts;
-}
-
-void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                 SETOP_COUNT_OPTS opts) {
-#ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, |, opts);
-#else
-  setop_count_db_cpu(bit, bits, counts, _OR, opts);
-#endif
 }
 
 int *BitDB_diff_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
@@ -984,27 +677,6 @@ void BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, int *counts,
   setop_count_db_cpu(bit, bits, counts, _XOR, opts);
 }
 
-int *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
-#ifndef NOGPU
-  BitDB_diff_count_store_gpu(bit, bits, counts, opts);
-#else
-  BitDB_diff_count_store_cpu(bit, bits, counts, opts);
-#endif
-  return counts;
-}
-
-void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                SETOP_COUNT_OPTS opts) {
-#ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, ^, opts)
-#else
-  setop_count_db_cpu(bit, bits, counts, _XOR, opts)
-#endif
-}
-
 int *BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
   int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
@@ -1015,28 +687,7 @@ int *BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
 void BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int *counts,
                                  SETOP_COUNT_OPTS opts) {
-  setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts); 
-}
-
-int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
-#ifndef NOGPU
-  BitDB_minus_count_store_gpu(bit, bits, counts, opts);
-#else
-  BitDB_minus_count_store_cpu(bit, bits, counts, opts);
-#endif
-  return counts;
-}
-
-void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *counts,
-                                 SETOP_COUNT_OPTS opts) {
-#ifndef NOGPU
-  setop_count_db_gpu(bit, bits, counts, &~, opts)
-#else
   setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts);
-#endif
 }
 
 /* --- End Section 11: PUBLIC API — BITSET DATABASE --- */
