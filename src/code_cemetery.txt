@@ -1,3 +1,8 @@
+#define CHUNK_LIMIT(limit_var, k_b, k_max, BLOCK_SIZE)                         \
+  size_t limit_var = k_b + ((k_max - k_b) / BLOCK_SIZE) * BLOCK_SIZE;
+#define LIMIT_STATEMENT(limit, bit_size_in_qwords, SETOP_BUFFER_SIZE)          \
+  size_t limit = bit_size_in_qwords - bit_size_in_qwords % SETOP_BUFFER_SIZE;
+
 /* Open the 6-loop tiled architecture */
 #define OMP_CPU_TILE_START                                                     \
   OMP_CPU_LOOP(1, dynamic)                                                     \

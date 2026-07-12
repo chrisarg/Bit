@@ -507,9 +507,6 @@ static inline uint64_t tree_adder(uint64_t v) {
     CHUNK_LIMIT(limit, k_b, k_max, VECTOR_BLOCK_SIZE)                          \
                                                                                \
     VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
-    VECTOR_TYPE sum1 = SIMDe_ZERO_VECTOR;                                      \
-    VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;                                      \
-    VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;                                      \
                                                                                \
     for (; k_idx < limit; k_idx += VECTOR_BLOCK_SIZE) {                        \
       sum0 = SIMDe_VECTOR_ADD(                                                 \
@@ -518,28 +515,26 @@ static inline uint64_t tree_adder(uint64_t v) {
               LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(0)]),     \
               LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(0)]))));  \
                                                                                \
-      sum1 = SIMDe_VECTOR_ADD(                                                 \
-          sum1,                                                                \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
           SIMDe_POPCOUNT(BIT##op(                                              \
               LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(1)]),     \
               LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(1)]))));  \
                                                                                \
-      sum2 = SIMDe_VECTOR_ADD(                                                 \
-          sum2,                                                                \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
           SIMDe_POPCOUNT(BIT##op(                                              \
               LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(2)]),     \
               LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(2)]))));  \
-                                                                               \
-      sum3 = SIMDe_VECTOR_ADD(                                                 \
-          sum3,                                                                \
+                                                                                \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
           SIMDe_POPCOUNT(BIT##op(                                              \
               LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(3)]),     \
               LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(3)]))));  \
     }                                                                          \
                                                                                \
-    sum0 = SIMDe_VECTOR_ADD(sum0, sum1);                                       \
-    sum2 = SIMDe_VECTOR_ADD(sum2, sum3);                                       \
-    sum0 = SIMDe_VECTOR_ADD(sum0, sum2);                                       \
+    /* sum0 already contains the accumulated result */                        \
                                                                                \
     uint64_t sum_array[VECTOR_QWORDS];                                         \
     SIMDe_STORE_VECTOR(sum_array, sum0);                                       \
