@@ -179,7 +179,6 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define LIMIT_STATEMENT(limit, bit_size_in_qwords, SETOP_BUFFER_SIZE)          \
   size_t limit = bit_size_in_qwords - bit_size_in_qwords % SETOP_BUFFER_SIZE;
 
-
 /* --- End Section 2: PRIVATE IMPLEMENTATION MACROS --- */
 
 /* ===========================================================================
@@ -395,7 +394,6 @@ static inline uint64_t tree_adder(uint64_t v) {
 
 #endif
 
-
 /* Open the 6-loop tiled architecture */
 #define OMP_CPU_TILE_START                                                     \
   OMP_CPU_LOOP(1, dynamic)                                                     \
@@ -431,12 +429,12 @@ static inline uint64_t tree_adder(uint64_t v) {
 
 /* Close the tiled double loop — matches the loops in OMP_CPU_TILE_START */
 #define OMP_CPU_TILE_END                                                       \
-            /* Accumulate the result of the K-chunk */                         \
-            counts[(uint64_t)i * n + j] += chunk_result;                       \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    }                                                                          \
+  /* Accumulate the result of the K-chunk */                                   \
+  counts[(uint64_t)i * n + j] += chunk_result;                                 \
+  }                                                                            \
+  }                                                                            \
+  }                                                                            \
+  }                                                                            \
   }
 
 /* Top-level DB CPU set-operation dispatch (architecture and alignment aware) */
@@ -478,8 +476,8 @@ static inline uint64_t tree_adder(uint64_t v) {
   }
 
 #if USE_LIBPOPCNT || BIT_SIMD_PATH_SCALAR
-#define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result,            \
-                                  op, SIMD_DIRECTIVE, LOAD_MACRO)              \
+#define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result, op,        \
+                                  SIMD_DIRECTIVE, LOAD_MACRO)                  \
   do {                                                                         \
     _Alignas(ALIGNMENT) uint64_t setop_buffer[SETOP_BUFFER_SIZE];              \
     uint64_t count = 0;                                                        \
@@ -501,8 +499,8 @@ static inline uint64_t tree_adder(uint64_t v) {
   } while (0)
 #else
 /* Inner kernel: highly optimized SIMD block for a specific K-chunk */
-#define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result,            \
-                                  op, SIMD_DIRECTIVE, LOAD_MACRO)              \
+#define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result, op,        \
+                                  SIMD_DIRECTIVE, LOAD_MACRO)                  \
   do {                                                                         \
     uint64_t count = 0;                                                        \
     size_t k_idx = k_b; /* Start at chunk boundary */                          \
@@ -515,24 +513,28 @@ static inline uint64_t tree_adder(uint64_t v) {
                                                                                \
     for (; k_idx < limit; k_idx += VECTOR_BLOCK_SIZE) {                        \
       sum0 = SIMDe_VECTOR_ADD(                                                 \
-          sum0, SIMDe_POPCOUNT(BIT##op(                                        \
-                    LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(0)]),\
-                    LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(0)]))));\
+          sum0,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(0)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(0)]))));  \
                                                                                \
       sum1 = SIMDe_VECTOR_ADD(                                                 \
-          sum1, SIMDe_POPCOUNT(BIT##op(                                        \
-                    LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(1)]),\
-                    LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(1)]))));\
+          sum1,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(1)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(1)]))));  \
                                                                                \
       sum2 = SIMDe_VECTOR_ADD(                                                 \
-          sum2, SIMDe_POPCOUNT(BIT##op(                                        \
-                    LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(2)]),\
-                    LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(2)]))));\
+          sum2,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(2)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(2)]))));  \
                                                                                \
       sum3 = SIMDe_VECTOR_ADD(                                                 \
-          sum3, SIMDe_POPCOUNT(BIT##op(                                        \
-                    LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(3)]),\
-                    LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(3)]))));\
+          sum3,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(3)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(3)]))));  \
     }                                                                          \
                                                                                \
     sum0 = SIMDe_VECTOR_ADD(sum0, sum1);                                       \
@@ -552,6 +554,7 @@ static inline uint64_t tree_adder(uint64_t v) {
     result = (int)count;                                                       \
   } while (0)
 #endif
+
 /* --- End Section 4: DB SET OPERATION MACROS — CPU --- */
 
 /* ===========================================================================
