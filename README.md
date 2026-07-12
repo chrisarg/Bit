@@ -433,6 +433,75 @@ The benchmark will run:
 
 The containerized operations in the CPU are approximately twice as fast as the OpenMP accelerated equivalent non containerized operations for long bitsets because of the memory locality property. GPU acceleration is also considerable but the actual mileage may vary according to the OpenMP kernel execution strategies. The CPU-only benchmark (`openmo_bit_nogpu`) omits entirely the GPU benchmarks.
 
+#### CPU container-kernel tuning sweep
+
+`scripts/sweep_cpu_tuning.pl` automates CPU tuning of the containerized
+intersection-count kernel. For each configuration it performs a clean rebuild,
+runs the focused `openmp_bit_container` benchmark with a fixed CPU affinity,
+and collects a `perf stat` profile. It is intended for comparing the CPU tile,
+K block, outer-product microkernel shape, and algorithm-specific unrolling or
+scratch-buffer choices without timing unrelated benchmark work.
+
+Build the CPU benchmark target once to verify that the toolchain works, then
+run the script from the repository root:
+
+```bash
+make bench_omp GPU=NONE CC=clang
+
+# Cache sudo credentials first; enables perf and negative nice values where needed.
+sudo -v
+ELEVATE=always CORES=0-9 REPS=5 PERF_REPS=3 ./scripts/sweep_cpu_tuning.pl
+```
+
+The default sweep evaluates the direct SIMD implementation (`LIBPOPCNT=0`). To
+compare it with the independent libpopcnt scratch-buffer implementation, include
+both modes explicitly:
+
+```bash
+LIBPOPCNT_MODES=0,1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
+```
+
+Start with a small trial when changing machines or counter sets:
+
+```bash
+MAX_CONFIGS=2 REPS=1 PERF_REPS=1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
+```
+
+Each run creates `tuning-results/tuning-<timestamp>/` (unless `OUT_DIR` is
+set) containing `llm-summary.md`, a machine-readable `summary.csv`, and one
+build, benchmark, and perf log for each configuration. The Markdown summary is
+ranked by average elapsed time and is designed to be supplied directly to an
+LLM. The script runs `make distclean` before every configuration, so do not
+keep required uncommitted build artifacts in `build/` while it is running.
+
+All controls are environment variables. Comma-separated values define a sweep;
+single values hold that parameter fixed.
+
+| Variable | Default | Description |
+|---|---|---|
+| `LIBPOPCNT_MODES` | `0` | Algorithms to compare: `0` is the direct SIMD kernel and `1` is the libpopcnt scratch-buffer path. |
+| `CPU_TILES` | `4,8,16,32` | CPU database tile sizes compiled as `CPU_TILE`. |
+| `K_BLOCKS` | `256,512,768,1024` | K-dimension block sizes compiled as `BITVECTOR_TILE`. |
+| `SHAPES` | `1x1,2x2,2x4,4x2` | Outer microkernel shapes, written as `ROWSxCOLS`. |
+| `UNROLLS` | `1,2,4` | `OUTER_VEC_BLK` values; swept only for mode `0`. |
+| `BUFFER_SIZES` | `16,32,64,128` | `BUFFER_SIZE` values; swept only for mode `1`. |
+| `CC` | `clang` | Compiler supplied to `make`. |
+| `CORES` | `0-9` | CPU list passed to `taskset -c`. Match this to physical cores where possible. |
+| `BITS`, `LEFT`, `RIGHT` | `65536`, `10240`, `1024` | Bitset length and left/right container counts passed to `openmp_bit_container`. |
+| `THREADS`, `REPS` | `10`, `5` | OpenMP thread count and timed benchmark repetitions per invocation. |
+| `PERF_REPS` | `3` | Repetitions requested from `perf stat` for each configuration. |
+| `PERF_EVENTS` | generic cycles/instructions/cache/branch set | Comma-separated event list passed to `perf stat -e`. Use a small compatible event group to avoid PMU multiplexing. |
+| `ELEVATE` | `auto` | `never` avoids `sudo`; `auto` uses cached passwordless/noninteractive sudo when available; `always` requires it. Run `sudo -v` first when elevated counters or priority are needed. |
+| `PRIORITY` | `nice` | Process scheduling policy: `normal`, `nice` (nice level `-20`), or `rr` (real-time round-robin priority 50). `nice` and `rr` need elevation. |
+| `MAX_CONFIGS` | `0` | Stop after this many configurations; `0` means no limit. |
+| `OUT_DIR` | `tuning-results/tuning-<timestamp>` | Directory for summaries and per-configuration logs. |
+
+The default direct-SIMD sweep contains 192 configurations. Enabling both
+algorithms produces 448 configurations with the default lists, so a full run
+can take substantial time. `perf` access is controlled by the host's
+`kernel.perf_event_paranoid` setting; use `ELEVATE=always` where permitted or
+adjust that policy according to local system-administration requirements.
+
 The repository [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits) 
 contains benchmarks against other bitset/bitvector/bitmaps in C and Perl.
 
