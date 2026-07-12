@@ -448,8 +448,6 @@ run the script from the repository root:
 ```bash
 make bench_omp GPU=NONE CC=clang
 
-# Cache sudo credentials first; enables perf and negative nice values where needed.
-sudo -v
 ELEVATE=always CORES=0-9 REPS=5 PERF_REPS=3 ./scripts/sweep_cpu_tuning.pl
 ```
 
@@ -461,18 +459,36 @@ both modes explicitly:
 LIBPOPCNT_MODES=0,1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
 ```
 
+To exhaustively evaluate the current 10-core i9-7900X machine, including both
+algorithms, every default tuning parameter, and every diagnostic perf profile,
+run the following from the repository root. This is a long-running measurement:
+448 build configurations and 4,928 profiled benchmark invocations.
+
+```bash
+LIBPOPCNT_MODES=0,1 \
+CORES=0-9 THREADS=10 \
+REPS=5 PERF_REPS=3 \
+PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency \
+ELEVATE=always \
+./scripts/sweep_cpu_tuning.pl
+```
+
 Start with a small trial when changing machines or counter sets:
 
 ```bash
 MAX_CONFIGS=2 REPS=1 PERF_REPS=1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
 ```
 
-Each run creates `tuning-results/tuning-<timestamp>/` (unless `OUT_DIR` is
-set) containing `llm-summary.md`, a machine-readable `summary.csv`, and one
-build, benchmark, and perf log for each configuration. The Markdown summary is
-ranked by average elapsed time and is designed to be supplied directly to an
-LLM. The script runs `make distclean` before every configuration, so do not
-keep required uncommitted build artifacts in `build/` while it is running.
+Each run publishes compact, architecture-labelled summaries such as
+`tuning-results/summary-x86-64-intel-core-i9-7900x-<timestamp>.csv` and
+`tuning-results/llm-summary-x86-64-intel-core-i9-7900x-<timestamp>.md`. These
+files are intended to be committed, allowing GitHub to retain results from
+multiple machines. Per-configuration build, benchmark, and perf logs remain
+local in `tuning-results/.work/<architecture>-<timestamp>/` by default and are
+ignored by Git. The Markdown summary is ranked by average elapsed time and is
+designed to be supplied directly to an LLM. The script runs `make distclean`
+before every configuration, so do not keep required uncommitted build artifacts
+in `build/` while it is running.
 
 All controls are environment variables. Comma-separated values define a sweep;
 single values hold that parameter fixed.
@@ -489,16 +505,21 @@ single values hold that parameter fixed.
 | `CORES` | `0-9` | CPU list passed to `taskset -c`. Match this to physical cores where possible. |
 | `BITS`, `LEFT`, `RIGHT` | `65536`, `10240`, `1024` | Bitset length and left/right container counts passed to `openmp_bit_container`. |
 | `THREADS`, `REPS` | `10`, `5` | OpenMP thread count and timed benchmark repetitions per invocation. |
-| `PERF_REPS` | `3` | Repetitions requested from `perf stat` for each configuration. |
-| `PERF_EVENTS` | generic cycles/instructions/cache/branch set | Comma-separated event list passed to `perf stat -e`. Use a small compatible event group to avoid PMU multiplexing. |
-| `ELEVATE` | `auto` | `never` avoids `sudo`; `auto` uses cached passwordless/noninteractive sudo when available; `always` requires it. Run `sudo -v` first when elevated counters or priority are needed. |
+| `PERF_REPS` | `3` | Repetitions requested from `perf stat` for each profile and configuration. |
+| `PERF_PROFILES` | summary, cache L1/L2/L3/DRAM/stalls, fill/store buffers, execution uops/ports, front end, frequency | Comma-separated diagnostic profiles. Each profile is a separate, deliberately small `perf stat` event group to avoid PMU multiplexing. Use `PERF_PROFILES=summary` for a faster ranking-only sweep. |
+| `PERF_EVENTS` | summary event group | Optional comma-separated replacement event list for the `summary` profile. It preserves compatibility with custom counter sets. |
+| `ELEVATE` | `auto` | `never` avoids `sudo`; `auto` uses a cached noninteractive sudo credential when available; `always` obtains a sudo credential once, then reuses it for every profiled run. |
 | `PRIORITY` | `nice` | Process scheduling policy: `normal`, `nice` (nice level `-20`), or `rr` (real-time round-robin priority 50). `nice` and `rr` need elevation. |
 | `MAX_CONFIGS` | `0` | Stop after this many configurations; `0` means no limit. |
-| `OUT_DIR` | `tuning-results/tuning-<timestamp>` | Directory for summaries and per-configuration logs. |
+| `ARCH_TAG` | detected architecture and CPU model | Optional safe filename label for published summaries; use it to distinguish otherwise similar systems or non-Linux CPU descriptions. |
+| `RESULTS_DIR` | `tuning-results` | Directory for compact, commit-ready `summary-<architecture>-<timestamp>.csv` and `llm-summary-<architecture>-<timestamp>.md` results. |
+| `OUT_DIR` | `tuning-results/.work/<architecture>-<timestamp>` | Local directory for per-configuration build, benchmark, and perf logs. This is ignored by Git by default. |
 
-The default direct-SIMD sweep contains 192 configurations. Enabling both
-algorithms produces 448 configurations with the default lists, so a full run
-can take substantial time. `perf` access is controlled by the host's
+The default direct-SIMD sweep contains 192 configurations; its eleven default
+perf profiles therefore execute 2,112 profiled benchmark invocations. Enabling
+both algorithms produces 448 configurations, so a full diagnostic run can take
+substantial time. Use `PERF_PROFILES=summary` while narrowing the tuning space,
+then run the complete profile set on the best candidates. `perf` access is controlled by the host's
 `kernel.perf_event_paranoid` setting; use `ELEVATE=always` where permitted or
 adjust that policy according to local system-administration requirements.
 
