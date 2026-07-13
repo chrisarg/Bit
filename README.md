@@ -468,6 +468,7 @@ run the following from the repository root. This is a long-running measurement:
 LIBPOPCNT_MODES=0,1 \
 CORES=0-9 THREADS=10 \
 REPS=5 PERF_REPS=3 \
+RUN_LABEL=avx512\
 PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
 ELEVATE=always \
 ./scripts/sweep_cpu_tuning.pl
