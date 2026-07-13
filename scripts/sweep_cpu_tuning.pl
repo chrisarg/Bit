@@ -79,7 +79,13 @@ my $timestamp   = strftime('%Y%m%d-%H%M%S', localtime);
 my $results_dir = $ENV{RESULTS_DIR} // File::Spec->catdir($root, 'tuning-results');
 my $arch_tag    = path_tag($ENV{ARCH_TAG} // detected_arch_tag());
 die "ARCH_TAG must contain at least one letter or digit\n" unless length $arch_tag;
-my $run_tag     = "$arch_tag-$timestamp";
+my $run_label   = '';
+if (defined $ENV{RUN_LABEL}) {
+    $run_label = path_tag($ENV{RUN_LABEL});
+    die "RUN_LABEL must contain at least one letter or digit\n" unless length $run_label;
+}
+my $run_tag     = join('-', grep { length } $arch_tag, $run_label, $timestamp);
+my $numa_policy = $ENV{NUMA_POLICY} // 'default OS policy';
 
 # Published summaries remain compact and Git-friendly. Raw build, benchmark,
 # and perf artifacts remain local under .work/ by default.
@@ -293,7 +299,13 @@ for my $lib (@libpopcnt_modes) {
                             @priority_cmd = ('chrt', '-r', '50');
                         }
                         my $benchmark = File::Spec->catfile($root, 'build', 'openmp_bit_container');
-                        my @run_args = (@priority_cmd, 'taskset', '-c', $cores, $benchmark,
+                        my @openmp_env;
+                        push @openmp_env, "OMP_PLACES=$ENV{OMP_PLACES}"
+                            if defined $ENV{OMP_PLACES};
+                        push @openmp_env, "OMP_PROC_BIND=$ENV{OMP_PROC_BIND}"
+                            if defined $ENV{OMP_PROC_BIND};
+                        my @run_args = (@priority_cmd, 'env', @openmp_env,
+                            'taskset', '-c', $cores, $benchmark,
                             $bit_length, $left_count, $right_count, $threads, $reps);
                         my $summary_ran = 0;
                         for my $profile (@perf_profile_names) {
@@ -353,7 +365,10 @@ open my $report, '>', $report_path or die "Cannot write $report_path: $!\n";
 print {$report} "# Bit CPU tuning sweep\n\n";
 print {$report} "## Measurement setup\n\n";
 print {$report} "- Architecture tag: `$arch_tag`\n";
+print {$report} "- Run label: `", ($run_label || 'none'), "`\n";
 print {$report} "- CPU affinity: `$cores`\n";
+print {$report} "- NUMA policy: `$numa_policy`\n";
+print {$report} "- OpenMP places: `", ($ENV{OMP_PLACES} // 'runtime default'), "`; thread binding: `", ($ENV{OMP_PROC_BIND} // 'runtime default'), "`\n";
 print {$report} "- Priority: `$priority`; elevated execution: ", ($sudo ? 'yes' : 'no'), "\n";
 print {$report} "- Benchmark: `openmp_bit_container $bit_length $left_count $right_count $threads $reps`\n";
 print {$report} "- Perf repetitions per configuration: $perf_reps\n";

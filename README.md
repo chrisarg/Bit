@@ -479,9 +479,53 @@ Start with a small trial when changing machines or counter sets:
 MAX_CONFIGS=2 REPS=1 PERF_REPS=1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
 ```
 
+### NUMA CPU tuning sweeps
+
+On a multi-socket NUMA machine, a process affinity mask alone does not choose
+where its memory pages are allocated. The focused benchmark initializes shared
+input containers before its OpenMP workers begin, so Linux's default first-touch
+policy can place most input memory on one node. This can cause workers on the
+other socket to repeatedly access remote memory.
+
+Use `scripts/run_numa_sweeps.sh` to run four comparable full tuning sweeps on a
+dual-socket Xeon E5-2697 v4 topology with 18 physical cores per socket. It
+requires `numactl`, runs the sweeps sequentially, and uses only the physical
+cores numbered `0-35` (not their SMT siblings). Run it from the repository root:
+
+```bash
+./scripts/run_numa_sweeps.sh
+```
+
+The runner performs these experiments:
+
+1. `socket0-local`: CPUs `0-17`, 18 OpenMP threads, and memory bound to NUMA node 0.
+2. `socket1-local`: CPUs `18-35`, 18 OpenMP threads, and memory bound to NUMA node 1.
+3. `dual-first-touch-spread`: CPUs `0-35`, 36 OpenMP threads, OpenMP workers spread across cores, and Linux's default first-touch memory policy.
+4. `dual-interleave`: CPUs `0-35`, 36 OpenMP threads, OpenMP workers spread across cores, and allocations interleaved across NUMA nodes 0 and 1.
+
+The single-socket runs establish local-memory baselines. Comparing the two
+dual-socket runs shows whether interleaving reduces an asymmetric first-touch
+placement effect. Interleaving balances allocation across nodes; it does not
+make every memory access local.
+
+Before using this runner on another NUMA machine, inspect its topology and edit
+the CPU lists, thread counts, NUMA-node IDs, and `ARCH_TAG` in the script to
+match it:
+
+```bash
+numactl --hardware
+lscpu -e=CPU,NODE,SOCKET,CORE
+```
+
+Each sweep sets `OMP_PLACES=cores` and an explicit `OMP_PROC_BIND` policy. The
+tuning script forwards these settings to the benchmark even when `perf` is run
+through `sudo`. Every report records the requested NUMA and OpenMP policies.
+
 Each run publishes compact, architecture-labelled summaries such as
 `tuning-results/summary-x86-64-intel-core-i9-7900x-<timestamp>.csv` and
-`tuning-results/llm-summary-x86-64-intel-core-i9-7900x-<timestamp>.md`. These
+`tuning-results/llm-summary-x86-64-intel-core-i9-7900x-<timestamp>.md`. Set
+`RUN_LABEL` to include an experiment identifier between the architecture and
+timestamp, for example `...-dual-socket-interleave-<timestamp>.md`. These
 files are intended to be committed, allowing GitHub to retain results from
 multiple machines. Per-configuration build, benchmark, and perf logs remain
 local in `tuning-results/.work/<architecture>-<timestamp>/` by default and are
@@ -512,6 +556,8 @@ single values hold that parameter fixed.
 | `PRIORITY` | `nice` | Process scheduling policy: `normal`, `nice` (nice level `-20`), or `rr` (real-time round-robin priority 50). `nice` and `rr` need elevation. |
 | `MAX_CONFIGS` | `0` | Stop after this many configurations; `0` means no limit. |
 | `ARCH_TAG` | detected architecture and CPU model | Optional safe filename label for published summaries; use it to distinguish otherwise similar systems or non-Linux CPU descriptions. |
+| `RUN_LABEL` | unset | Optional safe experiment label inserted after `ARCH_TAG` in report, CSV, and raw-artifact names. |
+| `NUMA_POLICY` | `default OS policy` | Descriptive NUMA-policy text recorded in the Markdown report; apply the actual policy by launching the sweep through `numactl`. |
 | `RESULTS_DIR` | `tuning-results` | Directory for compact, commit-ready `summary-<architecture>-<timestamp>.csv` and `llm-summary-<architecture>-<timestamp>.md` results. |
 | `OUT_DIR` | `tuning-results/.work/<architecture>-<timestamp>` | Local directory for per-configuration build, benchmark, and perf logs. This is ignored by Git by default. |
 
