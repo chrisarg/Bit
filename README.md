@@ -459,16 +459,16 @@ both modes explicitly:
 LIBPOPCNT_MODES=0,1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
 ```
 
-To exhaustively evaluate the current 10-core i9-7900X machine, including both
+To exhaustively evaluate asingle socket machine, including both
 algorithms, every default tuning parameter, and every diagnostic perf profile,
 run the following from the repository root. This is a long-running measurement:
-448 build configurations and 4,928 profiled benchmark invocations.
+448 build configurations and 6,720 profiled benchmark invocations.
 
 ```bash
 LIBPOPCNT_MODES=0,1 \
 CORES=0-9 THREADS=10 \
 REPS=5 PERF_REPS=3 \
-PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency \
+PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
 ELEVATE=always \
 ./scripts/sweep_cpu_tuning.pl
 ```
@@ -518,8 +518,10 @@ lscpu -e=CPU,NODE,SOCKET,CORE
 ```
 
 Each sweep sets `OMP_PLACES=cores` and an explicit `OMP_PROC_BIND` policy. The
-tuning script forwards these settings to the benchmark even when `perf` is run
-through `sudo`. Every report records the requested NUMA and OpenMP policies.
+companion bash script uses the `NUMA_CMD` environment variable to pass targeted `numactl` bindings
+down to the tuning script. The tuning script forwards these OpenMP settings and NUMA
+commands directly to the executed benchmark, restricting the memory layout strictly for the
+workload, even when `perf` is run through `sudo`. Every report records the requested NUMA and OpenMP policies.
 
 Each run publishes compact, architecture-labelled summaries such as
 `tuning-results/summary-x86-64-intel-core-i9-7900x-<timestamp>.csv` and
@@ -550,7 +552,7 @@ single values hold that parameter fixed.
 | `BITS`, `LEFT`, `RIGHT` | `65536`, `10240`, `1024` | Bitset length and left/right container counts passed to `openmp_bit_container`. |
 | `THREADS`, `REPS` | `10`, `5` | OpenMP thread count and timed benchmark repetitions per invocation. |
 | `PERF_REPS` | `3` | Repetitions requested from `perf stat` for each profile and configuration. |
-| `PERF_PROFILES` | summary, cache L1/L2/L3/DRAM/stalls, fill/store buffers, execution uops/ports, front end, frequency | Comma-separated diagnostic profiles. Each profile is a separate, deliberately small `perf stat` event group to avoid PMU multiplexing. Use `PERF_PROFILES=summary` for a faster ranking-only sweep. |
+| `PERF_PROFILES` | summary, cache L1/L2/L3/DRAM/stalls, fill/store buffers, execution uops/ports, front end, frequency, vectorization, tlb, uncore-numa, power-rapl | Comma-separated diagnostic profiles. The script dynamically maps hardware architectures (Intel P-Cores, AMD Zen, ARM SBCs) to their kernel PMU equivalents. Each profile is a separate, deliberately small `perf stat` event group to avoid PMU multiplexing. Use `PERF_PROFILES=summary` for a faster ranking-only sweep. |
 | `PERF_EVENTS` | summary event group | Optional comma-separated replacement event list for the `summary` profile. It preserves compatibility with custom counter sets. |
 | `ELEVATE` | `auto` | `never` avoids `sudo`; `auto` uses a cached noninteractive sudo credential when available; `always` obtains a sudo credential once, then reuses it for every profiled run. |
 | `PRIORITY` | `nice` | Process scheduling policy: `normal`, `nice` (nice level `-20`), or `rr` (real-time round-robin priority 50). `nice` and `rr` need elevation. |
@@ -558,6 +560,7 @@ single values hold that parameter fixed.
 | `ARCH_TAG` | detected architecture and CPU model | Optional safe filename label for published summaries; use it to distinguish otherwise similar systems or non-Linux CPU descriptions. |
 | `RUN_LABEL` | unset | Optional safe experiment label inserted after `ARCH_TAG` in report, CSV, and raw-artifact names. |
 | `NUMA_POLICY` | `default OS policy` | Descriptive NUMA-policy text recorded in the Markdown report; apply the actual policy by launching the sweep through `numactl`. |
+| `NUMA_CMD` | unset | Optional command string (e.g. `numactl --membind=0`) dynamically prepended to the benchmark execution command within the Perl script to bind the payload's memory access exclusively to a NUMA node without affecting compile or profiling overhead. |
 | `RESULTS_DIR` | `tuning-results` | Directory for compact, commit-ready `summary-<architecture>-<timestamp>.csv` and `llm-summary-<architecture>-<timestamp>.md` results. |
 | `OUT_DIR` | `tuning-results/.work/<architecture>-<timestamp>` | Local directory for per-configuration build, benchmark, and perf logs. This is ignored by Git by default. |
 
