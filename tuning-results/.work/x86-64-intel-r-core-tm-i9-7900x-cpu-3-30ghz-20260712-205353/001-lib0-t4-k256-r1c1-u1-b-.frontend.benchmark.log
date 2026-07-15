@@ -1,0 +1,47 @@
+nice: Interrupt
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 4
+ CPU_TILE_BITS        : 4
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 256
+ SETOP_BUFFER_SIZE    : 32
+ OUTER_ROW_NUM        : 1
+ OUTER_COL_NUM        : 1
+ OUTER_VEC_BLK        : 1
+------------------------------------------
+ Using LIBPOPCNT      : No
+==========================================
+run 1: 492625648 ns
+run 2: 262928035 ns
+run 3: 570846372 ns
+run 4: 432680198 ns
+run 5: 439563538 ns
+best:    262928035 ns (3.895 Gqword-pairs/s)
+average: 439728758 ns (2.329 Gqword-pairs/s)
+checksum: 32768000000
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 4
+ CPU_TILE_BITS        : 4
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 256
+ SETOP_BUFFER_SIZE    : 32
+ OUTER_ROW_NUM        : 1
+ OUTER_COL_NUM        : 1
+ OUTER_VEC_BLK        : 1
+------------------------------------------
+ Using LIBPOPCNT      : No
+==========================================
+run 1: 443963535 ns
+run 2: 438411663 ns
+run 3: 438176249 ns
+run 4: 436013165 ns
+run 5: 428288209 ns
+best:    428288209 ns (2.391 Gqword-pairs/s)
+average: 436970564 ns (2.343 Gqword-pairs/s)
+checksum: 32768000000

@@ -1,0 +1,69 @@
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 32
+ CPU_TILE_BITS        : 32
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 1024
+ SETOP_BUFFER_SIZE    : 128
+ OUTER_ROW_NUM        : 2
+ OUTER_COL_NUM        : 2
+ OUTER_VEC_BLK        : 2
+------------------------------------------
+ Using LIBPOPCNT      : Yes
+==========================================
+run 1: 34704710 ns
+run 2: 35027515 ns
+run 3: 37469270 ns
+run 4: 37186501 ns
+run 5: 33196600 ns
+best:    33196600 ns (30.847 Gqword-pairs/s)
+average: 35516919 ns (28.831 Gqword-pairs/s)
+checksum: 32768000000
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 32
+ CPU_TILE_BITS        : 32
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 1024
+ SETOP_BUFFER_SIZE    : 128
+ OUTER_ROW_NUM        : 2
+ OUTER_COL_NUM        : 2
+ OUTER_VEC_BLK        : 2
+------------------------------------------
+ Using LIBPOPCNT      : Yes
+==========================================
+run 1: 33176559 ns
+run 2: 35642687 ns
+run 3: 35196224 ns
+run 4: 34117836 ns
+run 5: 33545711 ns
+best:    33176559 ns (30.865 Gqword-pairs/s)
+average: 34335803 ns (29.823 Gqword-pairs/s)
+checksum: 32768000000
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 32
+ CPU_TILE_BITS        : 32
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 1024
+ SETOP_BUFFER_SIZE    : 128
+ OUTER_ROW_NUM        : 2
+ OUTER_COL_NUM        : 2
+ OUTER_VEC_BLK        : 2
+------------------------------------------
+ Using LIBPOPCNT      : Yes
+==========================================
+run 1: 36923226 ns
+run 2: 33422749 ns
+run 3: 33249278 ns
+run 4: 33243925 ns
+run 5: 33780357 ns
+best:    33243925 ns (30.803 Gqword-pairs/s)
+average: 34123907 ns (30.008 Gqword-pairs/s)
+checksum: 32768000000

@@ -1,0 +1,69 @@
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 4
+ CPU_TILE_BITS        : 4
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 256
+ SETOP_BUFFER_SIZE    : 32
+ OUTER_ROW_NUM        : 2
+ OUTER_COL_NUM        : 2
+ OUTER_VEC_BLK        : 1
+------------------------------------------
+ Using LIBPOPCNT      : No
+==========================================
+run 1: 423992015 ns
+run 2: 413312241 ns
+run 3: 397881788 ns
+run 4: 399304932 ns
+run 5: 405955921 ns
+best:    397881788 ns (2.574 Gqword-pairs/s)
+average: 408089379 ns (2.509 Gqword-pairs/s)
+checksum: 32768000000
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 4
+ CPU_TILE_BITS        : 4
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 256
+ SETOP_BUFFER_SIZE    : 32
+ OUTER_ROW_NUM        : 2
+ OUTER_COL_NUM        : 2
+ OUTER_VEC_BLK        : 1
+------------------------------------------
+ Using LIBPOPCNT      : No
+==========================================
+run 1: 419422427 ns
+run 2: 212619915 ns
+run 3: 405962248 ns
+run 4: 227059988 ns
+run 5: 513051595 ns
+best:    212619915 ns (4.816 Gqword-pairs/s)
+average: 355623235 ns (2.879 Gqword-pairs/s)
+checksum: 32768000000
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 4
+ CPU_TILE_BITS        : 4
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 256
+ SETOP_BUFFER_SIZE    : 32
+ OUTER_ROW_NUM        : 2
+ OUTER_COL_NUM        : 2
+ OUTER_VEC_BLK        : 1
+------------------------------------------
+ Using LIBPOPCNT      : No
+==========================================
+run 1: 477674375 ns
+run 2: 502526745 ns
+run 3: 212030519 ns
+run 4: 410731229 ns
+run 5: 444270166 ns
+best:    212030519 ns (4.829 Gqword-pairs/s)
+average: 409446607 ns (2.501 Gqword-pairs/s)
+checksum: 32768000000

@@ -1,0 +1,69 @@
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 4
+ CPU_TILE_BITS        : 4
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 256
+ SETOP_BUFFER_SIZE    : 128
+ OUTER_ROW_NUM        : 2
+ OUTER_COL_NUM        : 4
+ OUTER_VEC_BLK        : 2
+------------------------------------------
+ Using LIBPOPCNT      : Yes
+==========================================
+run 1: 30373703 ns
+run 2: 30513137 ns
+run 3: 30407151 ns
+run 4: 30252619 ns
+run 5: 30249732 ns
+best:    30249732 ns (33.852 Gqword-pairs/s)
+average: 30359268 ns (33.729 Gqword-pairs/s)
+checksum: 32768000000
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 4
+ CPU_TILE_BITS        : 4
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 256
+ SETOP_BUFFER_SIZE    : 128
+ OUTER_ROW_NUM        : 2
+ OUTER_COL_NUM        : 4
+ OUTER_VEC_BLK        : 2
+------------------------------------------
+ Using LIBPOPCNT      : Yes
+==========================================
+run 1: 30141387 ns
+run 2: 30952545 ns
+run 3: 30294621 ns
+run 4: 30229482 ns
+run 5: 30107481 ns
+best:    30107481 ns (34.011 Gqword-pairs/s)
+average: 30345103 ns (33.745 Gqword-pairs/s)
+checksum: 32768000000
+==========================================
+        System Bit Configuration          
+==========================================
+ CPU_TILE_BIT         : 4
+ CPU_TILE_BITS        : 4
+ GPU_TILE_J           : 2048
+ GPU_ILP              : 16
+ K_BLOCK              : 256
+ SETOP_BUFFER_SIZE    : 128
+ OUTER_ROW_NUM        : 2
+ OUTER_COL_NUM        : 4
+ OUTER_VEC_BLK        : 2
+------------------------------------------
+ Using LIBPOPCNT      : Yes
+==========================================
+run 1: 31966298 ns
+run 2: 31764851 ns
+run 3: 31166952 ns
+run 4: 30096123 ns
+run 5: 30071742 ns
+best:    30071742 ns (34.052 Gqword-pairs/s)
+average: 31013193 ns (33.018 Gqword-pairs/s)
+checksum: 32768000000
