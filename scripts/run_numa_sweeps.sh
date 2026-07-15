@@ -39,15 +39,15 @@ run_sweep() {
 
 # Use each socket's 18 physical cores with all allocations local to that node.
 run_sweep socket0-local 'cpunodebind=0, membind=0' 'numactl --cpunodebind=0 --membind=0' \
-  OMP_PLACES=cores OMP_PROC_BIND=close CORES=0-17 THREADS=18
+  OMP_PLACES=cores OMP_PROC_BIND=close CORES=0-17 THREADS=18 RUN_LABEL=AVX512
 
 run_sweep socket1-local 'cpunodebind=1, membind=1' 'numactl --cpunodebind=1 --membind=1' \
-  OMP_PLACES=cores OMP_PROC_BIND=close CORES=18-35 THREADS=18
+  OMP_PLACES=cores OMP_PROC_BIND=close CORES=18-35 THREADS=18 RUN_LABEL=AVX512
 
 # Re-establish a dual-socket first-touch baseline with OpenMP core binding.
 # Empty string passed for numa_cmd as default OS policy applies.
 run_sweep dual-first-touch-spread 'default first-touch policy' '' \
-  OMP_PLACES=cores OMP_PROC_BIND=spread CORES=0-35 THREADS=36
+  OMP_PLACES=cores OMP_PROC_BIND=spread CORES=0-35 THREADS=36 RUN_LABEL=AVX512
 
 # Spread threads across sockets and interleave newly allocated pages by node.
 run_sweep dual-interleave 'interleave=0,1' 'numactl --interleave=0,1' \
