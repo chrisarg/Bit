@@ -31,6 +31,9 @@
 *.swo
 
 
+# ignore CSV, but not if it's in the benchmark directory (for output)
+*.csv
+!benchmark_GPU_params/**/*.csv
 
 # Custom build directories (when BUILD_DIR is specified)
 # Add specific paths here if you have common build locations
