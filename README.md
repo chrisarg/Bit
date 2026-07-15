@@ -433,6 +433,146 @@ The benchmark will run:
 
 The containerized operations in the CPU are approximately twice as fast as the OpenMP accelerated equivalent non containerized operations for long bitsets because of the memory locality property. GPU acceleration is also considerable but the actual mileage may vary according to the OpenMP kernel execution strategies. The CPU-only benchmark (`openmo_bit_nogpu`) omits entirely the GPU benchmarks.
 
+#### CPU container-kernel tuning sweep
+
+`scripts/sweep_cpu_tuning.pl` automates CPU tuning of the containerized
+intersection-count kernel. For each configuration it performs a clean rebuild,
+runs the focused `openmp_bit_container` benchmark with a fixed CPU affinity,
+and collects a `perf stat` profile. It is intended for comparing the CPU tile,
+K block, outer-product microkernel shape, and algorithm-specific unrolling or
+scratch-buffer choices without timing unrelated benchmark work.
+
+Build the CPU benchmark target once to verify that the toolchain works, then
+run the script from the repository root:
+
+```bash
+make bench_omp GPU=NONE CC=clang
+
+ELEVATE=always CORES=0-9 REPS=5 PERF_REPS=3 ./scripts/sweep_cpu_tuning.pl
+```
+
+The default sweep evaluates the direct SIMD implementation (`LIBPOPCNT=0`). To
+compare it with the independent libpopcnt scratch-buffer implementation, include
+both modes explicitly:
+
+```bash
+LIBPOPCNT_MODES=0,1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
+```
+
+To exhaustively evaluate asingle socket machine, including both
+algorithms, every default tuning parameter, and every diagnostic perf profile,
+run the following from the repository root. This is a long-running measurement:
+448 build configurations and 6,720 profiled benchmark invocations.
+
+```bash
+LIBPOPCNT_MODES=0,1 \
+CORES=0-9 THREADS=10 \
+REPS=5 PERF_REPS=3 \
+RUN_LABEL=avx512\
+PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
+ELEVATE=always \
+./scripts/sweep_cpu_tuning.pl
+```
+
+Start with a small trial when changing machines or counter sets:
+
+```bash
+MAX_CONFIGS=2 REPS=1 PERF_REPS=1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
+```
+
+### NUMA CPU tuning sweeps
+
+On a multi-socket NUMA machine, a process affinity mask alone does not choose
+where its memory pages are allocated. The focused benchmark initializes shared
+input containers before its OpenMP workers begin, so Linux's default first-touch
+policy can place most input memory on one node. This can cause workers on the
+other socket to repeatedly access remote memory.
+
+Use `scripts/run_numa_sweeps.sh` to run four comparable full tuning sweeps on a
+dual-socket Xeon E5-2697 v4 topology with 18 physical cores per socket. It
+requires `numactl`, runs the sweeps sequentially, and uses only the physical
+cores numbered `0-35` (not their SMT siblings). Run it from the repository root:
+
+```bash
+./scripts/run_numa_sweeps.sh
+```
+
+The runner performs these experiments:
+
+1. `socket0-local`: CPUs `0-17`, 18 OpenMP threads, and memory bound to NUMA node 0.
+2. `socket1-local`: CPUs `18-35`, 18 OpenMP threads, and memory bound to NUMA node 1.
+3. `dual-first-touch-spread`: CPUs `0-35`, 36 OpenMP threads, OpenMP workers spread across cores, and Linux's default first-touch memory policy.
+4. `dual-interleave`: CPUs `0-35`, 36 OpenMP threads, OpenMP workers spread across cores, and allocations interleaved across NUMA nodes 0 and 1.
+
+The single-socket runs establish local-memory baselines. Comparing the two
+dual-socket runs shows whether interleaving reduces an asymmetric first-touch
+placement effect. Interleaving balances allocation across nodes; it does not
+make every memory access local.
+
+Before using this runner on another NUMA machine, inspect its topology and edit
+the CPU lists, thread counts, NUMA-node IDs, and `ARCH_TAG` in the script to
+match it:
+
+```bash
+numactl --hardware
+lscpu -e=CPU,NODE,SOCKET,CORE
+```
+
+Each sweep sets `OMP_PLACES=cores` and an explicit `OMP_PROC_BIND` policy. The
+companion bash script uses the `NUMA_CMD` environment variable to pass targeted `numactl` bindings
+down to the tuning script. The tuning script forwards these OpenMP settings and NUMA
+commands directly to the executed benchmark, restricting the memory layout strictly for the
+workload, even when `perf` is run through `sudo`. Every report records the requested NUMA and OpenMP policies.
+
+Each run publishes compact, architecture-labelled summaries such as
+`tuning-results/summary-x86-64-intel-core-i9-7900x-<timestamp>.csv` and
+`tuning-results/llm-summary-x86-64-intel-core-i9-7900x-<timestamp>.md`. Set
+`RUN_LABEL` to include an experiment identifier between the architecture and
+timestamp, for example `...-dual-socket-interleave-<timestamp>.md`. These
+files are intended to be committed, allowing GitHub to retain results from
+multiple machines. Per-configuration build, benchmark, and perf logs remain
+local in `tuning-results/.work/<architecture>-<timestamp>/` by default and are
+ignored by Git. The Markdown summary is ranked by average elapsed time and is
+designed to be supplied directly to an LLM. The script runs `make distclean`
+before every configuration, so do not keep required uncommitted build artifacts
+in `build/` while it is running.
+
+All controls are environment variables. Comma-separated values define a sweep;
+single values hold that parameter fixed.
+
+| Variable | Default | Description |
+|---|---|---|
+| `LIBPOPCNT_MODES` | `0` | Algorithms to compare: `0` is the direct SIMD kernel and `1` is the libpopcnt scratch-buffer path. |
+| `CPU_TILES` | `4,8,16,32` | CPU database tile sizes compiled as `CPU_TILE`. |
+| `K_BLOCKS` | `256,512,768,1024` | K-dimension block sizes compiled as `BITVECTOR_TILE`. |
+| `SHAPES` | `1x1,2x2,2x4,4x2` | Outer microkernel shapes, written as `ROWSxCOLS`. |
+| `UNROLLS` | `1,2,4` | `OUTER_VEC_BLK` values; swept only for mode `0`. |
+| `BUFFER_SIZES` | `16,32,64,128` | `BUFFER_SIZE` values; swept only for mode `1`. |
+| `CC` | `clang` | Compiler supplied to `make`. |
+| `CORES` | `0-9` | CPU list passed to `taskset -c`. Match this to physical cores where possible. |
+| `BITS`, `LEFT`, `RIGHT` | `65536`, `10240`, `1024` | Bitset length and left/right container counts passed to `openmp_bit_container`. |
+| `THREADS`, `REPS` | `10`, `5` | OpenMP thread count and timed benchmark repetitions per invocation. |
+| `PERF_REPS` | `3` | Repetitions requested from `perf stat` for each profile and configuration. |
+| `PERF_PROFILES` | summary, cache L1/L2/L3/DRAM/stalls, fill/store buffers, execution uops/ports, front end, frequency, vectorization, tlb, uncore-numa, power-rapl | Comma-separated diagnostic profiles. The script dynamically maps hardware architectures (Intel P-Cores, AMD Zen, ARM SBCs) to their kernel PMU equivalents. Each profile is a separate, deliberately small `perf stat` event group to avoid PMU multiplexing. Use `PERF_PROFILES=summary` for a faster ranking-only sweep. |
+| `PERF_EVENTS` | summary event group | Optional comma-separated replacement event list for the `summary` profile. It preserves compatibility with custom counter sets. |
+| `ELEVATE` | `auto` | `never` avoids `sudo`; `auto` uses a cached noninteractive sudo credential when available; `always` obtains a sudo credential once, then reuses it for every profiled run. |
+| `PRIORITY` | `nice` | Process scheduling policy: `normal`, `nice` (nice level `-20`), or `rr` (real-time round-robin priority 50). `nice` and `rr` need elevation. |
+| `MAX_CONFIGS` | `0` | Stop after this many configurations; `0` means no limit. |
+| `ARCH_TAG` | detected architecture and CPU model | Optional safe filename label for published summaries; use it to distinguish otherwise similar systems or non-Linux CPU descriptions. |
+| `RUN_LABEL` | unset | Optional safe experiment label inserted after `ARCH_TAG` in report, CSV, and raw-artifact names. |
+| `NUMA_POLICY` | `default OS policy` | Descriptive NUMA-policy text recorded in the Markdown report; apply the actual policy by launching the sweep through `numactl`. |
+| `NUMA_CMD` | unset | Optional command string (e.g. `numactl --membind=0`) dynamically prepended to the benchmark execution command within the Perl script to bind the payload's memory access exclusively to a NUMA node without affecting compile or profiling overhead. |
+| `RESULTS_DIR` | `tuning-results` | Directory for compact, commit-ready `summary-<architecture>-<timestamp>.csv` and `llm-summary-<architecture>-<timestamp>.md` results. |
+| `OUT_DIR` | `tuning-results/.work/<architecture>-<timestamp>` | Local directory for per-configuration build, benchmark, and perf logs. This is ignored by Git by default. |
+
+The default direct-SIMD sweep contains 192 configurations; its eleven default
+perf profiles therefore execute 2,112 profiled benchmark invocations. Enabling
+both algorithms produces 448 configurations, so a full diagnostic run can take
+substantial time. Use `PERF_PROFILES=summary` while narrowing the tuning space,
+then run the complete profile set on the best candidates. `perf` access is controlled by the host's
+`kernel.perf_event_paranoid` setting; use `ELEVATE=always` where permitted or
+adjust that policy according to local system-administration requirements.
+
 The repository [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits) 
 contains benchmarks against other bitset/bitvector/bitmaps in C and Perl.
 

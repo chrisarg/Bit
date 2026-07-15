@@ -53,6 +53,23 @@
 #define CPU_TILE_BITS CPU_TILE
 #endif
 
+/* Outer Product Layout Settings. Change these to alter the microkernel */
+#ifndef OUTER_ROW_NUM
+#define OUTER_ROW_NUM 2
+#endif
+
+#ifndef OUTER_COL_NUM
+#define OUTER_COL_NUM 2
+#endif
+
+/* Unroll factor for the SIMDe K-loop.
+   U=2 is optimal for OUTER_ROW_NUM=2, OUTER_COL_NUM=2 (8 accumulators).
+   If using OUTER_ROW_NUM=4, OUTER_COL_NUM=4 (16 accumulators), consider
+   dropping to 1 to avoid spill */
+#ifndef OUTER_VEC_BLK
+#define OUTER_VEC_BLK 2
+#endif
+
 #ifndef BITVECTOR_TILE
 #define K_BLOCK 1024
 #else
@@ -75,22 +92,22 @@
 
 /* --- Concrete representations of opaque types defined in bit.h --- */
 struct T {
-  int length;              // capacity of the bitset in bits
-  int size_in_bytes;       // number of bytes of the 8 bit container
-  int size_in_qwords;      // number of qwords of the 64 bit container
-  bool is_Bit_T_allocated; // true if allocated by the library
-  unsigned char *bytes;    // pointer to the first byte
-  uint64_t *qwords;        // pointer to the first qword
+  unsigned int length;         // capacity of the bitset in bits
+  unsigned int size_in_bytes;  // number of bytes of the 8 bit container
+  unsigned int size_in_qwords; // number of qwords of the 64 bit container
+  unsigned char *bytes;        // pointer to the first byte
+  uint64_t *qwords;            // pointer to the first qword
+  bool is_Bit_T_allocated;     // true if allocated by the library
 };
 
 struct T_DB {
-  int nelem;               // number of bitsets in the packed container
-  int length;              // capacity of the bitset in bits
-  int size_in_bytes;       // number of bytes of the 8 bit set container
-  int size_in_qwords;      // number of qwords of the 64 bit set container
-  bool is_Bit_T_allocated; // true if allocated by the library
-  unsigned char *bytes;    // pointer to the first byte
-  uint64_t *qwords;        // pointer to the first qword
+  unsigned int nelem;          // number of bitsets in the packed container
+  unsigned int length;         // capacity of the bitset in bits
+  unsigned int size_in_bytes;  // number of bytes of the 8 bit set container
+  unsigned int size_in_qwords; // number of qwords of the 64 bit set container
+  unsigned char *bytes;        // pointer to the first byte
+  uint64_t *qwords;            // pointer to the first qword
+  bool is_Bit_T_allocated;     // true if allocated by the library
 };
 
 /* --- Fast inline WWG and Tree-Adder popcount algorithms --- */
@@ -179,7 +196,6 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define LIMIT_STATEMENT(limit, bit_size_in_qwords, SETOP_BUFFER_SIZE)          \
   size_t limit = bit_size_in_qwords - bit_size_in_qwords % SETOP_BUFFER_SIZE;
 
-
 /* --- End Section 2: PRIVATE IMPLEMENTATION MACROS --- */
 
 /* ===========================================================================
@@ -213,8 +229,9 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define setop_count(op, s, t)                                                  \
   do {                                                                         \
     uint64_t count = 0;                                                        \
+    unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     _Pragma(STRINGIFY(omp simd)) /* SIMD directive for the set operation */    \
-        for (int i = 0; i < s->size_in_qwords; i++) {                          \
+        for (unsigned int i = 0; i < bit_size_in_qwords; i++) {                \
       count += POPCOUNT(BIT_SCALAR##op(s->qwords[i], t->qwords[i]));           \
     }                                                                          \
     return (int)count;                                                         \
@@ -223,8 +240,9 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define setop_count(op, s, t)                                                  \
   do {                                                                         \
     uint64_t count = 0;                                                        \
+    unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     size_t limit =                                                             \
-        (s->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;           \
+        (bit_size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;          \
     size_t i = 0;                                                              \
                                                                                \
     VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
@@ -271,7 +289,7 @@ static inline uint64_t tree_adder(uint64_t v) {
     for (size_t j = 0; j < VECTOR_QWORDS; j++) {                               \
       count += sum_array[j];                                                   \
     }                                                                          \
-    for (; i < s->size_in_qwords; i++) {                                       \
+    for (; i < bit_size_in_qwords; i++) {                                      \
       count += POPCOUNT(BIT_SCALAR##op(s->qwords[i], t->qwords[i]));           \
     }                                                                          \
     return (int)count;                                                         \
@@ -281,6 +299,7 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define setop_count(op, s, t)                                                  \
   do {                                                                         \
     uint64_t count = 0;                                                        \
+    unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/          \
     int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;     \
     int i = 0;                                                                 \
@@ -291,7 +310,7 @@ static inline uint64_t tree_adder(uint64_t v) {
       count +=                                                                 \
           popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));  \
     }                                                                          \
-    for (; i < s->size_in_qwords; i++) {                                       \
+    for (; i < bit_size_in_qwords; i++) {                                      \
       count += POPCOUNT(BIT_SCALAR##op(s->qwords[i], t->qwords[i]));           \
     }                                                                          \
     return (int)count;                                                         \
@@ -304,7 +323,7 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define setop(set, op, s, t)                                                   \
   do {                                                                         \
     _Pragma(STRINGIFY(omp simd)) /* SIMD directive for the set operation */    \
-        for (int i = 0; i < s->size_in_qwords; i++)                            \
+        for (unsigned int i = 0; i < bit_size_in_qwords; i++)                  \
             set->qwords[i] = BIT_SCALAR##op(s->qwords[i], t->qwords[i]);       \
   } while (0)
 #else
@@ -312,47 +331,48 @@ static inline uint64_t tree_adder(uint64_t v) {
   do {                                                                         \
     size_t limit =                                                             \
         (s->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;           \
+    unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     size_t i = 0;                                                              \
     for (; i < limit; i += VECTOR_BLOCK_SIZE) {                                \
       /* Load First operand */                                                 \
       VECTOR_TYPE a0 = VECTOR_UNALIGNED_LOAD(                                  \
           (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)]);                    \
-      VECTOR_TYPE a1 = VECTOR_UNALIGNED_LOAD(                                  \
-          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)]);                    \
-      VECTOR_TYPE a2 = VECTOR_UNALIGNED_LOAD(                                  \
-          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)]);                    \
-      VECTOR_TYPE a3 = VECTOR_UNALIGNED_LOAD(                                  \
-          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(3)]);                    \
-                                                                               \
-      /* Load Second operand  */                                               \
       VECTOR_TYPE b0 = VECTOR_UNALIGNED_LOAD(                                  \
           (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(0)]);                    \
-      VECTOR_TYPE b1 = VECTOR_UNALIGNED_LOAD(                                  \
-          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(1)]);                    \
-      VECTOR_TYPE b2 = VECTOR_UNALIGNED_LOAD(                                  \
-          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(2)]);                    \
-      VECTOR_TYPE b3 = VECTOR_UNALIGNED_LOAD(                                  \
-          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(3)]);                    \
-                                                                               \
-      /* Compute the operation using intrinsics */                             \
       VECTOR_TYPE r0 = BIT##op(a0, b0);                                        \
-      VECTOR_TYPE r1 = BIT##op(a1, b1);                                        \
-      VECTOR_TYPE r2 = BIT##op(a2, b2);                                        \
-      VECTOR_TYPE r3 = BIT##op(a3, b3);                                        \
-                                                                               \
-      /* Store - Address logic fixed */                                        \
       VECTOR_UNALIGNED_STORE(                                                  \
           (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(0)], r0);              \
+                                                                               \
+      /* Load Second operand */                                                \
+      a0 = VECTOR_UNALIGNED_LOAD(                                              \
+          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)]);                    \
+      b0 = VECTOR_UNALIGNED_LOAD(                                              \
+          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(1)]);                    \
+      r0 = BIT##op(a0, b0);                                                    \
       VECTOR_UNALIGNED_STORE(                                                  \
-          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)], r1);              \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)], r0);              \
+                                                                               \
+      /* Load Third operand */                                                 \
+      a0 = VECTOR_UNALIGNED_LOAD(                                              \
+          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)]);                    \
+      b0 = VECTOR_UNALIGNED_LOAD(                                              \
+          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(2)]);                    \
+      r0 = BIT##op(a0, b0);                                                    \
       VECTOR_UNALIGNED_STORE(                                                  \
-          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)], r2);              \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)], r0);              \
+                                                                               \
+      /* Load Fourth operand */                                                \
+      a0 = VECTOR_UNALIGNED_LOAD(                                              \
+          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(3)]);                    \
+      b0 = VECTOR_UNALIGNED_LOAD(                                              \
+          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(3)]);                    \
+      r0 = BIT##op(a0, b0);                                                    \
       VECTOR_UNALIGNED_STORE(                                                  \
-          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)], r3);              \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)], r0);              \
     }                                                                          \
                                                                                \
     /* Scalar remainder loop */                                                \
-    for (; i < s->size_in_qwords; i++) {                                       \
+    for (; i < bit_size_in_qwords; i++) {                                      \
       set->qwords[i] = BIT_SCALAR##op(s->qwords[i], t->qwords[i]);             \
     }                                                                          \
   } while (0)
@@ -374,9 +394,9 @@ static inline uint64_t tree_adder(uint64_t v) {
                        num_targets, n)                                         \
   uint64_t *bit_qwords = bit->qwords;                                          \
   uint64_t *bits_qwords = bits->qwords;                                        \
-  int bit_size_in_qwords = bit->size_in_qwords;                                \
-  int num_targets = bit->nelem;                                                \
-  int n = bits->nelem;
+  unsigned int bit_size_in_qwords = bit->size_in_qwords;                       \
+  unsigned int num_targets = bit->nelem;                                       \
+  unsigned int n = bits->nelem;
 
 /* Accumulate popcount over a tile buffer (libpopcnt vs WWG dispatch) */
 #if !USE_LIBPOPCNT
@@ -384,7 +404,7 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define POPULATION_COUNT(count, setop_buffer, buffer_size)                     \
   /* SIMD SYNCHRONIZATION DIRECTIVE */                                         \
   OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, setop_buffer)                           \
-  for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                                \
+  for (int k = 0; k < buffer_size; k++) {                                      \
     count += POPCOUNT(setop_buffer[k]);                                        \
   }
 
@@ -395,9 +415,189 @@ static inline uint64_t tree_adder(uint64_t v) {
 
 #endif
 
+/* --- 1x1 Microkernel (Strictly used for fringes and 1x1 fast path) --- */
+#if USE_LIBPOPCNT || BIT_SIMD_PATH_SCALAR
+#define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result, op,        \
+                                  SIMD_DIRECTIVE, LOAD_MACRO)                  \
+  do {                                                                         \
+    _Alignas(ALIGNMENT) uint64_t setop_buffer[SETOP_BUFFER_SIZE];              \
+    uint64_t count = 0;                                                        \
+    size_t l = k_b;                                                            \
+    CHUNK_LIMIT(limit, k_b, k_max, SETOP_BUFFER_SIZE)                          \
+    for (; l < limit; l += SETOP_BUFFER_SIZE) {                                \
+      SIMD_DIRECTIVE                                                           \
+      for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                            \
+        setop_buffer[k] = BIT_SCALAR##op(a_row[l + k], b_row[l + k]);          \
+      }                                                                        \
+      POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                 \
+    }                                                                          \
+    for (; l < k_max; l++) {                                                   \
+      count += POPCOUNT(BIT_SCALAR##op(a_row[l], b_row[l]));                   \
+    }                                                                          \
+    result = (int)count;                                                       \
+  } while (0)
+#else
+#define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result, op,        \
+                                  SIMD_DIRECTIVE, LOAD_MACRO)                  \
+  do {                                                                         \
+    uint64_t count = 0;                                                        \
+    size_t k_idx = k_b;                                                        \
+    CHUNK_LIMIT(limit, k_b, k_max, VECTOR_BLOCK_SIZE)                          \
+    VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
+    for (; k_idx < limit; k_idx += VECTOR_BLOCK_SIZE) {                        \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(0)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(0)]))));  \
+                                                                               \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(1)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(1)]))));  \
+                                                                               \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(2)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(2)]))));  \
+                                                                               \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(3)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(3)]))));  \
+    }                                                                          \
+    uint64_t sum_array[VECTOR_QWORDS];                                         \
+    SIMDe_STORE_VECTOR(sum_array, sum0);                                       \
+    for (size_t j_idx = 0; j_idx < VECTOR_QWORDS; j_idx++) {                   \
+      count += sum_array[j_idx];                                               \
+    }                                                                          \
+    for (; k_idx < k_max; k_idx++) {                                           \
+      count += POPCOUNT(BIT_SCALAR##op(a_row[k_idx], b_row[k_idx]));           \
+    }                                                                          \
+    result = (int)count;                                                       \
+  } while (0)
+#endif
 
-/* Open the 6-loop tiled architecture */
-#define OMP_CPU_TILE_START                                                     \
+/* --- Parameterized Generic Outer Product Microkernel --- */
+#if USE_LIBPOPCNT || BIT_SIMD_PATH_SCALAR
+#define setop_count_db_cpu_kernel_outer(a_rows, b_rows, k_b, k_max, results,   \
+                                        op, SIMD_DIRECTIVE, LOAD_MACRO)        \
+  do {                                                                         \
+    /* Per-output contiguous buffer for libpopcnt bulk reduction. */           \
+    const int BUF_SZ = SETOP_BUFFER_SIZE;                                      \
+    _Alignas(ALIGNMENT)                                                        \
+        uint64_t setop_buffer[OUTER_ROW_NUM][OUTER_COL_NUM][BUF_SZ];           \
+    uint64_t c[OUTER_ROW_NUM][OUTER_COL_NUM] = {0};                            \
+    size_t l = k_b;                                                            \
+    CHUNK_LIMIT(limit, k_b, k_max, BUF_SZ)                                     \
+    for (; l < limit; l += BUF_SZ) {                                           \
+      SIMD_DIRECTIVE                                                           \
+      for (int k = 0; k < BUF_SZ; k++) {                                       \
+        uint64_t a_values[OUTER_ROW_NUM];                                      \
+        uint64_t b_values[OUTER_COL_NUM];                                      \
+        for (int x = 0; x < OUTER_ROW_NUM; ++x)                                \
+          a_values[x] = a_rows[x][l + k];                                      \
+                                                                               \
+        for (int y = 0; y < OUTER_COL_NUM; ++y)                                \
+          b_values[y] = b_rows[y][l + k];                                      \
+                                                                               \
+        for (int x = 0; x < OUTER_ROW_NUM; ++x)                                \
+          for (int y = 0; y < OUTER_COL_NUM; ++y)                              \
+            setop_buffer[x][y][k] = BIT_SCALAR##op(a_values[x], b_values[y]);  \
+      }                                                                        \
+      for (int x = 0; x < OUTER_ROW_NUM; x++) {                                \
+        for (int y = 0; y < OUTER_COL_NUM; y++) {                              \
+          POPULATION_COUNT(c[x][y], setop_buffer[x][y], BUF_SZ)                \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+    for (; l < k_max; l++) {                                                   \
+      for (int x = 0; x < OUTER_ROW_NUM; x++) {                                \
+        for (int y = 0; y < OUTER_COL_NUM; y++) {                              \
+          c[x][y] += POPCOUNT(BIT_SCALAR##op(a_rows[x][l], b_rows[y][l]));     \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+    for (int x = 0; x < OUTER_ROW_NUM; x++) {                                  \
+      for (int y = 0; y < OUTER_COL_NUM; y++) {                                \
+        results[x][y] = (int)c[x][y];                                          \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
+#else
+#define setop_count_db_cpu_kernel_outer(a_rows, b_rows, k_b, k_max, results,   \
+                                        op, SIMD_DIRECTIVE, LOAD_MACRO)        \
+  do {                                                                         \
+    uint64_t c[OUTER_ROW_NUM][OUTER_COL_NUM] = {0};                            \
+    size_t k_idx = k_b;                                                        \
+    /* FIX: Multiply the unroll factor by the vector word width */             \
+    const size_t step_size = (size_t)(OUTER_VEC_BLK * VECTOR_QWORDS);          \
+    CHUNK_LIMIT(limit, k_b, k_max, step_size)                                  \
+    VECTOR_TYPE sum[OUTER_ROW_NUM][OUTER_COL_NUM];                             \
+    for (int x = 0; x < OUTER_ROW_NUM; x++) {                                  \
+      for (int y = 0; y < OUTER_COL_NUM; y++) {                                \
+        sum[x][y] = SIMDe_ZERO_VECTOR;                                         \
+      }                                                                        \
+    }                                                                          \
+    for (; k_idx < limit; k_idx += step_size) {                                \
+      for (int u = 0; u < OUTER_VEC_BLK; u++) {                                \
+        VECTOR_TYPE a_vectors[OUTER_ROW_NUM];                                  \
+        VECTOR_TYPE b_vectors[OUTER_COL_NUM];                                  \
+                                                                               \
+        for (int x = 0; x < OUTER_ROW_NUM; x++) {                              \
+          a_vectors[x] =                                                       \
+              LOAD_MACRO((VECTOR_TYPE *)&a_rows[x][k_idx + VECTOR_OFFSET(u)]); \
+        }                                                                      \
+        for (int y = 0; y < OUTER_COL_NUM; y++) {                              \
+          b_vectors[y] =                                                       \
+              LOAD_MACRO((VECTOR_TYPE *)&b_rows[y][k_idx + VECTOR_OFFSET(u)]); \
+        }                                                                      \
+                                                                               \
+        for (int x = 0; x < OUTER_ROW_NUM; x++) {                              \
+          for (int y = 0; y < OUTER_COL_NUM; y++) {                            \
+            sum[x][y] = SIMDe_VECTOR_ADD(                                      \
+                sum[x][y],                                                     \
+                SIMDe_POPCOUNT(BIT##op(a_vectors[x], b_vectors[y])));          \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+    /* Extract Phase */                                                        \
+    uint64_t sum_array[OUTER_ROW_NUM][OUTER_COL_NUM][VECTOR_QWORDS];           \
+    for (int x = 0; x < OUTER_ROW_NUM; x++) {                                  \
+      for (int y = 0; y < OUTER_COL_NUM; y++) {                                \
+        SIMDe_STORE_VECTOR(sum_array[x][y], sum[x][y]);                        \
+        for (size_t v = 0; v < VECTOR_QWORDS; v++) {                           \
+          c[x][y] += sum_array[x][y][v];                                       \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+    /* Scalar Fringe */                                                        \
+    for (; k_idx < k_max; k_idx++) {                                           \
+      for (int x = 0; x < OUTER_ROW_NUM; x++) {                                \
+        for (int y = 0; y < OUTER_COL_NUM; y++) {                              \
+          c[x][y] +=                                                           \
+              POPCOUNT(BIT_SCALAR##op(a_rows[x][k_idx], b_rows[y][k_idx]));    \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+    for (int x = 0; x < OUTER_ROW_NUM; x++) {                                  \
+      for (int y = 0; y < OUTER_COL_NUM; y++) {                                \
+        results[x][y] = (int)c[x][y];                                          \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
+#endif
+
+/* MACRO ARCHITECTURE AND LOOP DISPATCH */
+#if (OUTER_ROW_NUM == 1 && OUTER_COL_NUM == 1)
+
+/* Fast-path Architecture for 1x1 dimensions (Zero fringes, direct 1x1 kernel
+ * dispatch) */
+#define OMP_CPU_TILE_START_OUTER                                               \
   OMP_CPU_LOOP(1, dynamic)                                                     \
   for (int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
     for (int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
@@ -406,38 +606,115 @@ static inline uint64_t tree_adder(uint64_t v) {
                                                      : num_targets;            \
       int j_max = (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;         \
                                                                                \
-      /* Zero-initialize the output tile before accumulating K-chunks */       \
       for (int i = i_b; i < i_max; i++) {                                      \
         for (int j = j_b; j < j_max; j++) {                                    \
           counts[(uint64_t)i * n + j] = 0;                                     \
         }                                                                      \
       }                                                                        \
                                                                                \
-      /* 6th LOOP: Macro K-Tiling */                                           \
       for (size_t k_b = 0; k_b < bit_size_in_qwords; k_b += K_BLOCK) {         \
         size_t k_max = (k_b + K_BLOCK < bit_size_in_qwords)                    \
                            ? k_b + K_BLOCK                                     \
                            : bit_size_in_qwords;                               \
                                                                                \
-        /* Compute all pairs for THIS specific K-chunk */                      \
         for (int i = i_b; i < i_max; i++) {                                    \
           const uint64_t *restrict a_row =                                     \
               bit_qwords + (uint64_t)i * bit_size_in_qwords;                   \
-                                                                               \
           for (int j = j_b; j < j_max; j++) {                                  \
             const uint64_t *restrict b_row =                                   \
-                bits_qwords + (uint64_t)j * bit_size_in_qwords;                \
-            int chunk_result = 0;
+                bits_qwords + (uint64_t)j * bit_size_in_qwords;
 
-/* Close the tiled double loop — matches the loops in OMP_CPU_TILE_START */
-#define OMP_CPU_TILE_END                                                       \
-            /* Accumulate the result of the K-chunk */                         \
-            counts[(uint64_t)i * n + j] += chunk_result;                       \
-          }                                                                    \
+#define OMP_CPU_TILE_END_OUTER(op, SIMD_DIR, LOAD_MACRO)                       \
+  int result = 0;                                                              \
+  setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result, op, SIMD_DIR,    \
+                            LOAD_MACRO);                                       \
+  counts[(uint64_t)i * n + j] += result;                                       \
+  }                                                                            \
+  }                                                                            \
+  }                                                                            \
+  }                                                                            \
+  }
+
+#else
+
+/* Generic Tiled Architecture for dimensions > 1 (Outer product arrays + fringe
+ * handling) */
+#define OMP_CPU_TILE_START_OUTER                                               \
+  OMP_CPU_LOOP(1, dynamic)                                                     \
+  for (int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
+    for (int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
+                                                                               \
+      int i_max = (i_b + CPU_TILE_BIT < num_targets) ? i_b + CPU_TILE_BIT      \
+                                                     : num_targets;            \
+      int j_max = (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;         \
+                                                                               \
+      for (int i = i_b; i < i_max; i++) {                                      \
+        for (int j = j_b; j < j_max; j++) {                                    \
+          counts[(uint64_t)i * n + j] = 0;                                     \
         }                                                                      \
       }                                                                        \
+                                                                               \
+      for (size_t k_b = 0; k_b < bit_size_in_qwords; k_b += K_BLOCK) {         \
+        size_t k_max = (k_b + K_BLOCK < bit_size_in_qwords)                    \
+                           ? k_b + K_BLOCK                                     \
+                           : bit_size_in_qwords;                               \
+                                                                               \
+        int i = i_b;                                                           \
+        for (; i <= i_max - OUTER_ROW_NUM; i += OUTER_ROW_NUM) {               \
+          const uint64_t *restrict a_rows[OUTER_ROW_NUM];                      \
+          for (int x = 0; x < OUTER_ROW_NUM; x++) {                            \
+            a_rows[x] = bit_qwords + (uint64_t)(i + x) * bit_size_in_qwords;   \
+          }                                                                    \
+                                                                               \
+          int j = j_b;                                                         \
+          for (; j <= j_max - OUTER_COL_NUM; j += OUTER_COL_NUM) {             \
+            const uint64_t *restrict b_rows[OUTER_COL_NUM];                    \
+            for (int y = 0; y < OUTER_COL_NUM; y++) {                          \
+              b_rows[y] =                                                      \
+                  bits_qwords + (uint64_t)(j + y) * bit_size_in_qwords;        \
+            }                                                                  \
+            int results[OUTER_ROW_NUM][OUTER_COL_NUM];
+
+#define OMP_CPU_TILE_END_OUTER(op, SIMD_DIR, LOAD_MACRO)                       \
+  setop_count_db_cpu_kernel_outer(a_rows, b_rows, k_b, k_max, results, op,     \
+                                  SIMD_DIR, LOAD_MACRO);                       \
+                                                                               \
+  for (int x = 0; x < OUTER_ROW_NUM; x++) {                                    \
+    for (int y = 0; y < OUTER_COL_NUM; y++) {                                  \
+      counts[(uint64_t)(i + x) * n + (j + y)] += results[x][y];                \
     }                                                                          \
+  }                                                                            \
+  }                                                                            \
+  /* J-FRINGE: Resolve the remaining columns using 1x1 kernel */               \
+  for (; j < j_max; j++) {                                                     \
+    const uint64_t *restrict b_row_f =                                         \
+        bits_qwords + (uint64_t)j * bit_size_in_qwords;                        \
+    for (int x = 0; x < OUTER_ROW_NUM; x++) {                                  \
+      int rf = 0;                                                              \
+      setop_count_db_cpu_kernel(a_rows[x], b_row_f, k_b, k_max, rf, op,        \
+                                SIMD_DIR, LOAD_MACRO);                         \
+      counts[(uint64_t)(i + x) * n + j] += rf;                                 \
+    }                                                                          \
+  }                                                                            \
+  }                                                                            \
+  /* I-FRINGE: Resolve the remaining rows using 1x1 kernel */                  \
+  for (; i < i_max; i++) {                                                     \
+    const uint64_t *restrict a_row_f =                                         \
+        bit_qwords + (uint64_t)i * bit_size_in_qwords;                         \
+    for (int j_f = j_b; j_f < j_max; j_f++) {                                  \
+      const uint64_t *restrict b_row_f =                                       \
+          bits_qwords + (uint64_t)j_f * bit_size_in_qwords;                    \
+      int rff = 0;                                                             \
+      setop_count_db_cpu_kernel(a_row_f, b_row_f, k_b, k_max, rff, op,         \
+                                SIMD_DIR, LOAD_MACRO);                         \
+      counts[(uint64_t)i * n + j_f] += rff;                                    \
+    }                                                                          \
+  }                                                                            \
+  }                                                                            \
+  }                                                                            \
   }
+
+#endif
 
 /* Top-level DB CPU set-operation dispatch (architecture and alignment aware) */
 #define setop_count_db_cpu(bit, bits, counts, op, opts)                        \
@@ -453,105 +730,24 @@ static inline uint64_t tree_adder(uint64_t v) {
   omp_set_num_threads(numthreads);                                             \
                                                                                \
   if (ARCH_32BIT) {                                                            \
-    OMP_CPU_TILE_START                                                         \
-    setop_count_db_cpu_kernel(                                                 \
-        a_row, b_row, k_b, k_max, chunk_result, op,                            \
-        OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, a_row, b_row, setop_buffer),      \
-        VECTOR_UNALIGNED_LOAD);                                                \
-    OMP_CPU_TILE_END                                                           \
+    OMP_CPU_TILE_START_OUTER                                                   \
+    OMP_CPU_TILE_END_OUTER(op,                                                 \
+                           OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, setop_buffer), \
+                           VECTOR_UNALIGNED_LOAD)                              \
   } else {                                                                     \
     if (aligned) {                                                             \
-      OMP_CPU_TILE_START                                                       \
-      setop_count_db_cpu_kernel(                                               \
-          a_row, b_row, k_b, k_max, chunk_result, op,                          \
-          OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, a_row, b_row, setop_buffer),    \
-          VECTOR_ALIGNED_LOAD);                                                \
-      OMP_CPU_TILE_END                                                         \
+      OMP_CPU_TILE_START_OUTER                                                 \
+      OMP_CPU_TILE_END_OUTER(                                                  \
+          op, OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, setop_buffer),              \
+          VECTOR_ALIGNED_LOAD)                                                 \
     } else {                                                                   \
-      OMP_CPU_TILE_START                                                       \
-      setop_count_db_cpu_kernel(                                               \
-          a_row, b_row, k_b, k_max, chunk_result, op,                          \
-          OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, setop_buffer),                  \
-          VECTOR_UNALIGNED_LOAD);                                              \
-      OMP_CPU_TILE_END                                                         \
+      OMP_CPU_TILE_START_OUTER                                                 \
+      OMP_CPU_TILE_END_OUTER(                                                  \
+          op, OMP_CPU_SIMD_ALIGN_BUFFER(ALIGNMENT, setop_buffer),              \
+          VECTOR_UNALIGNED_LOAD)                                               \
     }                                                                          \
   }
 
-#if USE_LIBPOPCNT || BIT_SIMD_PATH_SCALAR
-#define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result,            \
-                                  op, SIMD_DIRECTIVE, LOAD_MACRO)              \
-  do {                                                                         \
-    _Alignas(ALIGNMENT) uint64_t setop_buffer[SETOP_BUFFER_SIZE];              \
-    uint64_t count = 0;                                                        \
-    size_t l = k_b; /* Start at chunk boundary */                              \
-    CHUNK_LIMIT(limit, k_b, k_max, SETOP_BUFFER_SIZE)                          \
-                                                                               \
-    for (; l < limit; l += SETOP_BUFFER_SIZE) {                                \
-      SIMD_DIRECTIVE                                                           \
-      for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                            \
-        setop_buffer[k] = BIT_SCALAR##op(a_row[l + k], b_row[l + k]);          \
-      }                                                                        \
-      POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                 \
-    }                                                                          \
-    /* Handle the scalar remainder for this chunk */                           \
-    for (; l < k_max; l++) {                                                   \
-      count += POPCOUNT(BIT_SCALAR##op(a_row[l], b_row[l]));                   \
-    }                                                                          \
-    result = (int)count;                                                       \
-  } while (0)
-#else
-/* Inner kernel: highly optimized SIMD block for a specific K-chunk */
-#define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result,            \
-                                  op, SIMD_DIRECTIVE, LOAD_MACRO)              \
-  do {                                                                         \
-    uint64_t count = 0;                                                        \
-    size_t k_idx = k_b; /* Start at chunk boundary */                          \
-    CHUNK_LIMIT(limit, k_b, k_max, VECTOR_BLOCK_SIZE)                          \
-                                                                               \
-    VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
-    VECTOR_TYPE sum1 = SIMDe_ZERO_VECTOR;                                      \
-    VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;                                      \
-    VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;                                      \
-                                                                               \
-    for (; k_idx < limit; k_idx += VECTOR_BLOCK_SIZE) {                        \
-      sum0 = SIMDe_VECTOR_ADD(                                                 \
-          sum0, SIMDe_POPCOUNT(BIT##op(                                        \
-                    LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(0)]),\
-                    LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(0)]))));\
-                                                                               \
-      sum1 = SIMDe_VECTOR_ADD(                                                 \
-          sum1, SIMDe_POPCOUNT(BIT##op(                                        \
-                    LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(1)]),\
-                    LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(1)]))));\
-                                                                               \
-      sum2 = SIMDe_VECTOR_ADD(                                                 \
-          sum2, SIMDe_POPCOUNT(BIT##op(                                        \
-                    LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(2)]),\
-                    LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(2)]))));\
-                                                                               \
-      sum3 = SIMDe_VECTOR_ADD(                                                 \
-          sum3, SIMDe_POPCOUNT(BIT##op(                                        \
-                    LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(3)]),\
-                    LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(3)]))));\
-    }                                                                          \
-                                                                               \
-    sum0 = SIMDe_VECTOR_ADD(sum0, sum1);                                       \
-    sum2 = SIMDe_VECTOR_ADD(sum2, sum3);                                       \
-    sum0 = SIMDe_VECTOR_ADD(sum0, sum2);                                       \
-                                                                               \
-    uint64_t sum_array[VECTOR_QWORDS];                                         \
-    SIMDe_STORE_VECTOR(sum_array, sum0);                                       \
-    for (size_t j_idx = 0; j_idx < VECTOR_QWORDS; j_idx++) {                   \
-      count += sum_array[j_idx];                                               \
-    }                                                                          \
-                                                                               \
-    /* Handle fringe for this chunk */                                         \
-    for (; k_idx < k_max; k_idx++) {                                           \
-      count += POPCOUNT(BIT_SCALAR##op(a_row[k_idx], b_row[k_idx]));           \
-    }                                                                          \
-    result = (int)count;                                                       \
-  } while (0)
-#endif
 /* --- End Section 4: DB SET OPERATION MACROS — CPU --- */
 
 /* ===========================================================================

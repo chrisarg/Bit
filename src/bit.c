@@ -261,34 +261,34 @@ int Bit_buffer_size(int length) {
 void Bit_aset(T set, int indices[], int n) {
   assert(set);
   assert(indices);
-  for (int i = 0; i < n; i++) {
-    assert(indices[i] >= 0 && indices[i] < set->length);
+  for ( int i = 0; i < n; i++) {
+    assert(indices[i] >= 0 && indices[i] < (int)set->length);
     set->bytes[indices[i] / BPB] |= 1 << (indices[i] % BPB);
   }
 }
 void Bit_aclear(T set, int indices[], int n) {
   assert(set);
   assert(indices);
-  for (int i = 0; i < n; i++) {
-    assert(indices[i] >= 0 && indices[i] < set->length);
+  for ( int i = 0; i < n; i++) {
+    assert(indices[i] >= 0 && indices[i] < (int)set->length);
     set->bytes[indices[i] / BPB] &= ~(1 << (indices[i] % BPB));
   }
 }
 void Bit_bset(T set, int index) {
   assert(set);
-  assert(index >= 0 && index < set->length);
+  assert(index >= 0 && index < (int)set->length);
   set->bytes[index / BPB] |= 1 << (index % BPB);
 }
 
 void Bit_bclear(T set, int index) {
   assert(set);
-  assert(index >= 0 && index < set->length);
+  assert(index >= 0 && index < (int)set->length);
   set->bytes[index / BPB] &= ~(1 << (index % BPB));
 }
 
 void Bit_clear(T set, int lo, int hi) {
   assert(set);
-  assert(0 <= lo && hi < set->length);
+  assert(0 <= lo && hi < (int)set->length);
   assert(lo <= hi);
   if (lo / 8 < hi / 8) {
     // clear the most significant bits in byte lo/8
@@ -304,20 +304,20 @@ void Bit_clear(T set, int lo, int hi) {
 }
 int Bit_get(T set, int index) {
   assert(set);
-  assert(index >= 0 && index < set->length);
+  assert(index >= 0 && index < (int)set->length);
   return ((set->bytes[index / BPB] >> (index % BPB)) & 1);
 }
 
 void Bit_map(T set, void apply(int n, int bit, void *cl), void *cl) {
   assert(set);
-  for (int i = 0; i < set->length; i++) {
+  for (unsigned int i = 0; i < set->length; i++) {
     apply(i, ((set->bytes[i / BPB] >> (i % BPB)) & 1), cl);
   }
 }
 
 void Bit_not(T set, int lo, int hi) {
   assert(set);
-  assert(0 <= lo && hi < set->length);
+  assert(0 <= lo && hi < (int)set->length);
   assert(lo <= hi);
   if (lo / 8 < hi / 8) {
     // clear the most significant bits in byte lo/8
@@ -335,7 +335,7 @@ int Bit_put(T set, int index, int bit) {
   int prev;
   assert(set);
   assert(bit == 0 || bit == 1);
-  assert(0 <= index && index < set->length);
+  assert(0 <= index && (unsigned int)index < set->length);
   prev = ((set->bytes[index / BPB] >> (index % BPB)) & 1);
   if (bit == 1)
     set->bytes[index / BPB] |= 1 << (index % BPB);
@@ -346,7 +346,7 @@ int Bit_put(T set, int index, int bit) {
 
 void Bit_set(T set, int lo, int hi) {
   assert(set);
-  assert(0 <= lo && hi < set->length);
+  assert(0 <= lo && hi < (int)set->length);
   assert(lo <= hi);
   if (lo / 8 < hi / 8) {
     // set the most significant bits in byte lo/8
@@ -365,7 +365,7 @@ void Bit_set(T set, int lo, int hi) {
 int Bit_eq(T s, T t) {
   assert(s && t);
   assert(s->length == t->length);
-  for (int i = s->size_in_qwords; --i >= 0;)
+  for ( int i = s->size_in_qwords; --i >= 0;)
     if (s->qwords[i] != t->qwords[i])
       return 0;
   return 1;
@@ -374,7 +374,7 @@ int Bit_eq(T s, T t) {
 int Bit_leq(T s, T t) {
   assert(s && t);
   assert(s->length == t->length);
-  for (int i = s->size_in_qwords; --i >= 0;)
+  for ( int i = s->size_in_qwords; --i >= 0;)
     if ((s->qwords[i] & ~t->qwords[i]) != 0)
       return 0;
   return 1;
@@ -384,7 +384,7 @@ int Bit_lt(T s, T t) {
   assert(s && t);
   assert(s->length == t->length);
   int lt = 0;
-  for (int i = s->size_in_qwords; --i >= 0;)
+  for ( int i = s->size_in_qwords; --i >= 0;)
     if ((s->qwords[i] & ~t->qwords[i]) != 0)
       return 0;
     else if ((s->qwords[i] & t->qwords[i]) != 0)
@@ -450,6 +450,9 @@ void print_Bit_configuration(void) {
     printf(" %-20s : %d\n", "GPU_ILP",           GPU_ILP);
     printf(" %-20s : %d\n", "K_BLOCK",           K_BLOCK);
     printf(" %-20s : %d\n", "SETOP_BUFFER_SIZE", SETOP_BUFFER_SIZE);
+    printf(" %-20s : %d\n", "OUTER_ROW_NUM", OUTER_ROW_NUM);
+    printf(" %-20s : %d\n", "OUTER_COL_NUM", OUTER_COL_NUM);
+    printf(" %-20s : %d\n", "OUTER_VEC_BLK", OUTER_VEC_BLK);
     
     printf("------------------------------------------\n");
     printf(" %-20s : %s\n", "Using LIBPOPCNT",     USE_LIBPOPCNT ? "Yes" : "No");
@@ -542,11 +545,11 @@ int BitDB_nelem(T_DB set) {
 
 int BitDB_count_at(T_DB set, int index) {
   assert(set);
-  assert(index >= 0 && index < set->nelem);
+  assert(index >= 0 && (unsigned int)index < set->nelem);
   int count = 0;
 #if !USE_LIBPOPCNT
   uint64_t *qwords = set->qwords + index * set->size_in_qwords;
-  for (int i = 0; i < set->size_in_qwords; i++)
+  for (unsigned int i = 0; i < set->size_in_qwords; i++)
     count += POPCOUNT(qwords[i]);
 #else
   count =
@@ -561,15 +564,15 @@ int *BitDB_count(T_DB set) {
   assert(counts != NULL);
 #if !USE_LIBPOPCNT
   uint64_t *qwords = set->qwords;
-  for (int i = 0; i < set->nelem; i++, qwords += set->size_in_qwords) {
+  for (unsigned int i = 0; i < set->nelem; i++, qwords += set->size_in_qwords) {
     int count = 0;
-    for (int j = 0; j < set->size_in_qwords; j++)
+    for (unsigned int j = 0; j < set->size_in_qwords; j++)
       count += POPCOUNT(qwords[j]);
     counts[i] = count;
   }
 #else
   unsigned char *bytes = set->bytes;
-  for (int i = 0; i < set->nelem; i++, bytes += set->size_in_bytes)
+  for (unsigned int i = 0; i < set->nelem; i++, bytes += set->size_in_bytes)
     counts[i] = (int)popcnt(bytes, set->size_in_bytes);
 
 #endif
@@ -580,7 +583,7 @@ int *BitDB_count(T_DB set) {
 
 void BitDB_clear_at(T_DB set, int index) {
   assert(set);
-  assert(index >= 0 && index < set->nelem);
+  assert(index >= 0 && (unsigned int)index < set->nelem);
   size_t shift = (size_t)index;
   shift *= set->size_in_bytes; // calculate the offset
   memset(set->bytes + shift, 0, set->size_in_bytes);
@@ -595,7 +598,7 @@ void BitDB_clear(T_DB set) {
 
 T BitDB_get_from(T_DB set, int index) {
   assert(set);
-  assert(index >= 0 && index < set->nelem);
+  assert(index >= 0 && (unsigned int)index < set->nelem);
   T bitset = Bit_new(set->length);
   size_t shift = (size_t)index;
   shift *= set->size_in_bytes; // calculate the offset
@@ -606,7 +609,7 @@ T BitDB_get_from(T_DB set, int index) {
 
 void BitDB_put_at(T_DB set, int index, T bitset) {
   assert(set);
-  assert(index >= 0 && index < set->nelem);
+  assert(index >= 0 && (unsigned int)index < set->nelem);
   assert(bitset);
   assert(bitset->length == set->length);
   // Copy the bytes from the bitset to the set
@@ -617,7 +620,7 @@ void BitDB_put_at(T_DB set, int index, T bitset) {
 
 void BitDB_extract_from(T_DB set, int index, void *buffer) {
   assert(set);
-  assert(index >= 0 && index < set->nelem);
+  assert(index >= 0 && (unsigned int)index < set->nelem);
   assert(buffer != NULL);
   // Copy the bytes from the set to the buffer
   size_t shift = (size_t)index;
@@ -627,7 +630,7 @@ void BitDB_extract_from(T_DB set, int index, void *buffer) {
 
 void BitDB_replace_at(T_DB set, int index, void *buffer) {
   assert(set);
-  assert(index >= 0 && index < set->nelem);
+  assert(index >= 0 && (unsigned int)index < set->nelem);
   assert(buffer != NULL);
   // Copy the bytes from the buffer to the set
   size_t shift = (size_t)index;
