@@ -92,7 +92,7 @@ $(info Utilizing OpenMP GPU Strategy: $(OPENMP_GPU_IMPL))
 OPENMP_GPU_IMPL_MACRO := -DOPENMP_GPU_IMPL_$(OPENMP_GPU_IMPL)
 
 # Append ONLY new macros to prevent duplicating all optimization & architecture rules
-CFLAGS += $(OPENMP_GPU_IMPL_MACRO) -I./src
+CFLAGS += -DUSE_LIBPOPCNT=$(LIBPOPCNT_VAL) $(OPENMP_GPU_IMPL_MACRO) -I./src
 
 .PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu clean-bench distclean-bench
 
