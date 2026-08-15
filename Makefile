@@ -378,6 +378,36 @@ ifeq ($(VALID_APPLY_LTO),1)
     CFLAGS += -flto
     HOST_ONLY_CFLAGS += -flto
   endif
+
+  # clang's LTO bitcode objects require a version-matched tool to read them.
+  # Systems with multiple LLVM versions installed side by side can leave the
+  # system ld.bfd/gold and ar resolving an unrelated/older LLVMgold.so
+  # plugin, which fails ("Opaque pointers..." errors, or silently produces
+  # archives with empty symbol tables) when reading bitcode from a newer
+  # clang. Prefer a version-matched lld/llvm-ar over the default
+  # plugin-based tools whenever one is available.
+  ifeq ($(COMPILER_ID),clang)
+    CLANG_LTO_VER := $(shell $(CC) --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d. -f1)
+
+    ifeq ($(findstring -fuse-ld=,$(DEFINES)),)
+      LLD_CANDIDATE := $(firstword $(foreach c,ld.lld-$(CLANG_LTO_VER) ld.lld lld,\
+        $(shell which $(c) 2>/dev/null)))
+      ifneq ($(strip $(LLD_CANDIDATE)),)
+        $(info Using $(LLD_CANDIDATE) for LTO linking (avoids ld.bfd/gold plugin version drift))
+        CFLAGS += -fuse-ld=lld
+        HOST_ONLY_CFLAGS += -fuse-ld=lld
+      endif
+    endif
+
+    ifeq ($(origin AR),default)
+      AR_CANDIDATE := $(firstword $(foreach c,llvm-ar-$(CLANG_LTO_VER) llvm-ar,\
+        $(shell which $(c) 2>/dev/null)))
+      ifneq ($(strip $(AR_CANDIDATE)),)
+        $(info Using $(AR_CANDIDATE) for static archive creation (LTO-aware, version-matched))
+        AR := $(AR_CANDIDATE)
+      endif
+    endif
+  endif
 endif
 
 
@@ -510,7 +540,7 @@ $(TARGET): $(OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -shared -o $@ $^ $(BUILD_RPATH_FLAG)
 
 $(TARGET_STATIC): $(OBJ)
-	ar rcs $@ $^
+	$(AR) rcs $@ $^
 
 test: $(TARGET) $(TEST_OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) -L$(BUILD_DIR) \
