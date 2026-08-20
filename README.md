@@ -1111,6 +1111,32 @@ build (`GPU=NONE`) routes all GPU calls to CPU implementations. Pass `GPU=NVIDIA
 #pragma directives from macro expansions. At some unspecified point in thefuture, these and possibly other macros may be split into a header only library
 to manage the expressive complexity of OpenMP for beginners.
 
+## Why the software (WWG) popcount, not just __builtin_popcountll in the GPU?
+
+The GPU kernels compute population count via the classic SIMD Within a Register
+(SWAR) bit-trick (count_WWG_GPU) rather than calling __builtin_popcountll
+directly. This is a portability choice, as  both
+compiler toolchains this project targets, i.e.  clang/LLVM (NVIDIA/AMD offload)
+and GCC,  recognize this exact arithmetic pattern as a population-count
+idiom and automatically replace it with the target's native hardware
+instruction  On every architecture this project
+currently ships for, the hand-written WWG code and __builtin_popcountll
+compile to identical instructions, at zero cost.
+
+The benefit only shows up on a compiler/hardware combination that lacks
+this idiom-recognition optimization or a native popcount unit (an older,
+simpler, or more "exotic" accelerator);  there, count_WWG_GPU still
+computes the correct answer as a portable software fallback, just slower.
+Forcing that fallback path artificially (via compiler barriers that block
+the optimization) and measuring a real AND+popcount reduction over 64M
+elements showed a 4-6% slowdown versus the native instruction,
+consistent across two very different GPUs (NVIDIA GTX 960/Maxwell and
+TITAN V/Volta, using a single binary built for both sm_52 and sm_70).
+The gap is small because the kernel is memory-bound since  the popcount itself
+is a minor fraction of the per-element cost either way. That small,
+bounded cost is the price of guaranteed portability, and it's why the
+explicit software implementation was kept instead of depending solely on
+the builtin.
 
 ## Applications
 
@@ -1144,7 +1170,7 @@ Christos Argyropoulos (April 2025 -  May 2026)
 
 ## AI disclosure
 
-Github Copilot has been very helpful when it comes to generating the makefile, run ideas about the OpenMP and to generate the CUDA and HIP implementations.
+Github Copilot has been very helpful when it comes to generating the makefile, run ideas about the OpenMP,  to generate the CUDA and HIP implementations and to update the README file.
 
 [^1]: Historical Trivia: The method is identified as the Gillies-Miller
 "sideways addition” in the original reference (Maurice V. Wilkes,

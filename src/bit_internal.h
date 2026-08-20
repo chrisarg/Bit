@@ -791,13 +791,14 @@ static inline uint64_t tree_adder(uint64_t v) {
                      _setop_dev_id)                                            \
   }
 
-/* Launch a target region with `num_targets` teams */
-#define OMP_GPU_TEAMS(num_targets, dev_id)                                     \
-  _Pragma(STRINGIFY(omp target teams distribute num_teams(num_targets)         \
-                        device(dev_id)))
+/* Launch a target region with `n_of_teams` teams and `n_thread_limit` threads
+ * per team */
+#define OMP_GPU_TEAMS(n_of_teams, n_thread_limit, dev_id)                      \
+  _Pragma(STRINGIFY(omp target teams distribute num_teams(n_of_teams)          \
+                        thread_limit(n_thread_limit) device(dev_id)))
 
-/* Open a parallel region with `n` threads inside a teams region */
-#define OMP_GPU_PARALLEL(n) _Pragma(STRINGIFY(omp parallel num_threads(n)))
+/* Open a parallel region with `n` threads */
+#define OMP_PARALLEL(n) _Pragma(STRINGIFY(omp parallel num_threads(n)))
 
 /* SIMD reduction inside a GPU parallel region */
 #define OMP_GPU_SIMD_REDUCTION(reduction_type, reduction_var)                  \
@@ -805,6 +806,16 @@ static inline uint64_t tree_adder(uint64_t v) {
 
 /* Workshare loop division without an implicit barrier */
 #define OMP_GPU_FOR_NOWAIT _Pragma(STRINGIFY(omp for nowait))
+
+#define OMP_BARRIER _Pragma(STRINGIFY(omp barrier))
+#define OMP_SINGLE _Pragma(STRINGIFY(omp single))
+#define OMP_TEAMS(n_of_teams)                                                  \
+  _Pragma(STRINGIFY(omp teams num_teams(n_of_teams)))
+
+#define OMP_DISTRIBUTE(level) _Pragma(STRINGIFY(omp distribute collapse(level)))
+
+#define OMP_FOR_LEVEL(level) _Pragma(STRINGIFY(omp for collapse(level)))
+#define OMP_FOR_NOWAIT_LEVEL(level) _Pragma(STRINGIFY(omp for collapse(level) nowait))
 
 /* Release or delete a device array after use */
 #define SETOP_FINALIZE_GPU(action, buffer, index1, index2, dev_id)             \
@@ -819,10 +830,10 @@ static inline uint64_t tree_adder(uint64_t v) {
   SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
                  num_targets, n)                                               \
   SETOP_INIT_GPU(bit, bits, counts, opts)                                      \
-  OMP_GPU_TEAMS(num_targets, opts.device_id)                                   \
+  OMP_GPU_TEAMS(num_targets, 512, opts.device_id)                              \
   for (int k = 0; k < num_targets; k++) {                                      \
     uint64_t shift_k = k * bit_size_in_qwords;                                 \
-    OMP_GPU_PARALLEL(n) {                                                      \
+    OMP_PARALLEL(n) {                                                          \
       OMP_GPU_FOR_NOWAIT                                                       \
       for (unsigned int i = 0; i < n; i++) {                                   \
         uint64_t shift_i = i * bit_size_in_qwords;                             \
