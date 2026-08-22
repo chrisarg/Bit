@@ -301,8 +301,8 @@ static inline uint64_t tree_adder(uint64_t v) {
     uint64_t count = 0;                                                        \
     unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/          \
-    int limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;     \
-    int i = 0;                                                                 \
+    size_t limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;  \
+    size_t i = 0;                                                              \
     for (; i < limit; i += SETOP_BUFFER_SIZE) {                                \
       for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {                            \
         setop_buffer[j] = BIT_SCALAR##op(s->qwords[i + j], t->qwords[i + j]);  \
@@ -332,7 +332,7 @@ static inline uint64_t tree_adder(uint64_t v) {
     size_t limit =                                                             \
         (s->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;           \
     unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
-    size_t i = 0;                                                              \
+    unsigned int i = 0;                                                        \
     for (; i < limit; i += VECTOR_BLOCK_SIZE) {                                \
       /* Load First operand */                                                 \
       VECTOR_TYPE a0 = VECTOR_UNALIGNED_LOAD(                                  \
@@ -599,15 +599,15 @@ static inline uint64_t tree_adder(uint64_t v) {
  * dispatch) */
 #define OMP_CPU_TILE_START_OUTER                                               \
   OMP_CPU_LOOP(1, dynamic)                                                     \
-  for (int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
-    for (int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
+  for (unsigned int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
+    for (unsigned int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
                                                                                \
-      int i_max = (i_b + CPU_TILE_BIT < num_targets) ? i_b + CPU_TILE_BIT      \
+      unsigned int i_max = (i_b + CPU_TILE_BIT < num_targets) ? i_b + CPU_TILE_BIT      \
                                                      : num_targets;            \
-      int j_max = (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;         \
+      unsigned int j_max = (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;         \
                                                                                \
-      for (int i = i_b; i < i_max; i++) {                                      \
-        for (int j = j_b; j < j_max; j++) {                                    \
+      for (unsigned int i = i_b; i < i_max; i++) {                                      \
+        for (unsigned int j = j_b; j < j_max; j++) {                                    \
           counts[(uint64_t)i * n + j] = 0;                                     \
         }                                                                      \
       }                                                                        \
@@ -617,10 +617,10 @@ static inline uint64_t tree_adder(uint64_t v) {
                            ? k_b + K_BLOCK                                     \
                            : bit_size_in_qwords;                               \
                                                                                \
-        for (int i = i_b; i < i_max; i++) {                                    \
+        for (unsigned int i = i_b; i < i_max; i++) {                                    \
           const uint64_t *restrict a_row =                                     \
               bit_qwords + (uint64_t)i * bit_size_in_qwords;                   \
-          for (int j = j_b; j < j_max; j++) {                                  \
+          for (unsigned int j = j_b; j < j_max; j++) {                                  \
             const uint64_t *restrict b_row =                                   \
                 bits_qwords + (uint64_t)j * bit_size_in_qwords;
 
@@ -641,15 +641,15 @@ static inline uint64_t tree_adder(uint64_t v) {
  * handling) */
 #define OMP_CPU_TILE_START_OUTER                                               \
   OMP_CPU_LOOP(1, dynamic)                                                     \
-  for (int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
-    for (int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
+  for (unsigned int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
+    for (unsigned int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
                                                                                \
-      int i_max = (i_b + CPU_TILE_BIT < num_targets) ? i_b + CPU_TILE_BIT      \
+      unsigned int i_max = (i_b + CPU_TILE_BIT < num_targets) ? i_b + CPU_TILE_BIT      \
                                                      : num_targets;            \
-      int j_max = (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;         \
+      unsigned int j_max = (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;         \
                                                                                \
-      for (int i = i_b; i < i_max; i++) {                                      \
-        for (int j = j_b; j < j_max; j++) {                                    \
+      for (unsigned int i = i_b; i < i_max; i++) {                                      \
+        for (unsigned int j = j_b; j < j_max; j++) {                                    \
           counts[(uint64_t)i * n + j] = 0;                                     \
         }                                                                      \
       }                                                                        \
@@ -659,17 +659,17 @@ static inline uint64_t tree_adder(uint64_t v) {
                            ? k_b + K_BLOCK                                     \
                            : bit_size_in_qwords;                               \
                                                                                \
-        int i = i_b;                                                           \
+        unsigned int i = i_b;                                                           \
         for (; i <= i_max - OUTER_ROW_NUM; i += OUTER_ROW_NUM) {               \
           const uint64_t *restrict a_rows[OUTER_ROW_NUM];                      \
           for (int x = 0; x < OUTER_ROW_NUM; x++) {                            \
             a_rows[x] = bit_qwords + (uint64_t)(i + x) * bit_size_in_qwords;   \
           }                                                                    \
                                                                                \
-          int j = j_b;                                                         \
+          unsigned int j = j_b;                                                         \
           for (; j <= j_max - OUTER_COL_NUM; j += OUTER_COL_NUM) {             \
             const uint64_t *restrict b_rows[OUTER_COL_NUM];                    \
-            for (int y = 0; y < OUTER_COL_NUM; y++) {                          \
+            for (unsigned int y = 0; y < OUTER_COL_NUM; y++) {                          \
               b_rows[y] =                                                      \
                   bits_qwords + (uint64_t)(j + y) * bit_size_in_qwords;        \
             }                                                                  \
@@ -679,8 +679,8 @@ static inline uint64_t tree_adder(uint64_t v) {
   setop_count_db_cpu_kernel_outer(a_rows, b_rows, k_b, k_max, results, op,     \
                                   SIMD_DIR, LOAD_MACRO);                       \
                                                                                \
-  for (int x = 0; x < OUTER_ROW_NUM; x++) {                                    \
-    for (int y = 0; y < OUTER_COL_NUM; y++) {                                  \
+  for (unsigned int x = 0; x < OUTER_ROW_NUM; x++) {                                    \
+    for (unsigned int y = 0; y < OUTER_COL_NUM; y++) {                                  \
       counts[(uint64_t)(i + x) * n + (j + y)] += results[x][y];                \
     }                                                                          \
   }                                                                            \
@@ -689,7 +689,7 @@ static inline uint64_t tree_adder(uint64_t v) {
   for (; j < j_max; j++) {                                                     \
     const uint64_t *restrict b_row_f =                                         \
         bits_qwords + (uint64_t)j * bit_size_in_qwords;                        \
-    for (int x = 0; x < OUTER_ROW_NUM; x++) {                                  \
+    for (unsigned int x = 0; x < OUTER_ROW_NUM; x++) {                                  \
       int rf = 0;                                                              \
       setop_count_db_cpu_kernel(a_rows[x], b_row_f, k_b, k_max, rf, op,        \
                                 SIMD_DIR, LOAD_MACRO);                         \
@@ -701,7 +701,7 @@ static inline uint64_t tree_adder(uint64_t v) {
   for (; i < i_max; i++) {                                                     \
     const uint64_t *restrict a_row_f =                                         \
         bit_qwords + (uint64_t)i * bit_size_in_qwords;                         \
-    for (int j_f = j_b; j_f < j_max; j_f++) {                                  \
+    for (unsigned int j_f = j_b; j_f < j_max; j_f++) {                                  \
       const uint64_t *restrict b_row_f =                                       \
           bits_qwords + (uint64_t)j_f * bit_size_in_qwords;                    \
       int rff = 0;                                                             \
