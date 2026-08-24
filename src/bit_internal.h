@@ -296,12 +296,14 @@ static inline uint64_t tree_adder(uint64_t v) {
   } while (0)
 #endif
 #else
+#if BIT_SIMD_PATH_SCALAR
 #define setop_count(op, s, t)                                                  \
   do {                                                                         \
     uint64_t count = 0;                                                        \
     unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     uint64_t setop_buffer[SETOP_BUFFER_SIZE]; /*buffer for popcount*/          \
-    size_t limit = s->size_in_qwords - s->size_in_qwords % SETOP_BUFFER_SIZE;  \
+    size_t limit =                                                             \
+        bit_size_in_qwords - bit_size_in_qwords % SETOP_BUFFER_SIZE;           \
     size_t i = 0;                                                              \
     for (; i < limit; i += SETOP_BUFFER_SIZE) {                                \
       for (int j = 0; j < SETOP_BUFFER_SIZE; j++) {                            \
@@ -310,11 +312,52 @@ static inline uint64_t tree_adder(uint64_t v) {
       count +=                                                                 \
           popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));  \
     }                                                                          \
-    for (; i < bit_size_in_qwords; i++) {                                      \
-      count += POPCOUNT(BIT_SCALAR##op(s->qwords[i], t->qwords[i]));           \
+    for (int j = 0; i < bit_size_in_qwords; i++, j++) {                        \
+      setop_buffer[j] = BIT_SCALAR##op(s->qwords[i], t->qwords[i]);            \
     }                                                                          \
+    count += popcnt((void *)setop_buffer,                                      \
+                    (bit_size_in_qwords - limit) * sizeof(uint64_t));          \
     return (int)count;                                                         \
   } while (0)
+#else
+#define setop_count(op, s, t)                                                  \
+  do {                                                                         \
+    uint64_t count = 0;                                                        \
+    unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
+    _Alignas(ALIGNMENT) uint64_t setop_buffer[SETOP_BUFFER_SIZE];              \
+    size_t limit =                                                             \
+        bit_size_in_qwords - bit_size_in_qwords % SETOP_BUFFER_SIZE;           \
+    /* Calculate the safe limit for SIMD operations within the buffer */       \
+    size_t simd_buffer_limit =                                                 \
+        SETOP_BUFFER_SIZE - (SETOP_BUFFER_SIZE % VECTOR_QWORDS);               \
+    size_t i = 0;                                                              \
+    for (; i < limit; i += SETOP_BUFFER_SIZE) {                                \
+      int j = 0;                                                               \
+      /* Vectorized chunk */                                                   \
+      for (; j < simd_buffer_limit; j += VECTOR_QWORDS) {                      \
+        VECTOR_TYPE v_s =                                                      \
+            VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&s->qwords[i + j]);           \
+        VECTOR_TYPE v_t =                                                      \
+            VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&t->qwords[i + j]);           \
+        VECTOR_TYPE v_res = BIT##op(v_s, v_t);                                 \
+        VECTOR_ALIGNED_STORE((VECTOR_TYPE *)&setop_buffer[j], v_res);          \
+      }                                                                        \
+      /* Inner scalar tail for the remainder of the buffer */                  \
+      for (; j < SETOP_BUFFER_SIZE; j++) {                                     \
+        setop_buffer[j] = BIT_SCALAR##op(s->qwords[i + j], t->qwords[i + j]);  \
+      }                                                                        \
+      count +=                                                                 \
+          popcnt((void *)setop_buffer, SETOP_BUFFER_SIZE * sizeof(uint64_t));  \
+    }                                                                          \
+    /* Global scalar tail for the remainder of the bit array */                \
+    for (int k = 0; i < bit_size_in_qwords; i++, k++) {                        \
+      setop_buffer[k] = BIT_SCALAR##op(s->qwords[i], t->qwords[i]);            \
+    }                                                                          \
+    count += popcnt((void *)setop_buffer,                                      \
+                    (bit_size_in_qwords - limit) * sizeof(uint64_t));          \
+    return (int)count;                                                         \
+  } while (0)
+#endif
 #endif
 
 // unified macro for intersection, union, minus and difference operations
@@ -416,7 +459,7 @@ static inline uint64_t tree_adder(uint64_t v) {
 #endif
 
 /* --- 1x1 Microkernel (Strictly used for fringes and 1x1 fast path) --- */
-#if USE_LIBPOPCNT || BIT_SIMD_PATH_SCALAR
+#if BIT_SIMD_PATH_SCALAR
 #define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result, op,        \
                                   SIMD_DIRECTIVE, LOAD_MACRO)                  \
   do {                                                                         \
@@ -428,6 +471,29 @@ static inline uint64_t tree_adder(uint64_t v) {
       SIMD_DIRECTIVE                                                           \
       for (int k = 0; k < SETOP_BUFFER_SIZE; k++) {                            \
         setop_buffer[k] = BIT_SCALAR##op(a_row[l + k], b_row[l + k]);          \
+      }                                                                        \
+      POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                 \
+    }                                                                          \
+    for (; l < k_max; l++) {                                                   \
+      count += POPCOUNT(BIT_SCALAR##op(a_row[l], b_row[l]));                   \
+    }                                                                          \
+    result = (int)count;                                                       \
+  } while (0)
+#elif USE_LIBPOPCNT /* this path has similar performance to the previous one   \
+                     */
+#define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result, op,        \
+                                  SIMD_DIRECTIVE, LOAD_MACRO)                  \
+  do {                                                                         \
+    _Alignas(ALIGNMENT) uint64_t setop_buffer[SETOP_BUFFER_SIZE];              \
+    uint64_t count = 0;                                                        \
+    size_t l = k_b;                                                            \
+    CHUNK_LIMIT(limit, k_b, k_max, SETOP_BUFFER_SIZE)                          \
+    for (; l < limit; l += SETOP_BUFFER_SIZE) {                                \
+      for (int k = 0; k < SETOP_BUFFER_SIZE; k += VECTOR_QWORDS) {             \
+        VECTOR_TYPE v_a = LOAD_MACRO((VECTOR_TYPE *)&a_row[l + k]);            \
+        VECTOR_TYPE v_b = LOAD_MACRO((VECTOR_TYPE *)&b_row[l + k]);            \
+        VECTOR_TYPE v_res = BIT##op(v_a, v_b);                                 \
+        VECTOR_ALIGNED_STORE((VECTOR_TYPE *)&setop_buffer[k], v_res);          \
       }                                                                        \
       POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                 \
     }                                                                          \
@@ -482,7 +548,7 @@ static inline uint64_t tree_adder(uint64_t v) {
 #endif
 
 /* --- Parameterized Generic Outer Product Microkernel --- */
-#if USE_LIBPOPCNT || BIT_SIMD_PATH_SCALAR
+#if BIT_SIMD_PATH_SCALAR
 #define setop_count_db_cpu_kernel_outer(a_rows, b_rows, k_b, k_max, results,   \
                                         op, SIMD_DIRECTIVE, LOAD_MACRO)        \
   do {                                                                         \
@@ -507,6 +573,55 @@ static inline uint64_t tree_adder(uint64_t v) {
         for (int x = 0; x < OUTER_ROW_NUM; ++x)                                \
           for (int y = 0; y < OUTER_COL_NUM; ++y)                              \
             setop_buffer[x][y][k] = BIT_SCALAR##op(a_values[x], b_values[y]);  \
+      }                                                                        \
+      for (int x = 0; x < OUTER_ROW_NUM; x++) {                                \
+        for (int y = 0; y < OUTER_COL_NUM; y++) {                              \
+          POPULATION_COUNT(c[x][y], setop_buffer[x][y], BUF_SZ)                \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+    for (; l < k_max; l++) {                                                   \
+      for (int x = 0; x < OUTER_ROW_NUM; x++) {                                \
+        for (int y = 0; y < OUTER_COL_NUM; y++) {                              \
+          c[x][y] += POPCOUNT(BIT_SCALAR##op(a_rows[x][l], b_rows[y][l]));     \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+    for (int x = 0; x < OUTER_ROW_NUM; x++) {                                  \
+      for (int y = 0; y < OUTER_COL_NUM; y++) {                                \
+        results[x][y] = (int)c[x][y];                                          \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
+#elif USE_LIBPOPCNT /* this path has similar performance to the previous one   \
+                     */
+#define setop_count_db_cpu_kernel_outer(a_rows, b_rows, k_b, k_max, results,   \
+                                        op, SIMD_DIRECTIVE, LOAD_MACRO)        \
+  do {                                                                         \
+    const int BUF_SZ = SETOP_BUFFER_SIZE;                                      \
+    _Alignas(ALIGNMENT)                                                        \
+        uint64_t setop_buffer[OUTER_ROW_NUM][OUTER_COL_NUM][BUF_SZ];           \
+    uint64_t c[OUTER_ROW_NUM][OUTER_COL_NUM] = {0};                            \
+    size_t l = k_b;                                                            \
+    CHUNK_LIMIT(limit, k_b, k_max, BUF_SZ)                                     \
+    for (; l < limit; l += BUF_SZ) {                                           \
+      for (int k = 0; k < BUF_SZ; k += VECTOR_QWORDS) {                        \
+        VECTOR_TYPE a_vec[OUTER_ROW_NUM];                                      \
+        VECTOR_TYPE b_vec[OUTER_COL_NUM];                                      \
+                                                                               \
+        for (int x = 0; x < OUTER_ROW_NUM; ++x)                                \
+          a_vec[x] = LOAD_MACRO((VECTOR_TYPE *)&a_rows[x][l + k]);             \
+                                                                               \
+        for (int y = 0; y < OUTER_COL_NUM; ++y)                                \
+          b_vec[y] = LOAD_MACRO((VECTOR_TYPE *)&b_rows[y][l + k]);             \
+                                                                               \
+        for (int x = 0; x < OUTER_ROW_NUM; ++x) {                              \
+          for (int y = 0; y < OUTER_COL_NUM; ++y) {                            \
+            VECTOR_TYPE res_vec = BIT##op(a_vec[x], b_vec[y]);                 \
+            VECTOR_ALIGNED_STORE((VECTOR_TYPE *)&setop_buffer[x][y][k],        \
+                                 res_vec);                                     \
+          }                                                                    \
+        }                                                                      \
       }                                                                        \
       for (int x = 0; x < OUTER_ROW_NUM; x++) {                                \
         for (int y = 0; y < OUTER_COL_NUM; y++) {                              \
@@ -599,15 +714,17 @@ static inline uint64_t tree_adder(uint64_t v) {
  * dispatch) */
 #define OMP_CPU_TILE_START_OUTER                                               \
   OMP_CPU_LOOP(1, dynamic)                                                     \
-  for (unsigned int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
-    for (unsigned int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
+  for (unsigned int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {         \
+    for (unsigned int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                \
                                                                                \
-      unsigned int i_max = (i_b + CPU_TILE_BIT < num_targets) ? i_b + CPU_TILE_BIT      \
-                                                     : num_targets;            \
-      unsigned int j_max = (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;         \
+      unsigned int i_max = (i_b + CPU_TILE_BIT < num_targets)                  \
+                               ? i_b + CPU_TILE_BIT                            \
+                               : num_targets;                                  \
+      unsigned int j_max =                                                     \
+          (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;                 \
                                                                                \
-      for (unsigned int i = i_b; i < i_max; i++) {                                      \
-        for (unsigned int j = j_b; j < j_max; j++) {                                    \
+      for (unsigned int i = i_b; i < i_max; i++) {                             \
+        for (unsigned int j = j_b; j < j_max; j++) {                           \
           counts[(uint64_t)i * n + j] = 0;                                     \
         }                                                                      \
       }                                                                        \
@@ -617,10 +734,10 @@ static inline uint64_t tree_adder(uint64_t v) {
                            ? k_b + K_BLOCK                                     \
                            : bit_size_in_qwords;                               \
                                                                                \
-        for (unsigned int i = i_b; i < i_max; i++) {                                    \
+        for (unsigned int i = i_b; i < i_max; i++) {                           \
           const uint64_t *restrict a_row =                                     \
               bit_qwords + (uint64_t)i * bit_size_in_qwords;                   \
-          for (unsigned int j = j_b; j < j_max; j++) {                                  \
+          for (unsigned int j = j_b; j < j_max; j++) {                         \
             const uint64_t *restrict b_row =                                   \
                 bits_qwords + (uint64_t)j * bit_size_in_qwords;
 
@@ -641,15 +758,17 @@ static inline uint64_t tree_adder(uint64_t v) {
  * handling) */
 #define OMP_CPU_TILE_START_OUTER                                               \
   OMP_CPU_LOOP(1, dynamic)                                                     \
-  for (unsigned int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {                  \
-    for (unsigned int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                         \
+  for (unsigned int i_b = 0; i_b < num_targets; i_b += CPU_TILE_BIT) {         \
+    for (unsigned int j_b = 0; j_b < n; j_b += CPU_TILE_BITS) {                \
                                                                                \
-      unsigned int i_max = (i_b + CPU_TILE_BIT < num_targets) ? i_b + CPU_TILE_BIT      \
-                                                     : num_targets;            \
-      unsigned int j_max = (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;         \
+      unsigned int i_max = (i_b + CPU_TILE_BIT < num_targets)                  \
+                               ? i_b + CPU_TILE_BIT                            \
+                               : num_targets;                                  \
+      unsigned int j_max =                                                     \
+          (j_b + CPU_TILE_BITS < n) ? j_b + CPU_TILE_BITS : n;                 \
                                                                                \
-      for (unsigned int i = i_b; i < i_max; i++) {                                      \
-        for (unsigned int j = j_b; j < j_max; j++) {                                    \
+      for (unsigned int i = i_b; i < i_max; i++) {                             \
+        for (unsigned int j = j_b; j < j_max; j++) {                           \
           counts[(uint64_t)i * n + j] = 0;                                     \
         }                                                                      \
       }                                                                        \
@@ -659,17 +778,17 @@ static inline uint64_t tree_adder(uint64_t v) {
                            ? k_b + K_BLOCK                                     \
                            : bit_size_in_qwords;                               \
                                                                                \
-        unsigned int i = i_b;                                                           \
+        unsigned int i = i_b;                                                  \
         for (; i <= i_max - OUTER_ROW_NUM; i += OUTER_ROW_NUM) {               \
           const uint64_t *restrict a_rows[OUTER_ROW_NUM];                      \
           for (int x = 0; x < OUTER_ROW_NUM; x++) {                            \
             a_rows[x] = bit_qwords + (uint64_t)(i + x) * bit_size_in_qwords;   \
           }                                                                    \
                                                                                \
-          unsigned int j = j_b;                                                         \
+          unsigned int j = j_b;                                                \
           for (; j <= j_max - OUTER_COL_NUM; j += OUTER_COL_NUM) {             \
             const uint64_t *restrict b_rows[OUTER_COL_NUM];                    \
-            for (unsigned int y = 0; y < OUTER_COL_NUM; y++) {                          \
+            for (unsigned int y = 0; y < OUTER_COL_NUM; y++) {                 \
               b_rows[y] =                                                      \
                   bits_qwords + (uint64_t)(j + y) * bit_size_in_qwords;        \
             }                                                                  \
@@ -679,8 +798,8 @@ static inline uint64_t tree_adder(uint64_t v) {
   setop_count_db_cpu_kernel_outer(a_rows, b_rows, k_b, k_max, results, op,     \
                                   SIMD_DIR, LOAD_MACRO);                       \
                                                                                \
-  for (unsigned int x = 0; x < OUTER_ROW_NUM; x++) {                                    \
-    for (unsigned int y = 0; y < OUTER_COL_NUM; y++) {                                  \
+  for (unsigned int x = 0; x < OUTER_ROW_NUM; x++) {                           \
+    for (unsigned int y = 0; y < OUTER_COL_NUM; y++) {                         \
       counts[(uint64_t)(i + x) * n + (j + y)] += results[x][y];                \
     }                                                                          \
   }                                                                            \
@@ -689,7 +808,7 @@ static inline uint64_t tree_adder(uint64_t v) {
   for (; j < j_max; j++) {                                                     \
     const uint64_t *restrict b_row_f =                                         \
         bits_qwords + (uint64_t)j * bit_size_in_qwords;                        \
-    for (unsigned int x = 0; x < OUTER_ROW_NUM; x++) {                                  \
+    for (unsigned int x = 0; x < OUTER_ROW_NUM; x++) {                         \
       int rf = 0;                                                              \
       setop_count_db_cpu_kernel(a_rows[x], b_row_f, k_b, k_max, rf, op,        \
                                 SIMD_DIR, LOAD_MACRO);                         \
@@ -701,7 +820,7 @@ static inline uint64_t tree_adder(uint64_t v) {
   for (; i < i_max; i++) {                                                     \
     const uint64_t *restrict a_row_f =                                         \
         bit_qwords + (uint64_t)i * bit_size_in_qwords;                         \
-    for (unsigned int j_f = j_b; j_f < j_max; j_f++) {                                  \
+    for (unsigned int j_f = j_b; j_f < j_max; j_f++) {                         \
       const uint64_t *restrict b_row_f =                                       \
           bits_qwords + (uint64_t)j_f * bit_size_in_qwords;                    \
       int rff = 0;                                                             \
