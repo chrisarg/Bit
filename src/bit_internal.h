@@ -479,8 +479,7 @@ static inline uint64_t tree_adder(uint64_t v) {
     }                                                                          \
     result = (int)count;                                                       \
   } while (0)
-#elif USE_LIBPOPCNT /* this path has similar performance to the previous one   \
-                     */
+#elif USE_LIBPOPCNT
 #define setop_count_db_cpu_kernel(a_row, b_row, k_b, k_max, result, op,        \
                                   SIMD_DIRECTIVE, LOAD_MACRO)                  \
   do {                                                                         \
@@ -488,12 +487,18 @@ static inline uint64_t tree_adder(uint64_t v) {
     uint64_t count = 0;                                                        \
     size_t l = k_b;                                                            \
     CHUNK_LIMIT(limit, k_b, k_max, SETOP_BUFFER_SIZE)                          \
+    size_t simd_buffer_limit =                                                 \
+        SETOP_BUFFER_SIZE - (SETOP_BUFFER_SIZE % VECTOR_QWORDS);               \
     for (; l < limit; l += SETOP_BUFFER_SIZE) {                                \
-      for (int k = 0; k < SETOP_BUFFER_SIZE; k += VECTOR_QWORDS) {             \
+      int k = 0;                                                               \
+      for (; k < simd_buffer_limit; k += VECTOR_QWORDS) {                      \
         VECTOR_TYPE v_a = LOAD_MACRO((VECTOR_TYPE *)&a_row[l + k]);            \
         VECTOR_TYPE v_b = LOAD_MACRO((VECTOR_TYPE *)&b_row[l + k]);            \
         VECTOR_TYPE v_res = BIT##op(v_a, v_b);                                 \
         VECTOR_ALIGNED_STORE((VECTOR_TYPE *)&setop_buffer[k], v_res);          \
+      }                                                                        \
+      for (; k < SETOP_BUFFER_SIZE; k++) {                                     \
+        setop_buffer[k] = BIT_SCALAR##op(a_row[l + k], b_row[l + k]);          \
       }                                                                        \
       POPULATION_COUNT(count, setop_buffer, SETOP_BUFFER_SIZE)                 \
     }                                                                          \
@@ -552,7 +557,6 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define setop_count_db_cpu_kernel_outer(a_rows, b_rows, k_b, k_max, results,   \
                                         op, SIMD_DIRECTIVE, LOAD_MACRO)        \
   do {                                                                         \
-    /* Per-output contiguous buffer for libpopcnt bulk reduction. */           \
     const int BUF_SZ = SETOP_BUFFER_SIZE;                                      \
     _Alignas(ALIGNMENT)                                                        \
         uint64_t setop_buffer[OUTER_ROW_NUM][OUTER_COL_NUM][BUF_SZ];           \
@@ -593,8 +597,7 @@ static inline uint64_t tree_adder(uint64_t v) {
       }                                                                        \
     }                                                                          \
   } while (0)
-#elif USE_LIBPOPCNT /* this path has similar performance to the previous one   \
-                     */
+#elif USE_LIBPOPCNT
 #define setop_count_db_cpu_kernel_outer(a_rows, b_rows, k_b, k_max, results,   \
                                         op, SIMD_DIRECTIVE, LOAD_MACRO)        \
   do {                                                                         \
@@ -604,8 +607,10 @@ static inline uint64_t tree_adder(uint64_t v) {
     uint64_t c[OUTER_ROW_NUM][OUTER_COL_NUM] = {0};                            \
     size_t l = k_b;                                                            \
     CHUNK_LIMIT(limit, k_b, k_max, BUF_SZ)                                     \
+    size_t simd_buffer_limit = BUF_SZ - (BUF_SZ % VECTOR_QWORDS);              \
     for (; l < limit; l += BUF_SZ) {                                           \
-      for (int k = 0; k < BUF_SZ; k += VECTOR_QWORDS) {                        \
+      int k = 0;                                                               \
+      for (; k < simd_buffer_limit; k += VECTOR_QWORDS) {                      \
         VECTOR_TYPE a_vec[OUTER_ROW_NUM];                                      \
         VECTOR_TYPE b_vec[OUTER_COL_NUM];                                      \
                                                                                \
@@ -620,6 +625,14 @@ static inline uint64_t tree_adder(uint64_t v) {
             VECTOR_TYPE res_vec = BIT##op(a_vec[x], b_vec[y]);                 \
             VECTOR_ALIGNED_STORE((VECTOR_TYPE *)&setop_buffer[x][y][k],        \
                                  res_vec);                                     \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+      for (; k < BUF_SZ; k++) {                                                \
+        for (int x = 0; x < OUTER_ROW_NUM; ++x) {                              \
+          for (int y = 0; y < OUTER_COL_NUM; ++y) {                            \
+            setop_buffer[x][y][k] =                                            \
+                BIT_SCALAR##op(a_rows[x][l + k], b_rows[y][l + k]);            \
           }                                                                    \
         }                                                                      \
       }                                                                        \
@@ -648,7 +661,6 @@ static inline uint64_t tree_adder(uint64_t v) {
   do {                                                                         \
     uint64_t c[OUTER_ROW_NUM][OUTER_COL_NUM] = {0};                            \
     size_t k_idx = k_b;                                                        \
-    /* FIX: Multiply the unroll factor by the vector word width */             \
     const size_t step_size = (size_t)(OUTER_VEC_BLK * VECTOR_QWORDS);          \
     CHUNK_LIMIT(limit, k_b, k_max, step_size)                                  \
     VECTOR_TYPE sum[OUTER_ROW_NUM][OUTER_COL_NUM];                             \
@@ -663,12 +675,12 @@ static inline uint64_t tree_adder(uint64_t v) {
         VECTOR_TYPE b_vectors[OUTER_COL_NUM];                                  \
                                                                                \
         for (int x = 0; x < OUTER_ROW_NUM; x++) {                              \
-          a_vectors[x] =                                                       \
-              LOAD_MACRO((VECTOR_TYPE *)&a_rows[x][k_idx + VECTOR_OFFSET(u)]); \
+          a_vectors[x] = LOAD_MACRO(                                           \
+              (VECTOR_TYPE *)&a_rows[x][k_idx + VECTOR_OFFSET(u)]);            \
         }                                                                      \
         for (int y = 0; y < OUTER_COL_NUM; y++) {                              \
-          b_vectors[y] =                                                       \
-              LOAD_MACRO((VECTOR_TYPE *)&b_rows[y][k_idx + VECTOR_OFFSET(u)]); \
+          b_vectors[y] = LOAD_MACRO(                                           \
+              (VECTOR_TYPE *)&b_rows[y][k_idx + VECTOR_OFFSET(u)]);            \
         }                                                                      \
                                                                                \
         for (int x = 0; x < OUTER_ROW_NUM; x++) {                              \
@@ -779,14 +791,14 @@ static inline uint64_t tree_adder(uint64_t v) {
                            : bit_size_in_qwords;                               \
                                                                                \
         unsigned int i = i_b;                                                  \
-        for (; i <= i_max - OUTER_ROW_NUM; i += OUTER_ROW_NUM) {               \
+        for (; i + OUTER_ROW_NUM <= i_max; i += OUTER_ROW_NUM) {               \
           const uint64_t *restrict a_rows[OUTER_ROW_NUM];                      \
           for (int x = 0; x < OUTER_ROW_NUM; x++) {                            \
             a_rows[x] = bit_qwords + (uint64_t)(i + x) * bit_size_in_qwords;   \
           }                                                                    \
                                                                                \
           unsigned int j = j_b;                                                \
-          for (; j <= j_max - OUTER_COL_NUM; j += OUTER_COL_NUM) {             \
+          for (; j + OUTER_COL_NUM <= j_max; j += OUTER_COL_NUM) {             \
             const uint64_t *restrict b_rows[OUTER_COL_NUM];                    \
             for (unsigned int y = 0; y < OUTER_COL_NUM; y++) {                 \
               b_rows[y] =                                                      \
