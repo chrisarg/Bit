@@ -1,246 +1,289 @@
 #!/usr/bin/env perl
-use v5.36;
+use v5.36; 
 use File::Basename qw(dirname basename);
 use File::Path     qw(make_path);
 use File::Spec;
 use Algorithm::Loops qw(NestedLoops);
 use List::Util       qw(shuffle);
 use Text::ParseWords qw(shellwords);
-use Getopt::Long     qw(GetOptions);
+use Getopt::Long     qw(GetOptionsFromArray GetOptions);
 use POSIX            qw(strftime);
+use Sys::Hostname    qw(hostname);
 use FindBin;
+use IPC::Run         qw(run);
+use Log::Log4perl    qw(:easy);
+use JSON::PP         qw(decode_json);
 
-# Resolve the absolute path to the project root
-my $root_dir = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, '..' ) );
-my $exec_binary = File::Spec->catfile( $root_dir, 'build', 'openmp_bit_nogpu' );
+# 1. Intercept Config File
+my $config_file;
+Getopt::Long::Configure("pass_through");
+GetOptions('config=s' => \$config_file);
+Getopt::Long::Configure("no_pass_through");
+die "FATAL: --config <file.json> is strictly required.\n" unless $config_file;
 
-my $summary_csv = '';
-my $raw_log     = '';
-my $output_dir  = File::Spec->catfile( $root_dir, 'benchmark_CPU_params' );
-my $make_args   = '';
-my $dry_run     = 0;
-my $cores_list  = '1,10,20';
-
-GetOptions(
-    'summary|csv=s' => \$summary_csv,
-    'log=s'         => \$raw_log,
-    'out-dir=s'     => \$output_dir,
-    'make-args=s'   => \$make_args,
-    'cores=s'       => \$cores_list,
-    'dry-run'       => \$dry_run,
-) or die "Usage: $0 [--cores 1,10,20] [--make-args '...'] [--dry-run]\n";
-
-my %target_cores = map { $_ => 1 } split( /\s*,\s*/, $cores_list );
-my $max_threads  = 0;
-for my $c ( keys %target_cores ) { $max_threads = $c if $c > $max_threads; }
-
-my $detected_cpu = get_linux_cpu_name();
-my ( $simd_level, $vpop_hw ) = detect_cpu_features();
-my $has_numactl = ( system("command -v numactl >/dev/null 2>&1") == 0 );
-
-my %parameters = (
-    num_bits       => [  65536, 262144 ],
-    libpopcnt      => [ 0,   1 ],
-    cpu_tile       => [ 16,  32,   64 ],
-    bitvector_tile => [ 512, 1024, 2048 ],
-    buffer_size    => [ 128, 256,  512, 1024, 4096 ],
-    outer_row_num  => [ 1,   2,    3,   4,    5, 6 ],
-    outer_col_num  => [ 1,   2,    3,   4,    5, 6 ],
-    outer_vec_blk  => [ 1,   2,    3,   4,    6, 8 ]
-);
-
-my @order = qw(num_bits libpopcnt cpu_tile bitvector_tile
-  buffer_size outer_row_num outer_col_num outer_vec_blk
-);
-
-prepare_outputs();
-
-my @benchmarks;
-my @arrays = map { $parameters{$_} } @order;
-NestedLoops( \@arrays,
-    sub { my %current; @current{@order} = @_; push @benchmarks, \%current; } );
-@benchmarks = shuffle(@benchmarks);
-
-# Enforce strict thread affinity for NUMA architectures
-$ENV{OMP_PROC_BIND} = 'close';
-$ENV{OMP_PLACES}    = 'cores';
-
-for my $opts (@benchmarks) { run_benchmark(%$opts); }
-
-# --- Subroutines ---
-
-sub detect_cpu_features {
-    my $simd = 'None';
-    my $vpop = 'None';
-    if ( open my $fh, '<', '/proc/cpuinfo' ) {
-        while ( my $line = <$fh> ) {
-            if ( $line =~ /^flags/i || $line =~ /^Features/i ) {
-                if ( $line =~ /avx512f/i ) {
-                    $simd = 'AVX512';
-                    $vpop = 'vpopcntdq' if $line =~ /avx512_vpopcntdq/i;
-                }
-                elsif ( $line =~ /avx2/i ) {
-                    $simd = $simd eq 'AVX512' ? $simd : 'AVX2';
-                }
-                elsif ( $line =~ /avx/i ) {
-                    $simd = $simd =~ /AVX/ ? $simd : 'AVX';
-                }
-                elsif ( $line =~ /sse4_2/i ) {
-                    $simd = $simd ne 'None' ? $simd : 'SSE4.2';
-                }
-                elsif ( $line =~ /asimd/i ) {
-                    $simd = 'NEON';
-                    $vpop = 'vcntq_u8';
-                }
-            }
-            elsif ( $line =~ /^isa/i ) {
-                if ( $line =~ /v/i ) {
-                    $simd = 'RISC-V Vector';
-                    $vpop = 'vcpop.v' if $line =~ /zvbb/i;
-                }
-            }
-        }
-        close $fh;
-    }
-    return ( $simd, $vpop );
-}
-
-sub get_linux_cpu_name {
-    my $cpu_name = 'Unknown_CPU';
-    if ( open my $info, '<', '/proc/cpuinfo' ) {
-        while ( my $line = <$info> ) {
-            if ( $line =~ /^model name\s*:\s*(.+)$/ ) {
-                $cpu_name = $1;
-                $cpu_name =~ s/\(R\)|\(TM\)//gi;
-                $cpu_name =~ s/^\s+|\s+$//g;
-                $cpu_name =~ s/\s+/ /g;
-                last;
-            }
-        }
-        close $info;
-    }
-    return $cpu_name;
-}
-
-sub prepare_outputs {
-    make_path($output_dir) unless -d $output_dir;
-
-    if ( !$summary_csv || !$raw_log ) {
-        my $clean_cpu = $detected_cpu;
-        $clean_cpu =~ s/[^A-Za-z0-9]+/_/g;
-        $clean_cpu =~ s/^_|_$//g;
-
-        my $clean_simd = $simd_level;
-        $clean_simd =~ s/[^A-Za-z0-9]+/_/g;
-
-        my $timestamp = strftime( "%Y%m%d_%H%M%S", localtime );
-        my $base_name = "cpu_sweep_${clean_cpu}_${clean_simd}_${timestamp}";
-
-        $summary_csv = "${base_name}.csv"     unless $summary_csv;
-        $raw_log     = "${base_name}_raw.log" unless $raw_log;
-    }
-
-    $summary_csv = File::Spec->catfile( $output_dir, $summary_csv )
-      unless $summary_csv =~ m{[/\\]};
-    $raw_log = File::Spec->catfile( $output_dir, $raw_log )
-      unless $raw_log =~ m{[/\\]};
-
-    open my $fh, '>', $summary_csv or die "Cannot create CSV: $!\n";
-    say $fh "Processor,SIMD,vpopcountHW,LIBPOPCNT,Benchmark_Type"
-      . ",Bitset_Size,Threads,CPU_TILE,BITVECTOR_TILE,"
-      . "BUFFER_SIZE,OUTER_ROW_NUM,OUTER_COL_NUM,OUTER_VEC_BLK,Timing_ns";
+# 2. Load JSON Schema
+my %config;
+eval {
+    open my $fh, '<', $config_file or die "Cannot open: $!\n";
+    my $json_text = do { local $/; <$fh> };
     close $fh;
+    %config = %{ decode_json($json_text) };
+};
+die "FATAL: Failed to parse JSON config '$config_file':\n$@\n" if $@;
 
-    log_message("Detected Processor: $detected_cpu\n");
-    log_message("Output CSV initialized at: $summary_csv\n");
+# 3. Dynamically Generate CLI Option Bindings
+my %cli_opts;
+my @getopt_spec;
+for my $matrix (qw(build_matrix run_matrix system_env)) {
+    next unless exists $config{$matrix};
+    for my $key (keys %{ $config{$matrix} }) { push @getopt_spec, "$key=s"; }
 }
 
-sub run_benchmark {
-    my %opts = @_;
+GetOptions(\%cli_opts, @getopt_spec) or die "Error parsing CLI arguments.\n";
+for my $k (keys %cli_opts) {
+    next unless defined $cli_opts{$k};
+    if (exists $config{build_matrix}{$k}) { $config{build_matrix}{$k} = $cli_opts{$k}; } 
+    elsif (exists $config{run_matrix}{$k}) { $config{run_matrix}{$k} = $cli_opts{$k}; } 
+    elsif (exists $config{system_env}{$k}) { $config{system_env}{$k} = $cli_opts{$k}; }
+}
 
-    return if $dry_run;
+sub normalize_array {
+    my ($val) = @_;
+    return [] unless defined $val;
+    return ref($val) eq 'ARRAY' ? $val : [ split(/\s*,\s*/, $val) ];
+}
+for my $k (keys %{$config{build_matrix}}) { $config{build_matrix}{$k} = normalize_array($config{build_matrix}{$k}); }
+for my $k (keys %{$config{run_matrix}})   { $config{run_matrix}{$k}   = normalize_array($config{run_matrix}{$k}); }
 
-    # 1. Clean previous build artifacts quietly
-    my $clean_cmd =
-      "make -C " . quotemeta($root_dir) . " distclean > /dev/null 2>&1";
-    system($clean_cmd);
+# 4. Node & Instance Identification
+my $hostname = hostname();
+my $pid = $$;
+my $mac_address = get_mac_address();
+my $mac_clean = $mac_address;
+$mac_clean =~ s/://g; 
 
-    # 2. Build compile command array
-    my @compile_cmd = (
-        'make',
-        '-C',
-        $root_dir,
-        '-f',
-        'Makefile',
-        '-B',
-        'build/openmp_bit_nogpu',
-        "GPU=NONE",
-        "LIBPOPCNT=$opts{libpopcnt}",
-        "CPU_TILE=$opts{cpu_tile}",
-        "BITVECTOR_TILE=$opts{bitvector_tile}",
-        "BUFFER_SIZE=$opts{buffer_size}",
-        "OUTER_ROW_NUM=$opts{outer_row_num}",
-        "OUTER_COL_NUM=$opts{outer_col_num}",
-        "OUTER_VEC_BLK=$opts{outer_vec_blk}"
-    );
+my $machine_id = "Unknown";
+if (open my $fh, '<', '/etc/machine-id') {
+    $machine_id = <$fh>;
+    chomp $machine_id;
+    close $fh;
+}
 
-    push @compile_cmd, shellwords($make_args) if $make_args;
+my $exec_context = $config{system_env}{exec_context};
+if ($exec_context eq 'auto') {
+    $exec_context = $ENV{SLURM_JOB_ID} // $ENV{PBS_JOBID} // $ENV{LSB_JOBID} // 'Manual';
+}
+my $run_id = strftime("%Y%m%d_%H%M%S", localtime) . "_$pid";
 
-    # Log the clean, unescaped command for tracking purposes
-    log_message( "COMPILING: " . join( ' ', @compile_cmd ) . "\n" );
+# 5. Execute Dynamic Telemetry
+my %telemetry_data;
+my @telemetry_keys;
 
-    # Safely package the array into a shell string with output redirection
-    my $compile_str =
-      join( ' ', map { quotemeta($_) } @compile_cmd ) . " > /dev/null 2>&1";
-    if ( system($compile_str) != 0 ) {
-        log_message("ERROR: Compilation failed.\n");
-        return;
+for my $cat (keys %{ $config{telemetry} }) {
+    my $node = $config{telemetry}{$cat};
+    my $content = "";
+    
+    if ( $node->{file} && -e $node->{file} ) {
+        open my $fh, '<', $node->{file} or next;
+        $content = do { local $/; <$fh> };
+        close $fh;
+    } elsif ( $node->{cmd} ) {
+        my $cmd = $node->{cmd};
+        my $default_cc = $config{build_matrix}{cc}[0] // 'cc';
+        $cmd =~ s/\{cc\}/$default_cc/g;
+        eval { run [shellwords($cmd)], '>', \$content, '2>/dev/null'; };
+    }
+    
+    for my $key (sort keys %{ $node->{extractors} }) {
+        push @telemetry_keys, $key;
+        my $regex = qr/$node->{extractors}{$key}/;
+        $telemetry_data{$key} = ($content =~ $regex) ? $1 : "None";
+    }
+}
+
+# 6. File Naming & Templating
+my $proc_clean = $telemetry_data{Processor} // "UnknownCPU";
+$proc_clean =~ s/\W+/_/g;
+my $base_name = "${proc_clean}_${hostname}_${mac_clean}_${run_id}";
+
+for my $k (keys %{$config{system_env}}) {
+    if (defined $config{system_env}{$k} && !ref($config{system_env}{$k})) {
+        $config{system_env}{$k} =~ s/\{base_name\}/$base_name/g;
+        $config{system_env}{$k} =~ s/\{out_dir\}/$config{system_env}{out_dir}/g;
+    }
+}
+
+# 7. Initialize Logging & I/O
+make_path(dirname($config{system_env}{summary_csv}));
+my $log_format = '[%d{yyyy-MM-dd HH:mm:ss}] [%p] %m%n';
+Log::Log4perl->easy_init(
+    { level => $DEBUG, file => "stdout", layout => $log_format },
+    { level => $DEBUG, file => ">>$config{system_env}{raw_log}", layout => $log_format }
+);
+
+INFO("Starting Universal Benchmark Engine");
+INFO("Run ID: $run_id | Node: $hostname ($mac_address) | Context: $exec_context");
+
+my @b_keys = sort keys %{$config{build_matrix}};
+my @r_keys = sort keys %{$config{run_matrix}};
+my @cap_cols = @{ $config{system_env}{output_parser}{columns} };
+
+unless (-e $config{system_env}{summary_csv}) {
+    open my $fh, '>', $config{system_env}{summary_csv} or die "Cannot create CSV: $!\n";
+    say $fh join(',', "Run_ID", "Machine_ID", "Hostname", "MAC_Address", "Exec_Context", 
+                  @telemetry_keys, @b_keys, @r_keys, @cap_cols);
+    close $fh;
+}
+
+# 8. Matrix Generation
+my @build_arrays = map { $config{build_matrix}{$_} } @b_keys;
+my @build_grid;
+NestedLoops( \@build_arrays, sub { my %c; @c{@b_keys} = @_; push @build_grid, \%c; } );
+@build_grid = shuffle(@build_grid);
+
+my @run_arrays = map { $config{run_matrix}{$_} } @r_keys;
+my @run_grid;
+NestedLoops( \@run_arrays, sub { my %c; @c{@r_keys} = @_; push @run_grid, \%c; } );
+
+# --- Execution Engine ---
+for my $b_config (@build_grid) {
+    next if $config{system_env}{dry_run};
+    
+    my $full_ctx = { %$b_config, %{$config{system_env}} };
+    unless ( compile_binary($full_ctx) ) {
+        WARN("Build failed for configuration. Skipping inner run matrix.");
+        next;
     }
 
-    # 3. Execute benchmark binary (keep stdout unredirected for parsing)
-    my $exec_cmd = "$exec_binary $opts{num_bits} 1024 1024 $max_threads";
-    $exec_cmd = "numactl --interleave=all $exec_cmd" if $has_numactl;
+    for my $r_config (@run_grid) {
+        $full_ctx = { %$b_config, %$r_config, %{$config{system_env}} };
+        run_benchmark_instance($full_ctx, \@b_keys, \@r_keys);
+    }
+}
 
-    log_message("EXECUTING: $exec_cmd\n");
-    my $output = `$exec_cmd 2>&1`;
+INFO("Sweep complete. Results stored at: $config{system_env}{summary_csv}");
 
-    # Regex capturing optional "Container - " string to determine benchmark type
-    my $bench_pat = qr{
-        Total \s time \s for \s (?<type>Container \s - \s )? Multi-threaded \s - \s OpenMP:
-        \s+ (?<timing> \d+ ) \s ns
-        .*?
-        Number \s of \s threads: \s+ (?<threads> \d+ )
-    }x;
+# --- Core Subroutines ---
 
-    open my $out, '>>', $summary_csv or die "Cannot append CSV: $!\n";
-    for my $line ( split /\n/, $output ) {
-        if ( $line =~ $bench_pat ) {
-            if ( exists $target_cores{ $+{threads} } ) {
-                my $b_type = $+{type} ? 'Containerized' : 'Non-Containerized';
+sub interpolate_cmd {
+    my ($template, $ctx) = @_;
+    $template =~ s/\{([^}]+)\}/defined $ctx->{$1} ? $ctx->{$1} : "{$1}"/ge;
+    return $template;
+}
 
-                say {$out} join ',',
-                  $detected_cpu,
-                  $simd_level,
-                  $vpop_hw,
-                  $opts{libpopcnt},
-                  $b_type,
-                  $opts{num_bits}, $+{threads},
-                  $opts{cpu_tile},
-                  $opts{bitvector_tile},
-                  $opts{buffer_size},
-                  $opts{outer_row_num},
-                  $opts{outer_col_num},
-                  $opts{outer_vec_blk},
-                  $+{timing};
+sub compile_binary {
+    my ($ctx) = @_;
+    return 1 unless $ctx->{build_cmd};
+    
+    my $cmd_str = interpolate_cmd($ctx->{build_cmd}, $ctx);
+    my @cmd = shellwords($cmd_str);
+    
+    INFO("BUILDING: " . join(' ', @cmd));
+    my $build_log = '';
+    eval { run \@cmd, '>', \$build_log, '2>&1' or die "Build returned non-zero status."; };
+    if ($@) { ERROR("Compilation Exception:\n$@\nOutput:\n$build_log"); return 0; }
+    return 1;
+}
+
+sub run_benchmark_instance {
+    my ($ctx, $b_keys_ref, $r_keys_ref) = @_;
+
+    if ( $ctx->{pre_run_cmd} ) {
+        my $pre_cmd = interpolate_cmd($ctx->{pre_run_cmd}, $ctx);
+        eval { run [shellwords($pre_cmd)], '>', \my $out, '2>&1'; };
+    }
+
+    my $run_str = interpolate_cmd($ctx->{run_cmd}, $ctx);
+    my @run_args = shellwords($run_str);
+
+    if ( $ctx->{priority} eq 'nice' ) { unshift @run_args, 'nice', '-n', '-20'; } 
+    elsif ( $ctx->{priority} eq 'rr' ) { unshift @run_args, 'chrt', '-r', '50'; }
+    if ( $ctx->{taskset} ) { unshift @run_args, 'taskset', '-c', $ctx->{taskset}; }
+
+    DEBUG("RUNNING: " . join(' ', @run_args));
+
+    my $exec_out = '';
+    eval { run \@run_args, '>', \$exec_out, '2>&1' or die "Binary execution failed."; };
+    if ($@) { WARN("Runtime Exception:\n$@\nOutput:\n$exec_out"); return; }
+
+    my $parser = $ctx->{output_parser};
+    my $compiled_regex = qr/$parser->{regex}/;
+    
+    open my $out, '>>', $ctx->{summary_csv} or die "Cannot append CSV: $!\n";
+    for my $line ( split /\n/, $exec_out ) {
+        if ( $line =~ $compiled_regex ) {
+            my %caps = %+;
+            
+            # Apply dynamic mappings if they exist in the JSON
+            if (exists $parser->{map}) {
+                for my $col (keys %{ $parser->{map} }) {
+                    my $val = defined $caps{$col} ? $caps{$col} : "__UNDEF__";
+                    if (exists $parser->{map}{$col}{$val}) {
+                        $caps{$col} = $parser->{map}{$col}{$val};
+                    }
+                }
             }
+            
+            my @t_vals = map { $telemetry_data{$_} } @telemetry_keys;
+            my @b_vals = map { $ctx->{$_} } @$b_keys_ref;
+            my @r_vals = map { $ctx->{$_} } @$r_keys_ref;
+            my @cap_vals = map { $caps{$_} // '' } @{ $parser->{columns} };
+            
+            say {$out} join(',', $run_id, $machine_id, $hostname, $mac_address, $exec_context, 
+                                 @t_vals, @b_vals, @r_vals, @cap_vals);
         }
     }
     close $out;
 }
 
-sub log_message {
-    my ($message) = @_;
-    open my $logfh, '>>', $raw_log or die "Cannot append to raw log: $!\n";
-    print $logfh $message;
-    close $logfh;
+sub get_mac_address {
+    my $preferred;   # interface with default route (best) #[cite: 4]
+    my $permanent;   # permanent physical Ethernet #[cite: 4]
+    my $fallback;    # any reasonable Ethernet MAC #[cite: 4]
+
+    if (open my $rt, '<', '/proc/net/route') { #[cite: 4]
+        while (<$rt>) { #[cite: 4]
+            my ($iface, $dest) = (split)[0,1]; #[cite: 4]
+            next unless defined $iface && $dest eq '00000000'; #[cite: 4]
+            $preferred = $iface; #[cite: 4]
+            last; #[cite: 4]
+        }
+        close $rt; #[cite: 4]
+    }
+
+    opendir my $dh, '/sys/class/net' or return "00:00:00:00:00:00"; #[cite: 4]
+    for my $iface (readdir $dh) { #[cite: 4]
+        next if $iface eq '.' || $iface eq '..' || $iface eq 'lo'; #[cite: 4]
+        my $base = "/sys/class/net/$iface"; #[cite: 4]
+        
+        next unless -e "$base/device" || -e "$base/phy80211"; #[cite: 4]
+
+        my $type = do { #[cite: 4]
+            open my $t, '<', "$base/type" or next; #[cite: 4]
+            local $/; <$t> + 0; #[cite: 4]
+        };
+        next unless $type == 1; #[cite: 4]
+
+        open my $af, '<', "$base/address" or next; #[cite: 4]
+        my $mac = <$af>; #[cite: 4]
+        close $af; #[cite: 4]
+        chomp $mac; #[cite: 4]
+        $mac = lc $mac; #[cite: 4]
+        next if $mac eq '00:00:00:00:00:00' || $mac !~ /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/; #[cite: 4]
+
+        my $assign = do { #[cite: 4]
+            open my $a, '<', "$base/addr_assign_type" or next; #[cite: 4]
+            local $/; <$a> + 0; #[cite: 4]
+        };
+
+        if (defined $preferred && $iface eq $preferred) { #[cite: 4]
+            closedir $dh; #[cite: 4]
+            return $mac; #[cite: 4]
+        }
+        $permanent = $mac if $assign == 0 && !defined $permanent; #[cite: 4]
+        $fallback  = $mac unless defined $fallback; #[cite: 4]
+    }
+    closedir $dh; #[cite: 4]
+
+    return $permanent // $fallback // "00:00:00:00:00:00"; #[cite: 4]
 }

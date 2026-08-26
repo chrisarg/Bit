@@ -541,13 +541,16 @@ BENCH_EXEC := $(BUILD_DIR)/benchmark
 BENCH_OMP_SRC := benchmark/openmp_bit.c
 BENCH_OMP_OBJ := $(BUILD_DIR)/openmp_bit.o
 BENCH_OMP_EXEC := $(BUILD_DIR)/openmp_bit
-BENCH_OMP_GPU_SRC := benchmark/openmp_bit_nogpu.c
-BENCH_OMP_GPU_OBJ := $(BUILD_DIR)/openmp_bit_nogpu.o
-BENCH_OMP_GPU_EXEC := $(BUILD_DIR)/openmp_bit_nogpu
+BENCH_OMP_NOGPU_SRC := benchmark/openmp_bit_nogpu.c
+BENCH_OMP_NOGPU_OBJ := $(BUILD_DIR)/openmp_bit_nogpu.o
+BENCH_OMP_NOGPU_EXEC := $(BUILD_DIR)/openmp_bit_nogpu
 BENCH_CONTAINER_SRC := benchmark/openmp_bit_container.c
 BENCH_CONTAINER_OBJ := $(BUILD_DIR)/openmp_bit_container.o
 BENCH_CONTAINER_EXEC := $(BUILD_DIR)/openmp_bit_container
 OPENMP_BIT_HELPERS_OBJ := $(BUILD_DIR)/openmp_bit_helpers.o
+BENCH_SWEEP_SRC  := benchmark/cpu_param_sweep.c
+BENCH_SWEEP_OBJ  := $(BUILD_DIR)/cpu_param_sweep.o
+BENCH_SWEEP_EXEC := $(BUILD_DIR)/cpu_param_sweep
 
 
 # use libpopcnt integration by default, but allow user to disable it 
@@ -634,15 +637,15 @@ bench: $(TARGET) $(BENCH_OBJ) bench_omp
     -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lrt
 
 ifeq ($(filter NONE,$(GPU_LIST)),NONE)
-bench_omp: $(BENCH_OMP_GPU_EXEC) $(BENCH_CONTAINER_EXEC)
+bench_omp: $(BENCH_OMP_NOGPU_EXEC) $(BENCH_CONTAINER_EXEC) $(BENCH_SWEEP_EXEC)
 else
-bench_omp: $(BENCH_OMP_EXEC) $(BENCH_OMP_GPU_EXEC) $(BENCH_CONTAINER_EXEC)
+bench_omp: $(BENCH_OMP_EXEC) $(BENCH_OMP_NOGPU_EXEC) $(BENCH_CONTAINER_EXEC)
 endif
 
 $(BENCH_OMP_OBJ): $(BENCH_OMP_SRC) $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
-$(BENCH_OMP_GPU_OBJ): $(BENCH_OMP_GPU_SRC) $(CONFIG_STAMP)
+$(BENCH_OMP_NOGPU_OBJ): $(BENCH_OMP_NOGPU_SRC) $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
 $(BENCH_CONTAINER_OBJ): $(BENCH_CONTAINER_SRC) $(CONFIG_STAMP)
@@ -655,13 +658,20 @@ $(BENCH_OMP_EXEC): $(BENCH_OMP_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
 	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_OBJ)  \
     $(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
-$(BENCH_OMP_GPU_EXEC): $(BENCH_OMP_GPU_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_GPU_OBJ) \
+$(BENCH_OMP_NOGPU_EXEC): $(BENCH_OMP_NOGPU_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_NOGPU_OBJ) \
   $(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
 $(BENCH_CONTAINER_EXEC): $(BENCH_CONTAINER_OBJ) $(TARGET)
 	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_CONTAINER_OBJ) \
   -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
+
+$(BENCH_SWEEP_OBJ): $(BENCH_SWEEP_SRC) $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
+$(BENCH_SWEEP_EXEC): $(BENCH_SWEEP_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_SWEEP_OBJ) \
+	$(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
 bug_report:
 	@BUG_GPU_ARCH_TAG := $(subst $(space),-,$(strip $(NVIDIA_ARCH_LIST)        \

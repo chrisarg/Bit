@@ -12,128 +12,101 @@ if (length(file_list) == 0) {
   stop("No benchmark CSV files found matching 'cpu_sweep_*.csv' in the target directory.")
 }
 
+# Robust column-name based reading
 data <- rbindlist(lapply(file_list, fread), fill = TRUE)
 
-# 2. Data Mutation
-data[, c("Throughput", "Registers", "Bitset_Size", "LIBPOPCNT", "vpopcountHW", "Benchmark_Type") := .(
-  1e9 / Timing_ns,
-  (OUTER_ROW_NUM * OUTER_COL_NUM) + OUTER_ROW_NUM + OUTER_COL_NUM,
-  as.factor(Bitset_Size),
-  as.factor(LIBPOPCNT),
-  as.factor(vpopcountHW),
-  as.factor(Benchmark_Type)
-)]
+# 2. Strict Name-Based Data Mutation & Factor Casting
+# Check required named columns exist
+required_cols <- c("Timing_ns", "OUTER_ROW_NUM", "OUTER_COL_NUM", "Bitset_Size", 
+                   "LIBPOPCNT", "vpopcountHW", "Benchmark_Type", "Compiler", "Opt_Level")
+missing_cols <- setdiff(required_cols, names(data))
+if (length(missing_cols) > 0) {
+  stop(paste("Missing expected columns in CSV:", paste(missing_cols, collapse = ", ")))
+}
 
-max_thread_val <- max(data$Threads, na.rm = TRUE)
+# Compute Metrics by Column Name
+data[, Throughput := 1e9 / Timing_ns]
+data[, Registers  := (OUTER_ROW_NUM * OUTER_COL_NUM) + OUTER_ROW_NUM + OUTER_COL_NUM]
 
-# 3. Optimal Configuration Extractor (Handles both benchmark types dynamically)
-optimal_configs <- data[, .SD[which.max(Throughput)],
-  by = .(Processor, SIMD, vpopcountHW, LIBPOPCNT, Benchmark_Type, Bitset_Size, Threads)
+# Convert Categoricals dynamically by Name
+factor_cols <- c("Bitset_Size", "LIBPOPCNT", "vpopcountHW", "Benchmark_Type", 
+                 "Compiler", "Opt_Level", "OMP_Bind", "NUMA_Policy", "Cache_State")
+valid_factors <- intersect(factor_cols, names(data))
+data[, (valid_factors) := lapply(.SD, as.factor), .SDcols = valid_factors]
+
+data[, vpopcountHW := fcase(vpopcountHW == "asimd", "vcntq_u8", default = vpopcountHW)]
+
+# 3. Aggregate Repetitions over Run Matrix
+# Grouping factors for repetition aggregation
+group_cols <- intersect(c("Processor", "SIMD", "vpopcountHW", "Compiler", "Opt_Level", "LTO", "MARCH",
+                          "LIBPOPCNT", "CPU_TILE", "BITVECTOR_TILE", "BUFFER_SIZE", 
+                          "OUTER_ROW_NUM", "OUTER_COL_NUM", "OUTER_VEC_BLK", 
+                          "Benchmark_Type", "Bitset_Size", "Dim_Left", "Dim_Right", 
+                          "Threads", "OMP_Bind", "NUMA_Policy", "Cache_State", "Hugepages"), names(data))
+
+aggregated_data <- data[, .(
+  Mean_Throughput   = mean(Throughput, na.rm = TRUE),
+  Median_Throughput = median(Throughput, na.rm = TRUE),
+  SD_Throughput     = sd(Throughput, na.rm = TRUE),
+  Rep_Count         = .N
+), by = group_cols]
+
+# 4. Optimal Configuration Extractor (Name-Grounded)
+optimal_configs <- aggregated_data[, .SD[which.max(Median_Throughput)],
+  by = .(Processor, SIMD, vpopcountHW, Compiler, Benchmark_Type, Bitset_Size, Threads)
 ]
 
 fwrite(optimal_configs, "benchmark_CPU_params/optimal_cpu_parameters.csv")
 
+max_thread_val <- max(aggregated_data$Threads, na.rm = TRUE)
+
 # =====================================================================
-# REPORT 1: CONTAINERIZED BENCHMARKS
+# REPORT GENERATION: CONTAINERIZED BENCHMARKS
 # =====================================================================
 pdf("benchmark_CPU_params/benchmark_CPU_analytics_Containerized.pdf", width = 12, height = 8)
 
-opt_cont <- optimal_configs[Benchmark_Type == "Containerized"]
-data_cont <- data[Benchmark_Type == "Containerized"]
+opt_cont  <- optimal_configs[Benchmark_Type == "Containerized"]
+data_cont <- aggregated_data[Benchmark_Type == "Containerized"]
 
-# Plot 1.1: Optimization Frontier
-p1 <- ggplot(opt_cont, aes(x = Threads, y = Throughput, color = Bitset_Size, linetype = vpopcountHW)) +
-  geom_line(linewidth = 1) + geom_point(size = 2) +
+# Plot 1: Optimization Frontier (Throughput vs Threads by Compiler)
+p1 <- ggplot(opt_cont, aes(x = Threads, y = Median_Throughput, color = Bitset_Size, linetype = Compiler)) +
+  geom_line(linewidth = 1) + 
+  geom_point(size = 2) +
   facet_grid(LIBPOPCNT ~ SIMD, labeller = label_both) +
   theme_minimal(base_size = 14) +
-  labs(title = "[Containerized] Optimization Frontier: Throughput vs Threads", y = "Searches / Sec")
+  labs(title = "[Containerized] Optimization Frontier: Median Throughput vs Threads", 
+       y = "Searches / Sec")
 print(p1)
 
-# Plot 1.2: Register Pressure Analysis (Filtered to max threads)
-reg_data <- data_cont[Threads == max_thread_val, .SD[which.max(Throughput)], by = .(SIMD, LIBPOPCNT, Registers)]
+# Plot 2: Register Pressure vs Throughput
+reg_data <- data_cont[Threads == max_thread_val, .SD[which.max(Median_Throughput)], 
+                      by = .(SIMD, LIBPOPCNT, OUTER_ROW_NUM, OUTER_COL_NUM)]
+reg_data[, Registers := (OUTER_ROW_NUM * OUTER_COL_NUM) + OUTER_ROW_NUM + OUTER_COL_NUM]
 
-p2 <- ggplot(reg_data, aes(x = Registers, y = Throughput, color = LIBPOPCNT)) +
-  geom_line(linewidth = 1) + geom_point(size = 3) +
+p2 <- ggplot(reg_data, aes(x = Registers, y = Median_Throughput, color = LIBPOPCNT)) +
+  geom_line(linewidth = 1) + 
+  geom_point(size = 3) +
   geom_vline(xintercept = 16, linetype = "dashed", color = "darkred", alpha = 0.6) +
   geom_vline(xintercept = 32, linetype = "dashed", color = "darkblue", alpha = 0.6) +
   facet_wrap(~SIMD, scales = "free_y") +
   theme_minimal(base_size = 14) +
-  labs(title = "[Containerized] Register Pressure vs Throughput (Max Threads)", subtitle = "Lines at 16 (AVX2/NEON) and 32 (AVX-512) architectural limits")
+  labs(title = "[Containerized] Register Pressure vs Throughput (Max Threads)", 
+       subtitle = "Lines at 16 (AVX2/NEON) and 32 (AVX-512) architectural register limits")
 print(p2)
 
-# Plot 1.3: Microkernel Tiling Heatmaps
-heat_data <- data_cont[Threads == max_thread_val, .SD[which.max(Throughput)], by = .(SIMD, LIBPOPCNT, OUTER_ROW_NUM, OUTER_COL_NUM)]
+# Plot 3: Cache Saturation & Variance Range
+cache_data <- data_cont[Threads == max_thread_val, .SD[which.max(Median_Throughput)], 
+                        by = .(SIMD, Bitset_Size, LIBPOPCNT, vpopcountHW, BUFFER_SIZE)]
 
-p3 <- ggplot(heat_data, aes(x = as.factor(OUTER_COL_NUM), y = as.factor(OUTER_ROW_NUM), fill = Throughput)) +
-  geom_tile(color = "white") +
-  scale_fill_viridis_c() +
-  facet_grid(LIBPOPCNT ~ SIMD, labeller = label_both) +
+p3 <- ggplot(cache_data, aes(x = BUFFER_SIZE, y = Median_Throughput, color = LIBPOPCNT, shape = vpopcountHW)) +
+  geom_line(linewidth = 1) + 
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Median_Throughput - SD_Throughput, ymax = Median_Throughput + SD_Throughput), width = 0.1) +
+  scale_x_continuous(trans = "log2") +
+  facet_grid(Bitset_Size ~ SIMD, labeller = label_both, scales = "free_y") +
   theme_minimal(base_size = 14) +
-  labs(title = "[Containerized] Microkernel Tiling Heatmap", x = "Outer Col Num", y = "Outer Row Num")
+  labs(title = "[Containerized] Cache Saturation Curve with Variance (Log2 Memory Wall)", 
+       x = "SETOP_BUFFER_SIZE (Words)", y = "Median Throughput")
 print(p3)
 
-# Plot 1.4: Cache Saturation Curve
-cache_data <- data_cont[Threads == max_thread_val, .SD[which.max(Throughput)], by = .(SIMD, Bitset_Size, LIBPOPCNT, vpopcountHW, BUFFER_SIZE)]
-
-p4 <- ggplot(cache_data, aes(x = BUFFER_SIZE, y = Throughput, color = LIBPOPCNT, shape = vpopcountHW)) +
-  geom_line(linewidth = 1) + geom_point(size = 3) +
-  scale_x_continuous(trans = "log2") +
-  facet_grid(Bitset_Size ~ SIMD, labeller = label_both, scales = "free_y") +
-  theme_minimal(base_size = 14) +
-  labs(title = "[Containerized] Cache Saturation Curve (Log2 Memory Wall)", x = "SETOP_BUFFER_SIZE (Words)")
-print(p4)
-
-# Plot 1.5: Amdahl's Efficiency
-baseline_cont <- opt_cont[Threads == min(Threads), .(Processor, SIMD, LIBPOPCNT, Bitset_Size, Base_Throughput = Throughput)]
-amdahl_data_cont <- opt_cont[baseline_cont, on = .(Processor, SIMD, LIBPOPCNT, Bitset_Size)]
-amdahl_data_cont[, Speedup := Throughput / Base_Throughput]
-
-p5 <- ggplot(amdahl_data_cont, aes(x = Threads, y = Speedup, color = SIMD, linetype = LIBPOPCNT)) +
-  geom_line(linewidth = 1) + 
-  geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dotted") +
-  facet_wrap(~Bitset_Size) +
-  theme_minimal(base_size = 14) +
-  labs(title = "[Containerized] Amdahl's Efficiency (Speedup Factor)", subtitle = "Dotted line represents theoretical ideal scaling")
-print(p5)
-dev.off()
-
-# =====================================================================
-# REPORT 2: NON-CONTAINERIZED BENCHMARKS
-# =====================================================================
-pdf("benchmark_CPU_params/benchmark_CPU_analytics_NonContainerized.pdf", width = 12, height = 8)
-
-opt_non <- optimal_configs[Benchmark_Type == "Non-Containerized"]
-data_non <- data[Benchmark_Type == "Non-Containerized"]
-
-# Plot 2.1: Optimization Frontier
-p6 <- ggplot(opt_non, aes(x = Threads, y = Throughput, color = Bitset_Size, linetype = vpopcountHW)) +
-  geom_line(linewidth = 1) + geom_point(size = 2) +
-  facet_grid(LIBPOPCNT ~ SIMD, labeller = label_both) +
-  theme_minimal(base_size = 14) +
-  labs(title = "[Non-Containerized] Optimization Frontier: Throughput vs Threads", y = "Searches / Sec")
-print(p6)
-
-# Plot 2.2: Cache Saturation Curve
-cache_data_non <- data_non[Threads == max_thread_val, .SD[which.max(Throughput)], by = .(SIMD, Bitset_Size, LIBPOPCNT, vpopcountHW, BUFFER_SIZE)]
-
-p7 <- ggplot(cache_data_non, aes(x = BUFFER_SIZE, y = Throughput, color = LIBPOPCNT, shape = vpopcountHW)) +
-  geom_line(linewidth = 1) + geom_point(size = 3) +
-  scale_x_continuous(trans = "log2") +
-  facet_grid(Bitset_Size ~ SIMD, labeller = label_both, scales = "free_y") +
-  theme_minimal(base_size = 14) +
-  labs(title = "[Non-Containerized] Cache Saturation Curve (Log2 Memory Wall)", x = "SETOP_BUFFER_SIZE (Words)")
-print(p7)
-
-# Plot 2.3: Amdahl's Efficiency
-baseline_non <- opt_non[Threads == min(Threads), .(Processor, SIMD, LIBPOPCNT, Bitset_Size, Base_Throughput = Throughput)]
-amdahl_data_non <- opt_non[baseline_non, on = .(Processor, SIMD, LIBPOPCNT, Bitset_Size)]
-amdahl_data_non[, Speedup := Throughput / Base_Throughput]
-
-p8 <- ggplot(amdahl_data_non, aes(x = Threads, y = Speedup, color = SIMD, linetype = LIBPOPCNT)) +
-  geom_line(linewidth = 1) + 
-  geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dotted") +
-  facet_wrap(~Bitset_Size) +
-  theme_minimal(base_size = 14) +
-  labs(title = "[Non-Containerized] Amdahl's Efficiency (Speedup Factor)", subtitle = "Dotted line represents theoretical ideal scaling")
-print(p8)
 dev.off()
