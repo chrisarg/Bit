@@ -3,6 +3,21 @@
 # ----------------------------------------------------------------------------
 include Makefile
 
+# NOTE: this file appends to CFLAGS/HOST_ONLY_CFLAGS below (it never
+# reassigns them), so every target here (including openmp_bit_nocpu)
+# automatically inherits Makefile's clang toolchain-consistency fixes:
+#   - version-matched lld/llvm-ar for LTO bitcode (APPLY_LTO=1, default)
+#   - version-matched OpenMP runtime rpath, preventing a mismatched-version
+#     libomp.so.5/libomptarget.so from being loaded at run time via
+#     LD_LIBRARY_PATH (CLANG_RUNTIME_RPATH=1, default) - this was the fix
+#     for a confirmed deadlock hang in openmp_bit/openmp_bit_nogpu on
+#     systems with multiple LLVM versions installed. See Makefile's
+#     "clang toolchain-consistency fixes" section for full details.
+# The NVCC/HIPCC-linked cuda_gpu_bench/hip_gpu_bench targets below link
+# directly via $(NVCC)/$(HIPCC) rather than through $(CC)/CFLAGS, so they do
+# NOT automatically get the rpath fix; they have not been observed to hit
+# the same hang, so this has been left alone rather than fixed speculatively.
+
 # used to configure gpu_bench_csv target parameters (can be overridden by \
 # environment variables or command-line arguments)
 GPU_TILE_DIM ?= 32
@@ -82,7 +97,7 @@ HIPCC_ARCH_FLAGS := $(foreach arch,$(AMD_ARCH_LIST),--offload-arch=$(arch))
 # Validate runtime algorithms configuration flags
 OPENMP_GPU_IMPL ?= TEAM_PARALLEL_SIMD
 override OPENMP_GPU_IMPL := $(shell printf '%s' '$(OPENMP_GPU_IMPL)' | tr 'a-z' 'A-Z' | tr -d '[:space:]')
-OPENMP_GPU_IMPL_OPTIONS := TEAM_PARALLEL_SIMD TRANSPOSED_TEAM_PARALLEL_SIMD SHARED_TILE_ILP
+OPENMP_GPU_IMPL_OPTIONS := TEAM_PARALLEL_SIMD TRANSPOSED_TEAM_PARALLEL_SIMD SHARED_TILE_ILP TRANSPOSED_TILED_GEMM
 OPENMP_GPU_IMPL_OK := $(filter $(OPENMP_GPU_IMPL),$(OPENMP_GPU_IMPL_OPTIONS))
 ifeq ($(strip $(OPENMP_GPU_IMPL_OK)),)
   $(error OPENMP_GPU_IMPL=$(OPENMP_GPU_IMPL) is not one of $(OPENMP_GPU_IMPL_OPTIONS))
@@ -92,7 +107,7 @@ $(info Utilizing OpenMP GPU Strategy: $(OPENMP_GPU_IMPL))
 OPENMP_GPU_IMPL_MACRO := -DOPENMP_GPU_IMPL_$(OPENMP_GPU_IMPL)
 
 # Append ONLY new macros to prevent duplicating all optimization & architecture rules
-CFLAGS += $(OPENMP_GPU_IMPL_MACRO) -I./src
+CFLAGS += -DUSE_LIBPOPCNT=$(LIBPOPCNT_VAL) $(OPENMP_GPU_IMPL_MACRO) -I./src
 
 .PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu clean-bench distclean-bench
 
@@ -156,7 +171,7 @@ $(BENCH_OMP_NO_CPU_OBJ): $(BENCH_OMP_NO_CPU_SRC) $(CONFIG_STAMP)
 	$(COMPILE_CMD)
 
 $(BENCH_OMP_NO_CPU_BIT_OBJ): src/bit.c $(CONFIG_STAMP)
-	$(CC_ENV) $(CC) $(CFLAGS) -c $< -o $@
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -c $< -o $@
 
 $(BENCH_OMP_NO_CPU_EXEC): $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \

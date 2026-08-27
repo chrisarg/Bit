@@ -103,8 +103,11 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+     printf(" %-20s : %d\n", "OpenMP version", _OPENMP);
+
   int num_devices = omp_get_num_devices();
     printf("OpenMP detected %d capable GPU devices.\n", num_devices);
+
 
   int size = atoi(argv[1]);
   int num_of_bits = atoi(argv[2]);

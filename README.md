@@ -1,1159 +1,1552 @@
-# Bit - A High-Performance Bitset Library
+# Bit - High-Performance C Bitsets
 
-[![Build](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![License](https://img.shields.io/badge/license-BSD%202--Clause-blue)]()
+[![License](https://img.shields.io/badge/license-BSD%202--Clause-blue)](LICENSE)
 
-Bit is a high-performance, uncompressed bitset implementation in C, optimized
-for modern architectures. The library provides an efficient way to create,
-manipulate, and query bitsets with a focus on performance and memory alignment.
-The API and the interface is largely based on David Hanson's Bit_T library
-discussed in Chapter 13 of "C Interfaces and Implementations", Addison-Wesley
-ISBN 0-201-49841-3 extended to incorporate additional operations (such as counts
-on unions/differences/intersections of sets) and fast population counts (see below)
+Bit is a fixed-capacity, uncompressed bitset library for C. It provides
+individual bitsets, packed collections of bitsets, set operations, population
+counts, and OpenMP-enabled container operations. The public interface is based
+on David Hanson's `Bit_T` design and extended with packed `Bit_DB_T`
+containers.
 
-## Features
+The source tree is the authoritative description of behavior. In particular,
+the public declarations in `include/bit.h`, the implementations in `src/`, and
+the tests in `tests/` take precedence over historical notes (because updating the README.md is always less fun than coding!).
 
-- **Specialized Population Counting**: Integration of the libpopcnt library
-  offering multiple implementations of bit counting algorithms ("population
-  counts", aka _popcount_ aka _popcnt_) for CPUs including:
-  - Hardware POPCNT
-  - Wilkes-Wheeler-Gill (WWG) method[^1]
-  - SIMD-accelerated popcounting based on AVX, AVX2 or AVX512 instructions
-    The optimal method is chosen by the library upon first use. 
-    This can be turned off by setting LIBPOPCNT environment variable to one of
-    0 , no , n , false , f , off during compilation.
-    In that case, we will fall back to the portable WWG algorithm.
-- **Set Operations**: Union, intersection, difference, and symmetric difference
-- **Comprehensive API**: Based on David Hanson's "C Interfaces and Implementations" design
-- **Thread-Safety**: No global state, all operations are reentrant
-- **Utilizing externally allocated buffers**: Allows one to store (and extract)
-  bitsets in externally allocated buffers.
-- **Hardware (GPU) acceleration**: Using OpenMP to offload set operations over
-  bit containers in Graphic Processing Units. The default build (`GPU=NONE`)
-  routes all GPU-facing calls to CPU implementations; pass `GPU=NVIDIA` or
-  `GPU=AMD` to enable device offloading. Supported targets include NVIDIA GPUs
-  (via CUDA/nvptx OpenMP offload), AMD GPUs (via ROCm/amdgcn offload), and
-  integrated GPUs (tested with Intel iGPUs, though performance gains are minimal
-  and Unified Shared Memory has not been exploited yet). Offloading to TPUs
-  (e.g. Coral TPU) is under development.
-  Population counts on the GPU are carried out using the WWG algorithm.
-- **Containerized operations**: These allow operations (e.g. intersect counts)
-  between two packed containers of Bits using either the CPU or the GPU.
-  Multithreading in the CPU and GPU offloading requires the presence of OpenMP.
-  The storage space of containers managed by the library will be aligned to 
-  64 bit (or even 32 bit!) addresses to assist with SIMD operations when
-  operating at large collections of packed bitsets. 
-- **Perl interface**: Interface is provided by the Bit::Set MetaCPAN [package](https://metacpan.org/pod/Bit::Set)
+## Contents
 
-## Installation
+- [Project Background and Features](#project-background-and-features)
+- [Branch Status](#branch-status)
+- [Build and Test](#build-and-test)
+- [GPU Troubleshooting and Validation](#gpu-troubleshooting-and-validation)
+- [Using the Library](#using-the-library)
+- [Public API Reference](#public-api-reference)
+- [Container Counts](#container-counts)
+- [Benchmarks and Experiments](#benchmarks-and-experiments)
+- [Automation Scripts](#automation-scripts)
+- [Constraints and Current Status](#constraints-and-current-status)
+- [Design, Concurrency, and Performance Notes](#design-concurrency-and-performance-notes)
+- [Dependencies, Inspiration, and Applications](#dependencies-inspiration-and-applications)
+- [Roadmap](#roadmap)
 
-### Prerequisites
+## Project Background and Features
 
-- C compiler (`gcc`, `clang`, `amdclang`, or `icx`)
-- GNU Make
-- **For Native GPU Benchmarks:** A C++ compiler is required (`nvcc` targeting C++14 for CUDA, or `hipcc` targeting C++17 for HIP builds).
+Bit began as a retype and extension of David Hanson's `Bit_T` interface from
+Chapter 13 of *C Interfaces and Implementations* (Addison-Wesley,
+ISBN 0-201-49841-3). The project keeps the original emphasis on a small C
+interface while extending it with count operations, packed bitset containers,
+OpenMP execution paths, and performance-oriented population counting.
 
-### Building
+I started with Hanson's deliberately small interface because it is easy to
+reason about, then kept adding the things my own workloads needed: fast counts,
+borrowed storage, batches of equally sized bitsets, and enough CPU/GPU
+experimentation to make the preprocessor earn its keep. The result is still a
+small bitset library at heart, but it now has two useful levels of abstraction:
+an individual `Bit_T` and a packed `Bit_DB_T` for bulk work.
 
-This assumes that you have CUDA installed for NVIDIA builds and, if you want to
-use AMD offload, a ROCm-supported AMD GPU with a matching ROCm/LLVM stack. If
-you do not want to build for GPU, ignore all GPU sections. Plain `make` defaults to `GPU=NONE`.
+The library is intended for dense, fixed-capacity bitsets and workloads where
+bitwise set operations, population counts, storage layout, and predictable
+memory behavior matter. It is not a compressed or dynamically growing bitmap
+library.
+
+- **Population counting:** The bundled libpopcnt integration can use
+  CPU-specific population-count implementations when enabled. The project also
+  retains a portable Wilkes-Wheeler-Gill (WWG) / sideways-addition path and
+  SIMD-oriented CPU code through SIMDe.
+- **Set operations:** Union, intersection, symmetric difference, and set
+  difference are available for individual bitsets and packed containers.
+- **External storage:** Bitsets and containers can borrow caller-owned buffers
+  when their storage is allocated with the size and padding required by the
+  public API.
+- **Packed containers:** `Bit_DB_T` stores equally sized bitsets in contiguous
+  storage for all-pairs count operations on CPU or, where configured, GPU
+  offload.
+- **OpenMP offload:** NVIDIA, AMD, and experimental Intel paths are opt-in;
+  the default `GPU=NONE` build keeps GPU-facing operations on the CPU.
+
+The current implementation favors explicit configuration over hidden magic:
+build variables select toolchains and targets, and callers remain responsible
+for synchronizing concurrent mutation of the same bitset or container.
+
+## Branch Status
+
+This repository intentionally has branch-specific tooling. Do not assume that
+every command documented below exists on every branch.
+
+| Branch | Purpose | Notes |
+| --- | --- | --- |
+| `gpuOpt` | Active GPU/offload, build-system, SIMD, and benchmark work | This checkout. GPU-only and native CUDA/HIP benchmark work is experimental. |
+| `main` | Baseline library development and CPU/NUMA tuning workflow | Currently contains `scripts/sweep_cpu_tuning.pl` and `scripts/run_numa_sweeps.sh`; after the planned sync, it will also host `scripts/cpu_param_sweep.pl` and `scripts/benchmark_config_cpu.json`. |
+| `inteliGPU` | Intel oneAPI CPU build and validation branch | Build with `CC=icx GPU=NONE`; despite the historical branch name, this branch does not enable GPU offload. |
+
+Identify the checked-out branch, source revision, and working-tree state with:
 
 ```bash
-# Clone the repository
-git clone [https://github.com/username/Bit.git](https://github.com/username/Bit.git)
+git branch --show-current
+git rev-parse --short HEAD
+git status -sb
+```
+
+`git branch --show-current` prints nothing for a detached `HEAD`; in that case,
+use the commit printed by `git rev-parse --short HEAD` as the source revision.
+
+## Build and Test
+
+### Requirements
+
+- A C compiler supported by the current `Makefile`: `clang`, `gcc`,
+  `amdclang`, or `icx`.
+- GNU Make.
+- OpenMP support from the selected compiler.
+- CUDA and an OpenMP offload-capable LLVM toolchain for NVIDIA offload.
+- ROCm and a compatible LLVM/ROCm stack for AMD offload.
+- Intel oneAPI `icx` for experimental Intel OpenMP offload.
+- `nvcc` for the experimental CUDA benchmark and `hipcc` for the experimental
+  HIP benchmark.
+
+Clone and build the default CPU configuration:
+
+```bash
+git clone https://github.com/chrisarg/Bit.git
 cd Bit
 
-# Build the library (default: GPU=NONE; all GPU functions delegate to CPU)
-make
+make clean
+make GPU=NONE
+```
 
-# Build for NVIDIA with clang (supported path; auto-detect visible GPU SMs)
-make CC=clang GPU=NVIDIA
+The default configuration is `GPU=NONE`. GPU-facing container calls use their
+CPU implementations in that configuration.
 
-# Build for specific GPU architectures using the universal GPU_ARCH variable
-# (Requires sm_ or compute_ prefix for NVIDIA, and gfx prefix for AMD)
-make CC=clang GPU=NVIDIA GPU_ARCH=sm_75
-make CC=clang GPU=NVIDIA GPU_ARCH=compute_80
+The `test` target builds `build/test_bit`; it does not execute it. Build and
+run it explicitly:
 
-# Build for an explicit comma-separated list of architectures
-make CC=clang GPU=NVIDIA GPU_ARCH=sm_70,compute_80
+```bash
+make test GPU=NONE
+./build/test_bit
+```
 
-# Build for NVIDIA using a specific CUDA toolkit location
-make CC=clang GPU=NVIDIA CUDA_PATH=/usr/local/cuda-11.8
+### Offload Builds
 
-# Build the library for an AMD GPU with clang/ROCm offload 
-make CC=clang GPU=AMD
+The primary GPU selection is `GPU=`. NVIDIA architectures use `sm_` or
+`compute_` prefixes; AMD architectures use `gfx` prefixes. The current
+Makefile has no equivalent `GPU_ARCH` selector for Intel targets.
 
-# Override the AMD target architecture when needed (requires gfx prefix)
+```bash
+# NVIDIA OpenMP offload. Omit GPU_ARCH only when nvidia-smi can detect a target.
+make CC=clang GPU=NVIDIA GPU_ARCH=sm_70
+
+# AMD OpenMP offload.
 make CC=clang GPU=AMD GPU_ARCH=gfx90a
 
-# Heterogeneous multi-GPU "Fat Binary" compilation for NVIDIA and AMD offload targets
-# The Makefile seamlessly routes both sm_ and gfx prefixes directly from GPU_ARCH
-make CC=clang GPU=NVIDIA,AMD GPU_ARCH=sm_70,gfx90a
+# Experimental Intel OpenMP offload.
+make CC=icx GPU=INTEL
 ```
 
-Plain `make` now defaults to `GPU=NONE`.
+`GPU=INTEL` requires `CC=icx`; `CC=amdclang` requires `GPU=AMD`; and `GPU=NONE`
+cannot be combined with an active offload target.
 
-The multi-GPU build was validated on a machine with the following GPUs: RTX960 (sm_52), Titan V (sm_70), and Radeon Pro W5500 (gfx1012).
-For both NVIDIA and AMD, the makefile will use `nvidia-smi` or `rocm-smi` to find the architectures present in a system if the
-GPU_ARCH argument is not provided and attempt to build for those. If a given detected architecture is not supported by the compiler, the build will fail.
-
-
-### Compiler & GPU Target Support Matrix
-
-A comprehensive breakdown of the supported targets for each valid Compiler and GPU combination is given below:
-
-#### Support Matrix
-
-| Compiler (`CC=`) | GPU List (`GPU=`) | Core / Host Targets <br>*(from `Makefile`)* | OpenMP Offload Targets <br>*(from `Makefile` & `Makefile_bench.mak`)* | Native GPU Targets <br>*(from `Makefile_bench.mak`)* |
-| :--- | :--- | :--- | :--- | :--- |
-| **`gcc`** or **`clang`** | `NONE` | `all`, `test`, `bench`, `bug_report` | `test_offload`, `bench_omp` *(host-fallback)* | *None* *(Errors out)* |
-| **`gcc`** or **`clang`** | `NVIDIA` | `all`, `test`, `bench`, `bug_report` | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | `cuda_gpu_bench`, `gpu_bench_csv` |
-| **`gcc`** or **`clang`** | `AMD` | `all`, `test`, `bench`, `bug_report` | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | `hip_gpu_bench`, `gpu_bench_csv` |
-| **`gcc`** or **`clang`** | `NVIDIA,AMD` | `all`, `test`, `bench`, `bug_report` | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | `cuda_gpu_bench`, `hip_gpu_bench`, `gpu_bench_csv` |
-| **`amdclang`** | `AMD` | `all`, `test`, `bench`, `bug_report` | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | `hip_gpu_bench`, `gpu_bench_csv` |
-| **`amdclang`** | *Any other* | *None (Make aborts parsing)* | *None* | *None* |
-| **`icx`** (Intel) | `INTEL` | `all`, `test`, `bench`, `bug_report` | `test_offload`, `bench_omp`, `openmp_bit_nocpu`* | *None (Will Error)* |
-| **`icx`** (Intel) | *Any other* | *None (Make aborts parsing)* | *None* | *None* |
-
----
-
-## Important Notes & Restrictions
-
-### 1. Invalid Combinations (Make Aborts)
-
-* If you pass `CC=amdclang` and anything other than `GPU=AMD`, the build will immediately error out.
-* If you pass `CC=icx` and anything other than `GPU=INTEL`, the build will immediately error out.
-* You cannot combine `NONE` with other GPUs (e.g., `GPU=NONE,NVIDIA` throws a fatal error).
-
-### 2. Native GPU Targets (`cuda_gpu_bench`, `hip_gpu_bench`)
-
-* These strictly ignore your `CC` variable for the device code compilation, delegating instead to `nvcc` and `hipcc` respectively. 
-* However, they **do** rely on the `GPU=` parameter guardrails. Attempting to build `hip_gpu_bench` without `GPU=AMD` (or `cuda_gpu_bench` without `GPU=NVIDIA`) will trigger a fatal error, regardless of the compiler.
-
-### 3. `openmp_bit_nocpu` Target
-
-* This explicitly verifies that offloading is enabled. If `GPU=NONE` is set, Make blocks execution and throws: *"openmp_bit_nocpu requires functional offloading; specify NVIDIA or AMD in your target array."*
-* *(Note on Intel: Technically, the logic allows `icx` + `INTEL` to build this target because `INTEL` passes the `NONE` filter, but the error message hints it was predominantly designed for NVIDIA/AMD).*
-
-### GPU Troubleshoooting and Benchmarking
-
-Building of the library should happen without issues, in the absence of GPU offloading. 
-While GPU offloading should work mostly out of the box, compiler and runtime incompatibilities may surface.
-Furthermore, the code relies heavily on preprocessor directives, and complex OpenMP directives which may not
-be supported by your runtime. To isolate general GPU offloading issues from the use of the complex directives, 
-you can use the `test_offload` binary which checks offloading through three classes of benchmarks:
-
-- **[MEMORY-BOUND]**: Transfer data from host to device and back in each iteration.
-  Measures GPU throughput for data-parallel elementwise operations.
-  
-- **[HYBRID-COMPUTE]**: Performs compute-heavy work per element but still transfers
-  the entire output array to the host after each iteration.
-  Partially isolates computation from memory I/O but does not fully eliminate
-  PCIe/bus overhead.
-  
-- **[COMPUTE-BOUND][DEVICE-RESIDENT]**: Transfers input data once at the start,
-  computes entirely on the GPU for all iterations, and returns only a single
-  checksum result.
-  This benchmark isolates pure GPU compute performance from host-device bus overhead,
-  enabling measurement of sustained flop/ops rates without PCIe transfer bottlenecks.
-
-Use the device-resident benchmark to profile GPU peak compute throughput. Compare
-it against the hybrid-compute benchmark to quantify the cost of data movement
-on your specific hardware. This benchmark uses simpler GPU kernels than the ones used
-by the bit library and can help isolate compile/runtime issues and/or mismathces
-
-#### Building `test_offload` with Custom Architectures
-
-The `test_offload` binary inherits all compiler and GPU offload flags from the library build.
-You can pass explicitly pass `GPU_ARCH` when invoking `make test_offload`:
-
-**NVIDIA:**
+Validate an offload configuration with `test_offload`. Setting
+`OMP_TARGET_OFFLOAD=MANDATORY` prevents an accidental host fallback from being
+reported as a successful device test.
 
 ```bash
-# Build for a specific NVIDIA architecture
 make test_offload CC=clang GPU=NVIDIA GPU_ARCH=sm_70
-
-# Build for multiple NVIDIA architectures
-make test_offload CC=clang GPU=NVIDIA GPU_ARCH=sm_70,sm_80
-
-# Auto-detect visible NVIDIA architectures via nvidia-smi
-make test_offload CC=clang GPU=NVIDIA
-
-# Restrict execution to a GPU whose SM matches the built image set
-CUDA_VISIBLE_DEVICES=1 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
-```
-
-**AMD:**
-
-```bash
-# Build for a specific AMD architecture
-make test_offload CC=clang GPU=AMD GPU_ARCH=gfx900
-
-# Build for a different AMD architecture
-make test_offload CC=clang GPU=AMD GPU_ARCH=gfx90a
-```
-
-The `test_offload` binary can then be used to run correctness tests and benchmarks
-with the chosen architecture. Pass benchmark iterations as the third argument to run
-the GPU benchmark suite:
-
-```bash
-# Correctness tests only; require real device offload
 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
 
-# Correctness tests + benchmarks with 100 iterations
+make test_offload CC=clang GPU=AMD GPU_ARCH=gfx90a
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
+
+make test_offload CC=icx GPU=INTEL
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
+```
+
+The Intel command is an experimental compatibility check, not a performance
+claim. Confirm it on the target hardware before depending on it.
+
+### Build Configuration
+
+These are Make variables, not runtime environment variables:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `GPU` | `NONE` | CPU fallback, or `NVIDIA`, `AMD`, and experimental `INTEL` offload. |
+| `GPU_ARCH` | Auto-detected when possible | NVIDIA `sm_`/`compute_` and AMD `gfx` architecture list. |
+| `LIBPOPCNT` | `1` | Enables bundled libpopcnt integration; set `LIBPOPCNT=0` to disable it. |
+| `SIMD_DIAGNOSTICS` | `0` | Enables SIMD configuration diagnostics. |
+| `APPLY_LTO` | `1` | Enables LTO for supported compilers; set to `0` to disable it. |
+| `CLANG_RUNTIME_RPATH` | `1` | Embeds the selected Clang OpenMP runtime path; set to `0` only when deliberately testing another runtime. |
+| `USE_BUILTIN_POPCOUNT` | `0` | Requests built-in GPU popcount instead of the default software implementation. |
+
+### Compiler and GPU Target Matrix
+
+The table below summarizes the current `gpuOpt` build surfaces. The standard
+`Makefile` builds the library and ordinary benchmarks; the GPU-only and native
+benchmark targets require `make -f Makefile_bench.mak` and remain experimental.
+
+| Compiler (`CC=`) | GPU target (`GPU=`) | Standard targets | OpenMP/offload checks | Experimental benchmark targets |
+| --- | --- | --- | --- | --- |
+| `gcc` or `clang` | `NONE` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload` builds but detects host fallback; `bench_omp` is CPU-only | none |
+| `gcc` or `clang` | `NVIDIA` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | `cuda_gpu_bench`, `gpu_bench_csv` |
+| `gcc` or `clang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | `hip_gpu_bench`, `gpu_bench_csv` |
+| `gcc` or `clang` | `NVIDIA,AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | CUDA, HIP, and CSV runner targets |
+| `amdclang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | HIP and CSV runner targets |
+| `icx` | `INTEL` | library, tests, benchmarks, bug reports | experimental `test_offload`, `bench_omp`, and `openmp_bit_nocpu` | no native CUDA/HIP backend |
+
+The Makefile rejects `CC=amdclang` with a GPU target other than `AMD`,
+`CC=icx` with a GPU target other than `INTEL`, and combinations such as
+`GPU=NONE,NVIDIA`.
+
+Native CUDA and HIP benchmarks deliberately compile their device source with
+`nvcc` and `hipcc`, respectively, rather than the value passed through `CC`.
+They still use `GPU=NVIDIA` or `GPU=AMD` as build guards.
+
+`openmp_bit_nocpu` is blocked when `GPU=NONE`. Its current error message names
+NVIDIA and AMD, although its Makefile guard tests only whether a non-`NONE`
+target was selected. Treat the Intel path as experimental and validate it with
+`test_offload` on the target machine.
+
+### GPU Troubleshooting and Validation
+
+GPU offload is opt-in, and OpenMP can fall back to the host when an image,
+plugin, driver, or device is unavailable. Verify the target with
+`test_offload` before moving on to the library's container kernels.
+
+```text
+build/test_offload <problem_size> [device_id] [benchmark_iterations]
+```
+
+The test first verifies integer, float, and double target calculations against
+host results. When `benchmark_iterations` is positive, it also reports
+memory-bound, compute-heavy, and device-resident benchmark modes. The
+device-resident mode transfers its working data once and is useful for
+separating steady-state device computation from host/device transfer overhead.
+
+Use `OMP_TARGET_OFFLOAD=MANDATORY` for validation so an unintended host fallback
+fails visibly:
+
+```bash
+# Correctness checks only.
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
+
+# Correctness checks plus 100 benchmark iterations.
 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0 100
 ```
 
-Using `OMP_TARGET_OFFLOAD=MANDATORY` is recommended when validating GPU builds so
-host fallback is treated as failure instead of looking like a successful offload run.
+The executable prints the detected target-device count, default device, and
+whether each probed target region ran on the host or a device. If no devices are
+reported or a target region runs on the initial device, rebuild for the intended
+architecture, verify the selected runtime plugin, and rerun with diagnostics.
 
-#### libomptarget diagnostics defaults (overrideable)
+#### Runtime Diagnostics
 
-The `Makefile` sets runtime diagnostics to quiet mode by default when using `clang`:
+The current Makefile exports quiet Clang runtime defaults:
 
 - `LIBOMPTARGET_INFO=0`
 - `LIBOMPTARGET_DEBUG=0`
 
-This avoids verbose `omptarget device ... info` logs unless explicitly requested.
-You can override either variable at build time and they will be exported to
-subprocesses spawned by `make`:
+Override them while diagnosing device discovery, image loading, or launch
+behavior:
 
 ```bash
-# Enable verbose runtime diagnostics
-make LIBOMPTARGET_INFO=16 LIBOMPTARGET_DEBUG=1 test_offload CC=clang GPU=AMD GPU_ARCH=gfx900
+LIBOMPTARGET_INFO=16 LIBOMPTARGET_DEBUG=1 \
+  make test_offload CC=clang GPU=AMD GPU_ARCH=gfx90a
 
-# Keep default quiet mode explicitly
-make LIBOMPTARGET_INFO=0 LIBOMPTARGET_DEBUG=0 test_offload CC=clang GPU=AMD GPU_ARCH=gfx900
+OMP_TARGET_OFFLOAD=MANDATORY LIBOMPTARGET_INFO=16 \
+  ./build/test_offload 100000 0
 ```
 
+#### NVIDIA Offload Notes
 
-#### AMD Remediation (OpenMP Offload)
-
-Common AMD GPU architectures that you can use as arguments (but see below about not officially supported architectures):
-
-- `gfx900` - Vega
-- `gfx906` - Vega 20
-- `gfx908` - CDNA 1 / MI100
-- `gfx90a` - CDNA 2 / MI200
-
-If AMD offload does not initialize, use this remediation flow on a machine with
-a ROCm-supported AMD GPU:
+NVIDIA builds accept `sm_<target>` or `compute_<target>` values. The Makefile
+can derive `sm_` values from `nvidia-smi` when `GPU_ARCH` is not supplied, but
+an explicit target is usually easier to reproduce:
 
 ```bash
-# 1) Confirm your detected AMD gfx target
-rocminfo | grep -Eo 'gfx[0-9]+' | sort -u
+make test_offload CC=clang GPU=NVIDIA GPU_ARCH=sm_70
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
 
-# 2) Build explicitly for the detected target
+# Build multiple NVIDIA images when the installed toolchain supports them.
+make test_offload CC=clang GPU=NVIDIA GPU_ARCH=sm_70,sm_80
+```
+
+On a multi-GPU host, restrict visible devices before running the test. The
+selected physical device normally becomes OpenMP logical device `0`:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 OMP_TARGET_OFFLOAD=MANDATORY \
+  ./build/test_offload 1000000 0 1
+
+CUDA_VISIBLE_DEVICES=1 OMP_TARGET_OFFLOAD=MANDATORY \
+  ./build/test_offload 1000000 0 1
+```
+
+Some LLVM/libomptarget and driver combinations behave more reliably with one
+visible NVIDIA device at a time. If a multi-device run reports zero target
+devices or fails during initialization, narrow `CUDA_VISIBLE_DEVICES`, keep the
+program device ID at `0`, and rerun the mandatory-offload check.
+
+#### AMD Offload Notes
+
+AMD targets use the `gfx<target>` spelling. The Makefile can query `rocm-smi`
+when `GPU_ARCH` is omitted; inspect the system directly before pinning a target:
+
+```bash
+rocminfo | grep -Eo 'gfx[0-9a-f]+' | sort -u
+rocm-smi --showproductname
+
 make clean
-make test_offload CC=clang GPU=AMD GPU_ARCH=<gfx_target>
-
-# 3) Run with mandatory offload
+make test_offload CC=clang GPU=AMD GPU_ARCH=gfx90a
 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 4096 0
 ```
 
-If your system has multiple accelerators and AMD visibility is ambiguous, pin
-the AMD device explicitly:
+If several AMD devices are visible or the OpenMP runtime selects the wrong one,
+restrict visibility and rerun the same mandatory-offload test:
 
 ```bash
-ROCR_VISIBLE_DEVICES=0 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 4096 0
+ROCR_VISIBLE_DEVICES=0 OMP_TARGET_OFFLOAD=MANDATORY \
+  ./build/test_offload 4096 0
+
+# Alternative ROCr visibility variable used by some installations.
+HSA_VISIBLE_DEVICES=0 OMP_TARGET_OFFLOAD=MANDATORY \
+  ./build/test_offload 4096 0
 ```
 
-If `make` reports that no OpenMP AMD device runtime exists for a selected
-`GPU_ARCH`, rebuild with a supported target for your installed LLVM/ROCm stack.
+If the runtime cannot load an AMD target image, first make `GPU_ARCH` match the
+actual `gfx` target and the installed LLVM/ROCm stack. The Makefile exposes
+`ROCM_PATH` and `ROCM_DEVICE_LIB_PATH` for non-default installations; inspect
+those paths before changing system libraries.
 
-If you are validating the AMD path on supported hardware, run the full test
-suite with mandatory offload so host fallback cannot hide a broken device path:
+##### Legacy AMD Architecture Workaround
 
-```bash
-OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
-OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0 100
-```
-
-If these tests fail on a ROCm-supported GPU, adjust `GPU_ARCH` to match the
-installed LLVM/ROCm runtime and rerun before trusting the build.
-
-If you are building for an architecture that is not supported (e.g. due to AMD's aggressive planned obsolescence),
-you may be able to use the following workaround (tested with AMD Radeon Pro W5500 and llvm 18):
-
-1. pick a supported architecture that is "close" to what you want to build for  e.g. use gfx1010 or 1030 for gfx1012)and compile with that architecture.
-
-2. In the shell you will be executing, fake the supported architecture by:
+This historical recipe was used for a Radeon Pro W5500 (`gfx1012`) with LLVM
+18. It compiles for the nearby `gfx1010` target and presents that target to the
+runtime for the current shell. Treat it as a record of one working environment,
+then verify your own setup with `OMP_TARGET_OFFLOAD=MANDATORY`.
 
 ```bash
+# Historical example: compile a nearby supported target, then present that
+# target to the runtime for this shell only.
+make test_offload CC=clang GPU=AMD GPU_ARCH=gfx1010
 export HSA_OVERRIDE_GFX_VERSION=10.1.0
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 4096 0
 ```
 
-Sometimes you also have to symlink to trick LLVM's openMP to play ball:
+Some LLVM 18 installations also looked for a matching
+`libomptarget-amdgpu-*.bc` filename for the physical target. System-wide aliases
+change the compiler installation, so inspect the active toolchain first and
+make that change only with an administrator and a rollback plan:
 
 ```bash
-sudo ln -s libomptarget-amdgpu-gfx1010.bc /usr/lib/llvm-18/lib/libomptarget-amdgpu-gfx1012.bc
-sudo ln -s /usr/lib/llvm-18/lib/libomptarget-amdgpu-gfx1010.bc /usr/lib/llvm-18/lib/libomptarget-amdgpu-gfx1012.bc
+find "$ROCM_DEVICE_LIB_PATH" -maxdepth 1 -name 'libomptarget-amdgpu-*.bc' -print
 ```
 
-3. Run normally
-(note this hack is more likely to work with llvm than gcc)
-
-#### NVIDIA GPU remediation (OpenMP offload)
-
-On a multi-GPU NVIDIA system, the most reliable way to choose which card to
-test is to use `CUDA_VISIBLE_DEVICES` and keep the OpenMP device index at `0`.
-That makes the chosen physical GPU the only visible device, so the program sees
-it as logical device `0`.
-
-Examples:
-
-```bash
-# Test physical GPU 0
-CUDA_VISIBLE_DEVICES=0 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 1000000 0 1
-
-# Test physical GPU 1
-CUDA_VISIBLE_DEVICES=1 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 1000000 0 1
-```
-
-If you expose multiple NVIDIA GPUs at once, certain LLVM/OpenMP offload builds in
-this environment can report zero devices or fail to initialize correctly.
-That looks like a `libomptarget`/runtime quirk rather than a Bit issue, because
-the same binary works when each GPU is tested individually. In practice, the
-safe workaround is to run one GPU at a time.
-On the other hand, gcc is more than happy to work with more than 1 NVIDIA GPUs, but architecture support and use of thread local memory via OpenMP leaves much to be desired.
+Prefer a ROCm/LLVM release that supports the actual target. If an alias is used,
+record it and retest after compiler, runtime, or driver updates.
 
 ### Compiler Bug Reports
 
-The `Makefile` provides a `bug_report` target that captures compiler diagnostics,
-build logs, and a preprocessed source file in `bug_reports/`.
-
-By default:
-
-- `BUG_REPORT_DIR=bug_reports`
-- `BUG_TARGET=bench_omp`
-- `BUG_REPORT_TAG=$(notdir CC)-$(GPU)-<arch-tag>` (auto-computed; arch tag is the detected or explicit arch list for NVIDIA/AMD, and `cpu` for `GPU=NONE`)
-
-Each invocation creates a new report subdirectory:
-
-- `bug_reports/<timestamp>-<BUG_REPORT_TAG>/`
-
-The target automatically applies compiler-specific reporting flags:
-
-- GCC: `-freport-bug`
-- Clang: `-gen-reproducer -fcrash-diagnostics-dir=<report-subdir>`
-
-Examples:
+`make bug_report` creates a timestamped directory under `bug_reports/` with
+the build log, configuration, preprocessed source, and, for a failing build,
+an attempted backtrace. The target defaults to `BUG_TARGET=bench_omp`.
 
 ```bash
-# GCC AMD offload bug report
-make bug_report CC=gcc GPU=AMD GPU_ARCH=gfx900 BUG_TARGET=bench_omp
-
-# Clang AMD offload bug report
-make bug_report CC=clang GPU=AMD GPU_ARCH=gfx90a BUG_TARGET=bench_omp
-
-# Clang NVIDIA offload bug report with explicit SM target
 make bug_report CC=clang GPU=NVIDIA GPU_ARCH=sm_70 BUG_TARGET=bench_omp
 ```
 
-After completion, inspect files in the new per-run report directory, especially:
+Review `build.log`, `config.txt`, `backtrace.txt`, and
+`src-bit.preprocessed.i` in the generated report directory.
 
-- `build.log`
-- `config.txt`
-- `backtrace.txt`
-- `src-bit.preprocessed.i`
+The report script records the selected compiler, target list, effective flags,
+and the failing build output. It also adds compiler-specific reproduction
+artifacts:
 
-For `CC=gcc`, the report also includes GCC-specific files aligned with
-`https://gcc.gnu.org/bugs/` guidance:
+- GCC: `gcc-v.txt`, `gcc-repro-command.txt`, and `gcc-save-temps.log`.
+- Clang: compiler crash reproducers when Clang emits them under the configured
+  report directory.
 
-- `gcc-v.txt` (exact GCC version, target system type, and configure options from `gcc -v`)
-- `gcc-repro-command.txt` (complete reproduction compile command)
-- `gcc-save-temps.log` (compiler output from `-v -save-temps` reproduction run)
+If the target build fails and `gdb` is available, the script reruns the target
+under batch `gdb` and writes a full backtrace to `backtrace.txt`. When the build
+succeeds, that file explicitly records that no failing process was available.
+Temporary preprocessing and intermediate compiler artifacts in `build/` are
+removed after collection.
 
-If Clang emits crash reproducers, they will also be written in the same report
-subdirectory. The `bug_report` target removes temporary debug artifacts
-(`*.i`, `*.ii`, `*.s`, `*.bc`, `*.cui`) from `build/` after report collection.
+## Using the Library
 
-When a build fails, `bug_report` automatically reruns the failing target under
-`gdb` and writes a full stack trace to `backtrace.txt`. If `gdb` is not
-available, `backtrace.txt` records that limitation.
+Include `bit.h` and link against `build/libbit.so` or `build/libbit.a` after
+building the library. `Bit_T` and `Bit_DB_T` are opaque handles.
 
+Bitsets have fixed capacity. Valid bit indexes are in the range
+`0 .. Bit_length(bitset) - 1`; use `Bit_buffer_size(length)` when allocating
+external storage.
 
-### Script helpers
+### Public API Reference
 
-This repository includes helper scripts under `scripts/` for compiler setup and
-branch management.
+The declarations live in `include/bit.h`; this section is the practical map of
+the interface. `Bit_T` and `Bit_DB_T` are opaque handles, so applications work
+through these functions rather than depending on their private layouts.
 
-- `scripts/generate_bug_report.sh` is the backend used by `make bug_report`. It
-  captures the build log, compiler configuration, preprocessing output, and
-  optional crash/backtrace information for a reproducible bug report.
-- `scripts/push_gpuOpt_to_main.sh` cherry-picks a curated set of GPU-related
-  files from the `gpuOpt` branch into `main`, commits them, and pushes `main` to
-  the remote repository. It requires a clean working tree and that you run it
-  from `gpuOpt`.
-- `scripts/push_gpuOpt_to_inteliGPU.sh` merges `gpuOpt` into `inteliGPU`. It
-  also requires a clean working tree and must be run from `gpuOpt`.
+| Public type | Purpose |
+| --- | --- |
+| `Bit_T` | One fixed-capacity mutable bitset. |
+| `Bit_DB_T` | A packed collection of equally sized bitsets. |
+| `SETOP_COUNT_OPTS` | CPU thread count plus GPU device-residency controls for all-pairs container counts. |
 
-### Benchmarking Bit
+#### Individual Bitset API
 
-Now you are ready to run the tests and build the benchmarks. These invocation of make take the
-same arguments used to build the library. If you use different arguments to make and test, prepare for a poor experience.
+| Family | Functions | Contract |
+| --- | --- | --- |
+| Lifecycle and storage | `Bit_new`, `Bit_load`, `Bit_free`, `Bit_extract`, `Bit_buffer_size` | Create library-owned storage, borrow caller storage, release the wrapper, or copy bytes out. |
+| Properties | `Bit_length`, `Bit_count` | Return fixed capacity or population count. |
+| Single-bit mutation | `Bit_bset`, `Bit_bclear`, `Bit_get`, `Bit_put` | Access one indexed bit; `Bit_put` returns its previous value. |
+| Bulk/range mutation | `Bit_aset`, `Bit_aclear`, `Bit_set`, `Bit_clear`, `Bit_not` | Apply an index array or an inclusive `[lo, hi]` range. |
+| Callback traversal | `Bit_map` | Visit indexes from left to right with the current bit value and caller closure. |
+| Comparisons | `Bit_eq`, `Bit_leq`, `Bit_lt` | Compare equal-length bitsets. |
+| Allocating set operations | `Bit_union`, `Bit_inter`, `Bit_diff`, `Bit_minus` | Return a newly allocated result that must be passed to `Bit_free`. |
+| Count-only set operations | `Bit_union_count`, `Bit_inter_count`, `Bit_diff_count`, `Bit_minus_count` | Return the result population count without constructing a bitset. |
 
-```bash
-# Run tests (GPU=NONE by default; pass GPU=NVIDIA or GPU=AMD to test offload)
-make test
+Set-operation names follow the implementation and tests:
 
-# Make the benchmark (this will also build the OpenMP benchmark)
-make bench 
+| Operation | Expression | Example for $A=\{1,3,5\}$ and $B=\{3,5,7\}$ |
+| --- | --- | --- |
+| `union` | $A \mathbin{\mathrm{OR}} B$ | $\{1,3,5,7\}$ |
+| `inter` | $A \mathbin{\mathrm{AND}} B$ | $\{3,5\}$ |
+| `diff` | $A \mathbin{\mathrm{XOR}} B$ | $\{1,7\}$ |
+| `minus` | $A \mathbin{\mathrm{AND\mbox{-}NOT}} B$ | $\{1\}$ |
 
-# Make the OpenMP benchmarks
-make bench_omp GPU=NONE                          # CPU only (default)
-make bench_omp CC=clang GPU=NVIDIA               # NVIDIA offload, auto-detect SM
-make bench_omp CC=clang GPU=AMD GPU_ARCH=gfx90a  # AMD offload
+For these individual-bitset set operations, one NULL operand is interpreted as
+the empty set. Thus `Bit_union(set, NULL)` and `Bit_minus(set, NULL)` return a
+copy of `set`, while `Bit_inter(set, NULL)` returns an empty bitset. Passing
+both operands as NULL is invalid.
+
+#### Packed Container API
+
+| Family | Functions | Contract |
+| --- | --- | --- |
+| Lifecycle and storage | `BitDB_new`, `BitDB_load`, `BitDB_free` | Create or borrow storage for a fixed number of equal-length bitsets. |
+| Properties and counts | `BitDB_length`, `BitDB_nelem`, `BitDB_count_at`, `BitDB_count` | Query shape or population counts; `BitDB_count` allocates an array the caller frees. |
+| Element access | `BitDB_get_from`, `BitDB_put_at` | Copy one element out as a new `Bit_T`, or copy one equal-length `Bit_T` into the container. |
+| Buffer access | `BitDB_extract_from`, `BitDB_replace_at` | Copy one element to or from a caller-provided buffer. |
+| Clearing | `BitDB_clear_at`, `BitDB_clear` | Clear one element or the complete packed container. |
+| Allocating all-pairs counts | `BitDB_{inter,union,diff,minus}_count_{cpu,gpu}` | Allocate and return an `int` matrix; the caller uses `free`. |
+| Caller-owned all-pairs counts | `BitDB_{inter,union,diff,minus}_count_store_{cpu,gpu}` | Write into a caller-provided `int` matrix. |
+| Target convenience macros | `BitDB_{inter,union,diff,minus}_count(..., cpu\|gpu)` | Select the corresponding direct CPU or GPU function in C source. |
+| Build diagnostics | `print_Bit_configuration` | Print the compiled tile, buffer, popcount, and OpenMP configuration. |
+
+Container binary operations require two non-NULL containers whose bitsets have
+the same length. If the left and right containers hold $N$ and $M$ bitsets,
+the result contains $N \times M$ integers in row-major order. `diff` and
+`minus` retain the XOR and left AND-NOT meanings shown above.
+
+The header also defines target-selecting `_store_` macros using the same order
+as the direct functions:
+
+```c
+BitDB_inter_count_store(left, right, results, options, cpu);
 ```
 
-```bash
-# Runs various benchmarks
-./build/benchmark
+The final token may be `cpu` or `gpu`. Direct `_store_cpu` and `_store_gpu`
+functions remain useful for foreign-function interfaces and callers that cannot
+use C preprocessor macros.
 
-# Mixed CPU/GPU OpenMP benchmark
-Usage: ./build/openmp_bit <size> <number of bitsets> <number of reference bitsets> <max threads> [<gpu_id>]
+#### Ownership and Validation
 
-# CPU-only OpenMP benchmark
-Usage: ./build/openmp_bit_nogpu <size> <number of bitsets> <number of reference bitsets> <max threads>
+| Value | Owner and release rule |
+| --- | --- |
+| `Bit_new` / `BitDB_new` result | Library owns storage. `Bit_free` / `BitDB_free` releases it, sets the handle to NULL, and returns NULL. |
+| `Bit_load` / `BitDB_load` result | Caller owns storage. The matching free routine destroys the wrapper, sets the handle to NULL, and returns the borrowed pointer for the caller to free or reuse. |
+| `BitDB_get_from` or an allocating `Bit_*` operation | Caller owns the new `Bit_T` and releases it with `Bit_free`. |
+| `BitDB_count` or non-store container count | Caller owns the returned `int *` and releases it with `free`. |
+| `_store_` container count | Caller allocates and retains the result buffer. |
 
-# GPU-only OpenMP benchmark
-Usage: ./build/openmp_bit_nocpu <size> <number of bitsets> <number of reference bitsets> <gpu iterations> [<gpu_id>]
+The implementation uses `assert` for most pointer, index, length, allocation,
+and equal-shape checks. Defining `NDEBUG` removes those checks; it does not turn
+an undersized external buffer or invalid index into a recoverable error. In
+particular, the library cannot determine the allocation size behind a raw
+pointer, so callers must size borrowed and extraction buffers correctly.
+
+### Individual Bitsets
+
+```c
+#include "bit.h"
+#include <stdio.h>
+
+int main(void) {
+  Bit_T left = Bit_new(128);
+  Bit_T right = Bit_new(128);
+  Bit_bset(left, 3);
+  Bit_bset(left, 64);
+  Bit_bset(right, 64);
+  Bit_bset(right, 100);
+
+  Bit_T overlap = Bit_inter(left, right);
+  printf("intersection count: %d\n", Bit_count(overlap));
+
+  Bit_free(&overlap);
+  Bit_free(&right);
+  Bit_free(&left);
+  return 0;
+}
 ```
 
-The OpenMP benchmark assesses the scaling of searching (intersection count) of a
-number of bits of given size(capacity) against a database of reference bitsets.
-The benchmark will run:
+The distinction between `diff` and `minus` is easier to see with actual bits.
+For $A=\{1,3,5\}$ and $B=\{3,5,7\}$, symmetric difference keeps `1` and `7`,
+whereas left set difference keeps only `1`:
 
-- 3 repetitions of a single threaded search
-- the same query using OpenMP without containers utilizing 1 to max_threads
-- containerized OpenMP query utilizing 1 to max_threads
-- containerized OpenMP query using GPU offloading
+```c
+#include "bit.h"
+#include <assert.h>
 
-The containerized operations in the CPU are approximately twice as fast as the OpenMP accelerated equivalent non containerized operations for long bitsets because of the memory locality property. GPU acceleration is also considerable but the actual mileage may vary according to the OpenMP kernel execution strategies. The CPU-only benchmark (`openmo_bit_nogpu`) omits entirely the GPU benchmarks.
+int main(void) {
+  Bit_T left = Bit_new(128);
+  Bit_T right = Bit_new(128);
+  int left_bits[] = {1, 3, 5};
+  int right_bits[] = {3, 5, 7};
+  Bit_aset(left, left_bits, 3);
+  Bit_aset(right, right_bits, 3);
 
-#### CPU container-kernel tuning sweep
+  Bit_T symmetric = Bit_diff(left, right);
+  Bit_T remainder = Bit_minus(left, right);
+  assert(Bit_count(symmetric) == 2);
+  assert(Bit_get(symmetric, 1) && Bit_get(symmetric, 7));
+  assert(Bit_count(remainder) == 1 && Bit_get(remainder, 1));
 
-`scripts/sweep_cpu_tuning.pl` automates CPU tuning of the containerized
-intersection-count kernel. For each configuration it performs a clean rebuild,
-runs the focused `openmp_bit_container` benchmark with a fixed CPU affinity,
-and collects a `perf stat` profile. It is intended for comparing the CPU tile,
-K block, outer-product microkernel shape, and algorithm-specific unrolling or
-scratch-buffer choices without timing unrelated benchmark work.
+  Bit_free(&remainder);
+  Bit_free(&symmetric);
+  Bit_free(&right);
+  Bit_free(&left);
+  return 0;
+}
+```
 
-Build the CPU benchmark target once to verify that the toolchain works, then
-run the script from the repository root:
+The corresponding `Bit_*_count` functions compute the same population counts
+without constructing result bitsets.
+
+### External Storage
+
+`Bit_load` and `BitDB_load` borrow caller-owned storage. The caller must
+allocate enough padded storage and later free the pointer returned by the
+matching free routine.
+
+```c
+#include "bit.h"
+#include <stdlib.h>
+
+int main(void) {
+  const int length = 130;
+  const int bytes = Bit_buffer_size(length);
+  void *storage = calloc(1, (size_t)bytes);
+  if (storage == NULL) {
+    return 1;
+  }
+
+  Bit_T borrowed = Bit_load(length, storage);
+  Bit_bset(borrowed, 129);
+
+  /* Bit_free returns storage for externally loaded bitsets. */
+  free(Bit_free(&borrowed));
+  return 0;
+}
+```
+
+For a bitset allocated with `Bit_new`, `Bit_free(&bitset)` frees its internal
+storage and returns `NULL`. `BitDB_free` follows the same ownership rule for
+packed containers. `Bit_extract` copies a bitset into caller-provided storage
+and returns the number of bytes written.
+
+Borrowed container storage is the per-bitset buffer size multiplied by the
+number of elements. `BitDB_free` returns that original pointer rather than
+freeing it behind the caller's back:
+
+```c
+#include "bit.h"
+#include <stdlib.h>
+
+int main(void) {
+  const int length = 130;
+  const int count = 4;
+  const size_t bytes = (size_t)Bit_buffer_size(length) * count;
+  void *storage = calloc(1, bytes);
+  if (storage == NULL) {
+    return 1;
+  }
+
+  Bit_DB_T borrowed = BitDB_load(length, count, storage);
+  Bit_T seed = Bit_new(length);
+  Bit_bset(seed, 129);
+  BitDB_put_at(borrowed, 0, seed);
+
+  Bit_free(&seed);
+  storage = BitDB_free(&borrowed);
+  free(storage);
+  return 0;
+}
+```
+
+## Container Counts
+
+`Bit_DB_T` stores equally sized bitsets in a packed container. Create a
+container with `BitDB_new(length, count)` and fill it with `BitDB_put_at`.
+
+Container element functions copy data rather than exposing an internal
+`Bit_T`. `BitDB_get_from` creates a new bitset, while extraction and replacement
+use a caller-owned byte buffer:
+
+```c
+#include "bit.h"
+#include <assert.h>
+#include <stdlib.h>
+
+int main(void) {
+  const int length = 128;
+  Bit_DB_T database = BitDB_new(length, 2);
+  Bit_T seed = Bit_new(length);
+  Bit_bset(seed, 9);
+  BitDB_put_at(database, 0, seed);
+
+  Bit_T copy = BitDB_get_from(database, 0);
+  assert(Bit_get(copy, 9) == 1);
+
+  void *buffer = calloc(1, (size_t)Bit_buffer_size(length));
+  if (buffer == NULL) {
+    Bit_free(&copy);
+    Bit_free(&seed);
+    BitDB_free(&database);
+    return 1;
+  }
+  BitDB_extract_from(database, 0, buffer);
+  BitDB_clear_at(database, 0);
+  assert(BitDB_count_at(database, 0) == 0);
+  BitDB_replace_at(database, 1, buffer);
+  assert(BitDB_count_at(database, 1) == 1);
+
+  free(buffer);
+  Bit_free(&copy);
+  Bit_free(&seed);
+  BitDB_free(&database);
+  return 0;
+}
+```
+
+```c
+#include "bit.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+  Bit_T seed = Bit_new(128);
+  Bit_bset(seed, 10);
+  Bit_bset(seed, 65);
+
+  Bit_DB_T queries = BitDB_new(128, 2);
+  Bit_DB_T references = BitDB_new(128, 3);
+  for (int index = 0; index < BitDB_nelem(queries); ++index) {
+    BitDB_put_at(queries, index, seed);
+  }
+  for (int index = 0; index < BitDB_nelem(references); ++index) {
+    BitDB_put_at(references, index, seed);
+  }
+
+  SETOP_COUNT_OPTS options = {.num_cpu_threads = 2};
+  int *counts = BitDB_inter_count_cpu(queries, references, options);
+  if (counts != NULL) {
+    printf("first intersection count: %d\n", counts[0]);
+  }
+
+  free(counts);
+  BitDB_free(&references);
+  BitDB_free(&queries);
+  Bit_free(&seed);
+  return 0;
+}
+```
+
+`BitDB_count(container)` returns a newly allocated array containing one
+population count per stored bitset. The non-store container count functions
+(`BitDB_inter_count_cpu`, `BitDB_union_count_gpu`, and so on) return a newly
+allocated result array. In both cases, callers free the returned array.
+
+The result array for a binary container operation has
+`BitDB_nelem(left) * BitDB_nelem(right)` elements in row-major order:
+
+```c
+result[left_index * BitDB_nelem(right) + right_index]
+```
+
+Use `_store_` variants when the caller owns the result buffer instead:
+
+```c
+size_t result_count = (size_t)BitDB_nelem(queries) * BitDB_nelem(references);
+int *results = malloc(result_count * sizeof(*results));
+if (results != NULL) {
+  BitDB_inter_count_store_cpu(queries, references, results, options);
+  free(results);
+}
+```
+
+The macros `BitDB_inter_count`, `BitDB_union_count`, `BitDB_diff_count`, and
+`BitDB_minus_count` select a `cpu` or `gpu` function at compile time. Use the
+function forms when linking against a shared library from code that cannot see
+the macros.
+
+`SETOP_COUNT_OPTS` separates CPU execution from advanced GPU data-residency
+decisions:
+
+| Field | Current behavior |
+| --- | --- |
+| `num_cpu_threads` | A positive value selects the CPU OpenMP thread count; a nonpositive value uses the OpenMP runtime maximum. |
+| `device_id` | Selects the OpenMP target device for GPU calls; ignored by CPU calls. |
+| `upd_1st_operand`, `upd_2nd_operand` | Refresh an operand that is already present on the selected device. An absent operand is mapped on first use regardless of the update flag. |
+| `release_1st_operand`, `release_2nd_operand` | Release the corresponding device mapping after the operation. Leave false only when a later call deliberately reuses that mapping. |
+| `release_counts` | Requests release of the device-side result mapping after results are returned. |
+| `algorithm` | Present in the public structure, but not read by the current library dispatch. It is not a runtime kernel selector. |
+
+A repeated-query workflow can therefore keep an unchanged reference container
+mapped, refresh each modified query container, and release both operand mappings
+on the final call. That optimization also creates a responsibility: if host data
+changes while its update flag is false, the device is allowed to keep using the
+older mapped contents. Keep the default one-call lifecycle until residency is a
+measured bottleneck, then make the update/release sequence explicit in the
+calling code.
+
+Container operation names use the same set semantics as individual bitsets:
+`diff` is XOR/symmetric difference and `minus` is AND-NOT/set difference.
+
+## Benchmarks and Experiments
+
+### Standard Benchmarks
+
+Build the CPU benchmark suite:
 
 ```bash
+make bench_omp GPU=NONE
+```
+
+For `GPU=NONE`, this creates:
+
+- `build/openmp_bit_nogpu`
+- `build/openmp_bit_container`
+- `build/cpu_param_sweep`
+
+`build/cpu_param_sweep` is the four-argument C benchmark used by the broad CPU
+parameter workflow. It is distinct from `scripts/cpu_param_sweep.pl`, the
+JSON-driven Perl coordinator described in [Automation Scripts](#automation-scripts).
+
+`make bench` additionally builds `build/benchmark`.
+
+The OpenMP benchmark command lines are defined by their source files:
+
+```text
+build/openmp_bit <size> <number-of-bitsets> <number-of-reference-bitsets> <max-threads> [gpu-id]
+build/openmp_bit_nogpu <size> <number-of-bitsets> <number-of-reference-bitsets> <max-threads>
+build/openmp_bit_container <bits> <left-bitsets> <right-bitsets> <threads> <repetitions>
+```
+
+With a non-`NONE` GPU target, `make bench_omp` also builds `build/openmp_bit`.
+The fourth argument of `openmp_bit_nogpu` is a maximum CPU thread count.
+
+### Benchmark Scope and Interpretation
+
+The OpenMP benchmark is a practical all-pairs intersection-count comparison:
+it searches query bitsets against a reference collection and reports the
+largest observed intersection count. The mixed benchmark establishes serial
+baselines, sweeps OpenMP thread counts for the ordinary bitset representation,
+and repeats the workload with packed `Bit_DB_T` containers. With a configured
+offload target, it also exercises container operations through the GPU path.
+
+`openmp_bit_nogpu` keeps the serial, OpenMP, and packed-container CPU portions
+while excluding GPU execution. Use it when characterizing CPU tiles, OpenMP
+scheduling, affinity, and memory locality without an offload runtime in the
+measurement.
+
+The speedup values use the run's first serial measurement as their baseline.
+They are useful for comparing configurations on the same machine and workload;
+bitset shape, topology, compiler, OpenMP runtime, memory placement, and GPU
+strategy all change the result when that context changes.
+
+### Experimental `gpuOpt` Benchmark Layer
+
+`Makefile_bench.mak` is an experimental extension for GPU-only OpenMP kernels
+and native CUDA/HIP benchmarks. It is not the public library build interface.
+
+```bash
+# GPU-only OpenMP benchmark.
+make -f Makefile_bench.mak openmp_bit_nocpu \
+  CC=clang GPU=NVIDIA GPU_ARCH=sm_70
+
+# Native benchmark backends.
+make -f Makefile_bench.mak cuda_gpu_bench GPU=NVIDIA GPU_ARCH=sm_70
+make -f Makefile_bench.mak hip_gpu_bench GPU=AMD GPU_ARCH=gfx90a
+
+# Run the selected native backend and write CSV/log output.
+make -f Makefile_bench.mak gpu_bench_csv GPU=NVIDIA GPU_ARCH=sm_70
+```
+
+The GPU-only executable accepts:
+
+```text
+build/openmp_bit_nocpu <size> <number-of-bitsets> <number-of-reference-bitsets> <gpu-iterations> [gpu-id]
+```
+
+Its fourth argument is GPU iterations, not a CPU thread count.
+
+`OPENMP_GPU_IMPL` is a compile-time choice for the experimental GPU-only
+benchmark, not a public runtime option. The active `gpuOpt` values are:
+
+- `TEAM_PARALLEL_SIMD`
+- `TRANSPOSED_TEAM_PARALLEL_SIMD`
+- `SHARED_TILE_ILP`
+- `TRANSPOSED_TILED_GEMM`
+
+For example:
+
+```bash
+make -f Makefile_bench.mak openmp_bit_nocpu \
+  CC=clang GPU=NVIDIA GPU_ARCH=sm_70 \
+  OPENMP_GPU_IMPL=TRANSPOSED_TILED_GEMM
+```
+
+These kernels and native CUDA/HIP paths are experimental. Build for the target
+compiler and architecture, confirm agreement with the CPU reference, and then
+measure the workload you care about.
+
+`main` and `inteliGPU` retain an older benchmark layer with three OpenMP
+strategy choices; the fourth strategy above belongs to the active `gpuOpt`
+version.
+
+#### Interpreting `openmp_bit_nocpu` Output
+
+The GPU-only benchmark is a safe place to experiment with container kernels
+without changing the standard library path. It creates random query and
+reference bitsets, computes a CPU reference result, performs a warm-up run, and
+then reports several timing views:
+
+- **GPU Algorithm Timing:** kernel-focused time for the intersection-count
+  operation.
+- **GPU Algorithm + PCIe Timings:** end-to-end device-path time, including
+  staging and transfer work measured by the benchmark.
+- **GPU Transpose Timings:** layout preparation time for strategies that need
+  a transposed representation.
+- **CPU Overhead Timings:** host-side setup, dispatch, and synchronization
+  work around device execution.
+- **Per-Iteration Data Movement Breakdown:** query upload and result download
+  volume; the resident reference database is reported separately and excluded
+  from the repeated-transfer payload.
+- **Agreement/Disagreement Counts:** comparison with the CPU reference. Treat
+  any disagreement warning as a correctness failure to investigate before
+  interpreting throughput.
+- **Estimated Throughput:** both kernel-focused and total-operation rates,
+  with the latter representing the user-visible combination of staging,
+  transfers, and computation.
+
+Use **GPU Algorithm Timing** to compare kernel and layout choices. Use the
+total-operation view when transfers are part of the workload, and check the
+movement breakdown when a large result matrix makes download time dominant.
+
+#### OpenMP Strategy Notes
+
+The strategy selector changes compile-time layout and parallelization choices.
+`TEAM_PARALLEL_SIMD` is the baseline team/parallel/SIMD approach;
+`TRANSPOSED_TEAM_PARALLEL_SIMD` prepares a column-oriented reference layout;
+`SHARED_TILE_ILP` combines shared tiles with instruction-level parallelism; and
+`TRANSPOSED_TILED_GEMM` is a further experimental tiled formulation.
+
+These names describe implementation choices, not a ranking. Earlier GCC 12/13
+and Clang experiments produced different correctness and performance outcomes
+for the same transposed and shared-tile structures. For each candidate, keep
+the compiler, architecture, and command with the result; check CPU agreement
+first, then compare timings. The GPU-only layer keeps that exploration separate
+from the library's public execution path.
+
+## Automation Scripts
+
+### CPU Sweep Workflow (planned `main` suite)
+
+The planned `main` CPU tools are complementary stages of investigation, not
+interchangeable benchmark front ends:
+
+| Stage | Tool and benchmark | Configuration | Measurements and artifacts |
+| --- | --- | --- | --- |
+| Broad discovery | `scripts/cpu_param_sweep.pl` -> `build/cpu_param_sweep` | JSON matrices and command-line overrides | External wall-clock timings for ordinary-bitset and packed-container paths, plus host telemetry, CSV, and raw logs under `benchmark_CPU_params/`. |
+| Focused tuning | `scripts/sweep_cpu_tuning.pl` -> `build/openmp_bit_container` | Environment-variable matrix | Repeated packed-container timings, CPU affinity, and `perf stat` profiles under `tuning-results/`. |
+| Dual-socket analysis | `scripts/run_numa_sweeps.sh` -> `sweep_cpu_tuning.pl` | Four comparable topology/memory-policy cases | Socket-local baselines plus first-touch and interleaved dual-socket results in the focused tuner's artifact layout. |
+
+Use the broad sweep to find candidates across compiler, kernel, workload, and
+placement choices. Use the focused tuner when a candidate needs counter-based
+diagnosis, then use the NUMA runner when the question is memory placement on a
+dual-socket host. The stages can be used independently when that is the only
+question being investigated.
+
+This section describes the intended `main` layout after the planned sync. At
+present, the broad runner and its JSON configuration remain in `gpuOpt`; the
+sync will transfer them with compatible benchmark and Makefile support.
+
+#### 1. Broad Parameter Discovery: `cpu_param_sweep.pl`
+
+`scripts/cpu_param_sweep.pl` is the JSON-driven coordinator; it is distinct
+from `build/cpu_param_sweep`, the C benchmark executable that it rebuilds and
+invokes. It requires `--config` and uses
+`scripts/benchmark_config_cpu.json` for build matrices, runtime matrices,
+telemetry, commands, and output parsing.
+
+The checked-in configuration uses paths relative to the `scripts/` directory,
+so run it from there after the planned sync:
+
+```bash
+git switch main
+cd scripts
+perl ./cpu_param_sweep.pl --config ./benchmark_config_cpu.json
+```
+
+##### Configuration Model
+
+The framework is schema-driven: the JSON file is the source of truth for the
+build matrix, run matrix, system environment, telemetry, and output parser.
+The Perl engine dynamically enumerates the build/run matrix, gathers telemetry,
+interpolates commands, and runs each configured instance. It is generic within
+the three supported blocks, `build_matrix`, `run_matrix`, and `system_env`; the
+current configuration still supplies the benchmark-specific `build_cmd`,
+`run_cmd`, and parser contract.
+
+1. `benchmark_config_cpu.json` defines compiler and Make-variable combinations,
+   workload sizes, threads, NUMA policies, command templates, output locations,
+   telemetry extractors, and CSV columns.
+2. `cpu_param_sweep.pl` reads that configuration at runtime, creates its
+   Cartesian build/run space, adds command-line bindings for configuration keys,
+   and executes each workload using the configured `taskset`, `numactl`, and
+   scheduling settings.
+
+The current configuration requires Perl 5.36, `numactl`, `taskset`, and the
+selected compiler/toolchain. The active runner imports `Algorithm::Loops`,
+`IPC::Run`, `Log::Log4perl`, and `JSON::PP`; ensure the required modules are
+available before starting a sweep.
+
+```bash
+perl -MAlgorithm::Loops -MIPC::Run -MLog::Log4perl -MJSON::PP -e 1
+```
+
+It writes CSV and raw logs beneath `benchmark_CPU_params/` by default.
+
+##### Command-Line Overrides
+
+The runner creates options from every key in `build_matrix`, `run_matrix`, and
+`system_env`. A value passed on the command line overrides the corresponding
+JSON value; comma-separated matrix values become a smaller sweep.
+
+```bash
+cd scripts
+
+# Override the configured output directory and thread-count matrix.
+perl ./cpu_param_sweep.pl \
+  --config ./benchmark_config_cpu.json \
+  --out_dir ../custom_results \
+  --threads 1,2,4,8,16,20
+```
+
+The JSON uses underscore-style option names, such as `out_dir`, because those
+are the configuration keys consumed by `GetOptions`.
+
+##### Telemetry and CSV Parsing
+
+Telemetry is described in JSON rather than embedded as benchmark-specific Perl
+logic. The current configuration reads CPU and operating-system files and runs
+a compiler-version command. Its extractors include CPU model, SIMD tier, and
+hardware population-count capability:
+
+```json
+"telemetry": {
+  "hardware": {
+    "file": "/proc/cpuinfo",
+    "extractors": {
+      "Processor": "model name\\s*:\\s*(.+)",
+      "SIMD": "(?:flags|Features|isa).*?\\b(avx512f|avx2(?!.*\\bavx512f\\b)|avx(?!.*\\bavx2\\b|.*\\bavx512f\\b)|sse4_2(?!.*\\bavx)|sve2|sve(?!.*\\bsve2\\b)|asimd(?!.*\\bsve)|rv64[a-z]*v[a-z]*)\\b",
+      "vpopcountHW": "(?:flags|Features|isa).*?\\b(avx512_vpopcntdq|avx512_bitalg|zvbb|asimd)\\b"
+    }
+  },
+  "os": {
+    "file": "/etc/os-release",
+    "extractors": {
+      "Operating_System": "PRETTY_NAME=\\\"([^\\\"]+)\\\""
+    }
+  },
+  "toolchain": {
+    "cmd": "{cc} --version | head -n 1",
+    "extractors": {
+      "Compiler_Version": "(.*)"
+    }
+  }
+}
+```
+
+Likewise, `output_parser` captures the benchmark's standard output using named
+regular-expression groups and writes selected values into CSV columns. Its map
+normalizes the optional container label before output:
+
+```json
+"output_parser": {
+  "regex": "(?i)Total\\s+time\\s+for\\s+(?<Benchmark_Type>Container\\s+-\\s+)?Multi-threaded\\s+-\\s+OpenMP:\\s+(?<Timing_ns>\\d+)\\s+ns.*?Number\\s+of\\s+threads:\\s+(?<Threads>\\d+)",
+  "columns": ["Benchmark_Type", "Threads", "Timing_ns"],
+  "map": {
+    "Benchmark_Type": {
+      "Container - ": "Containerized",
+      "Container -": "Containerized",
+      "__UNDEF__": "Non-Containerized"
+    }
+  }
+}
+```
+
+The regex and command templates are part of the selected configuration's
+contract. Update them together when changing benchmark output or command-line
+behavior.
+
+#### 2. Focused Kernel Investigation: `sweep_cpu_tuning.pl`
+
+After the broad parameter sweep identifies candidates, the focused tools on
+`main` answer two different questions: `sweep_cpu_tuning.pl` collects repeated
+timing and performance-counter evidence for a selected packed-container
+configuration, while `run_numa_sweeps.sh` compares that workflow under four
+dual-socket memory-placement cases. They currently remain on `main`:
+
+- `scripts/sweep_cpu_tuning.pl`
+- `scripts/run_numa_sweeps.sh`
+
+Switch to `main` before using either workflow. `sweep_cpu_tuning.pl` must run
+from the repository root because it verifies that `Makefile` is present there.
+
+```bash
+git switch main
 make bench_omp GPU=NONE CC=clang
 
-ELEVATE=always CORES=0-9 REPS=5 PERF_REPS=3 ./scripts/sweep_cpu_tuning.pl
+ELEVATE=always CORES=0-9 REPS=5 PERF_REPS=3 \
+  perl ./scripts/sweep_cpu_tuning.pl
 ```
 
-The default sweep evaluates the direct SIMD implementation (`LIBPOPCNT=0`). To
-compare it with the independent libpopcnt scratch-buffer implementation, include
-both modes explicitly:
+##### Focused Container-Kernel Sweep
+
+`sweep_cpu_tuning.pl` automates CPU tuning of the containerized
+intersection-count kernel. For each configuration it performs a clean rebuild,
+runs `build/openmp_bit_container` with an explicit CPU affinity, and collects
+`perf stat` profiles. It is intended to compare CPU tiles, K blocks,
+outer-product microkernel shapes, unrolling, and the independent libpopcnt
+scratch-buffer path without timing unrelated benchmark work.
+
+Use it after `cpu_param_sweep.pl` narrows the candidate space or whenever
+cache, execution, vectorization, TLB, NUMA, power, or scheduling evidence is
+needed. Unlike `build/cpu_param_sweep`, this benchmark measures only the packed
+`Bit_DB_T` intersection-count path; it does not compare ordinary-bitset and
+container timings in the same process.
+
+The default sweep evaluates the direct SIMD path (`LIBPOPCNT_MODES=0`). Include
+both modes explicitly when comparing it with the libpopcnt path:
 
 ```bash
-LIBPOPCNT_MODES=0,1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
+git switch main
+LIBPOPCNT_MODES=0,1 ELEVATE=always \
+  perl ./scripts/sweep_cpu_tuning.pl
 ```
 
-To exhaustively evaluate asingle socket machine, including both
-algorithms, every default tuning parameter, and every diagnostic perf profile,
-run the following from the repository root. This is a long-running measurement:
-448 build configurations and 6,720 profiled benchmark invocations.
+To evaluate both algorithms, every default tuning parameter, and all 15
+diagnostic profiles on one socket, run this from the repository root:
 
 ```bash
 LIBPOPCNT_MODES=0,1 \
 CORES=0-9 THREADS=10 \
 REPS=5 PERF_REPS=3 \
-RUN_LABEL=avx512\
+RUN_LABEL=avx512 \
 PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
 ELEVATE=always \
 ./scripts/sweep_cpu_tuning.pl
 ```
 
-Start with a small trial when changing machines or counter sets:
+This is a long, sequential measurement. Direct SIMD varies four CPU tiles,
+four K blocks, four microkernel shapes, and three unroll factors for 192 build
+configurations. The libpopcnt path varies the same tiles, blocks, and shapes
+plus four scratch-buffer sizes for another 256. Together, the two modes produce
+448 clean builds and $448 \times 15 = 6{,}720$ separate `perf stat` commands.
+
+The repetition controls work at different levels. `PERF_REPS=3` becomes
+`perf stat -r 3`, so those 6,720 commands launch 20,160 benchmark processes.
+Each process receives `REPS=5` and performs one untimed warm-up followed by five
+timed intersection calls. The script also runs the benchmark once outside the
+profile loop to collect its primary timing output. Compiler speed, workload
+size, PMU access, and host load determine the wall-clock duration, so plan this
+as a dedicated machine run rather than attaching a generic time estimate.
+
+Start with a small trial after changing machines, compilers, PMU permissions,
+or event sets:
 
 ```bash
-MAX_CONFIGS=2 REPS=1 PERF_REPS=1 ELEVATE=always ./scripts/sweep_cpu_tuning.pl
+git switch main
+MAX_CONFIGS=2 REPS=1 PERF_REPS=1 PERF_PROFILES=summary ELEVATE=always \
+  perl ./scripts/sweep_cpu_tuning.pl
 ```
 
-### NUMA CPU tuning sweeps
+`MAX_CONFIGS=2` stops after two build configurations, `REPS=1` performs one
+timed call per benchmark process, and `PERF_REPS=1` runs each profile once. For
+this toolchain and permission check, `PERF_PROFILES=summary` keeps profiling to
+the smallest general-purpose event set.
 
-On a multi-socket NUMA machine, a process affinity mask alone does not choose
-where its memory pages are allocated. The focused benchmark initializes shared
-input containers before its OpenMP workers begin, so Linux's default first-touch
-policy can place most input memory on one node. This can cause workers on the
-other socket to repeatedly access remote memory.
+All sweep variables are environment variables. Comma-separated values define a
+matrix; a single value fixes that dimension.
 
-Use `scripts/run_numa_sweeps.sh` to run four comparable full tuning sweeps on a
-dual-socket Xeon E5-2697 v4 topology with 18 physical cores per socket. It
-requires `numactl`, runs the sweeps sequentially, and uses only the physical
-cores numbered `0-35` (not their SMT siblings). Run it from the repository root:
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LIBPOPCNT_MODES` | `0` | Algorithms to compare: `0` is direct SIMD; `1` is the libpopcnt scratch-buffer path. |
+| `CPU_TILES` | `4,8,16,32` | Values compiled as `CPU_TILE`. |
+| `K_BLOCKS` | `256,512,768,1024` | Values compiled as `BITVECTOR_TILE`. |
+| `SHAPES` | `1x1,2x2,2x4,4x2` | Outer microkernel shapes, written as `ROWSxCOLS`. |
+| `UNROLLS` | `1,2,4` | `OUTER_VEC_BLK` values, used for the direct-SIMD path. |
+| `BUFFER_SIZES` | `16,32,64,128` | `BUFFER_SIZE` values, used for the libpopcnt path. |
+| `CC` | `clang` | Compiler supplied to `make`. |
+| `CORES` | `0-9` | CPU list supplied to `taskset -c`; choose physical cores where possible. |
+| `BITS` | `65536` | Bitset length passed to `openmp_bit_container`. |
+| `LEFT`, `RIGHT` | `1000`, `1000` | Left and right packed-container sizes. |
+| `THREADS`, `REPS` | `10`, `5` | OpenMP thread count and timed repetitions. |
+| `PERF_REPS` | `3` | Repetitions requested from `perf stat` for each profile. |
+| `PERF_PROFILES` | profile set | Comma-separated profiles such as `summary`, `cache-l1`, `cache-l2`, `cache-l3-dram`, `cache-stalls`, `buffers-pending`, `buffers-store`, `execution-uops`, `execution-ports`, `frontend`, `frequency`, `vectorization`, `tlb`, `uncore-numa`, and `power-rapl`. Use `summary` while narrowing the matrix. |
+| `PERF_EVENTS` | unset | Optional replacement event list for the `summary` profile. |
+| `ELEVATE` | `auto` | `never`, `auto`, or `always`; elevation can be needed for performance counters or scheduling priority. |
+| `PRIORITY` | `nice` | `normal`, `nice`, or real-time round-robin `rr`; elevated privileges are required where the operating system requires them. |
+| `MAX_CONFIGS` | `0` | Stops after this many configurations; `0` means no limit. |
+| `ARCH_TAG` | detected | Optional safe filename label for reports. |
+| `RUN_LABEL` | unset | Optional label inserted into report and artifact names. |
+| `NUMA_POLICY` | `default OS policy` | Descriptive policy text recorded in the Markdown report. |
+| `NUMA_CMD` | unset | Optional `numactl` command prefixed to the benchmark process. |
+| `RESULTS_DIR` | `tuning-results` | Directory for `summary-<run-tag>.csv` and `llm-summary-<run-tag>.md`. |
+| `OUT_DIR` | `tuning-results/.work/<run-tag>` | Directory for per-configuration build, benchmark, and perf artifacts. |
+
+###### Performance Profiles
+
+Each name in `PERF_PROFILES` is a separate `perf stat` invocation with its own
+event list and `*.perf.csv` artifact. The names describe diagnostic questions;
+the script maps them to PMU events for generic Intel, hybrid Intel P-core, AMD
+x86-64, generic AArch64, and Rockchip/Rock64-class systems.
+
+| Profile | What it helps explain |
+| --- | --- |
+| `summary` | Timing rank, instructions per cycle, branch behavior, and general cache-miss rate. |
+| `cache-l1` | Retired-load L1 hits and misses. |
+| `cache-l2` | Retired-load L2 behavior after L1. |
+| `cache-l3-dram` | Last-level-cache behavior and local DRAM demand-load misses. |
+| `cache-stalls` | Cycles stalled around L1D, L2, and L3 miss activity. |
+| `buffers-pending` | Fill-buffer saturation and pending-miss occupancy. |
+| `buffers-store` | Store-buffer and store-queue pressure plus outstanding data-read depth. |
+| `execution-uops` | Issued, executed, and retired micro-operations plus backend stalls. |
+| `execution-ports` | Distribution of work across execution ports. |
+| `frontend` | Undelivered micro-operations and low-delivery cycles. |
+| `frequency` | APERF/MPERF behavior, including possible AVX-512 frequency changes. |
+| `vectorization` | Packed SIMD work compared with scalar fallback indicators. |
+| `tlb` | Data and instruction TLB loads and misses. |
+| `uncore-numa` | Cross-socket, interconnect, and memory-controller traffic where supported. |
+| `power-rapl` | Package and RAM energy or power counters where supported. |
+
+The profile name remains stable across machines, but the underlying events do
+not. Some maps use `cycles,instructions` when a detailed event is unavailable;
+many Rockchip profiles and some Intel execution-port profiles intentionally
+fall back this way. Check the generated event list before comparing unlike
+architectures. `PERF_EVENTS` replaces the event list for `summary` only.
+
+Profiles are kept separate rather than combined into one enormous event set.
+An individual profile can still exceed the available hardware counters, so use
+the running/scaling information from `perf` when interpreting multiplexed
+counts. A missing event or permission affects that profile; the benchmark
+timing remains available, and the profile CSV/log records what failed.
+
+###### What `perf` Measures
+
+The script runs:
+
+```text
+build/openmp_bit_container <bits> <left-bitsets> <right-bitsets> <threads> <repetitions>
+```
+
+The executable allocates and initializes packed containers, runs one untimed
+`BitDB_inter_count_store_cpu` warm-up, performs the requested timed repetitions,
+and prints each timing plus best, average, Gqword-pairs/s, and a result checksum.
+`perf` wraps the complete process, so its counters include allocation,
+initialization, warm-up, timed calls, checksum, and teardown. Use the C
+nanosecond timings to rank the intersection kernel and the PMU profiles to
+understand the wider process behavior.
+
+Each run produces compact, architecture-labelled outputs such as
+`tuning-results/summary-<run-tag>.csv` and
+`tuning-results/llm-summary-<run-tag>.md`. The accompanying `.work/<run-tag>/`
+directory holds per-configuration build logs, benchmark output, and perf CSV
+files. A full matrix can be long-running, so reduce the matrix first and reserve
+the complete profile set for selected candidates.
+
+#### 3. Generic Dual-Socket NUMA Experiment: `run_numa_sweeps.sh`
+
+`run_numa_sweeps.sh` implements a generic dual-socket experiment: establish a
+local-memory baseline on each socket, then compare a dual-socket default
+first-touch run with explicit memory interleaving. CPU affinity alone does not
+choose where pages are allocated. Because the focused benchmark initializes
+its shared input containers before OpenMP workers begin, ordinary Linux
+first-touch placement can put many pages on one node and make work on the other
+socket remote-memory heavy.
+
+The checked-in script maps that method to a dual-socket Xeon E5-2697 v4 example
+with 18 physical cores per socket. It locates the repository root itself and
+may be started from another directory:
 
 ```bash
-./scripts/run_numa_sweeps.sh
+git switch main
+bash ./scripts/run_numa_sweeps.sh
 ```
 
-The runner performs these experiments:
+It requires `numactl`. The Xeon example runs these four comparable sweeps:
 
-1. `socket0-local`: CPUs `0-17`, 18 OpenMP threads, and memory bound to NUMA node 0.
-2. `socket1-local`: CPUs `18-35`, 18 OpenMP threads, and memory bound to NUMA node 1.
-3. `dual-first-touch-spread`: CPUs `0-35`, 36 OpenMP threads, OpenMP workers spread across cores, and Linux's default first-touch memory policy.
-4. `dual-interleave`: CPUs `0-35`, 36 OpenMP threads, OpenMP workers spread across cores, and allocations interleaved across NUMA nodes 0 and 1.
+1. `socket0-local`: CPUs `0-17`, 18 threads, and allocation bound to NUMA node 0.
+2. `socket1-local`: CPUs `18-35`, 18 threads, and allocation bound to NUMA node 1.
+3. `dual-first-touch-spread`: CPUs `0-35`, 36 threads, spread OpenMP binding, and default Linux first-touch placement.
+4. `dual-interleave`: CPUs `0-35`, 36 threads, spread OpenMP binding, and memory interleaved across nodes 0 and 1.
 
-The single-socket runs establish local-memory baselines. Comparing the two
-dual-socket runs shows whether interleaving reduces an asymmetric first-touch
-placement effect. Interleaving balances allocation across nodes; it does not
-make every memory access local.
+The single-socket runs provide local-memory baselines. Comparing the two
+dual-socket runs helps distinguish an asymmetric first-touch placement effect
+from the effect of explicit interleaving. Interleaving balances allocation; it
+does not make every access local.
 
-Before using this runner on another NUMA machine, inspect its topology and edit
-the CPU lists, thread counts, NUMA-node IDs, and `ARCH_TAG` in the script to
-match it:
+Before applying the method to another dual-socket machine, inspect its topology
+and adapt the script's CPU lists, thread counts, NUMA-node IDs, and `ARCH_TAG`:
 
 ```bash
 numactl --hardware
 lscpu -e=CPU,NODE,SOCKET,CORE
 ```
 
-Each sweep sets `OMP_PLACES=cores` and an explicit `OMP_PROC_BIND` policy. The
-companion bash script uses the `NUMA_CMD` environment variable to pass targeted `numactl` bindings
-down to the tuning script. The tuning script forwards these OpenMP settings and NUMA
-commands directly to the executed benchmark, restricting the memory layout strictly for the
-workload, even when `perf` is run through `sudo`. Every report records the requested NUMA and OpenMP policies.
+| Adaptation point | Checked-in Xeon E5-2697 v4 example | Select for another host |
+| --- | --- | --- |
+| First socket CPU list | `0-17` | CPUs belonging to one socket and its chosen physical-core policy. |
+| Second socket CPU list | `18-35` | CPUs belonging to the other socket. |
+| Socket-local worker count | `18` | A count no greater than the selected socket's CPU capacity. |
+| Dual-socket worker count | `36` | A count no greater than the combined selected capacity. |
+| NUMA node IDs | `0`, `1` | The nodes backing the selected socket CPU lists. |
+| Artifact architecture tag | `x86-64-intel-xeon-e5-2697-v4` | A stable description of the tested CPU/topology. |
 
-Each run publishes compact, architecture-labelled summaries such as
-`tuning-results/summary-x86-64-intel-core-i9-7900x-<timestamp>.csv` and
-`tuning-results/llm-summary-x86-64-intel-core-i9-7900x-<timestamp>.md`. Set
-`RUN_LABEL` to include an experiment identifier between the architecture and
-timestamp, for example `...-dual-socket-interleave-<timestamp>.md`. These
-files are intended to be committed, allowing GitHub to retain results from
-multiple machines. Per-configuration build, benchmark, and perf logs remain
-local in `tuning-results/.work/<architecture>-<timestamp>/` by default and are
-ignored by Git. The Markdown summary is ranked by average elapsed time and is
-designed to be supplied directly to an LLM. The script runs `make distclean`
-before every configuration, so do not keep required uncommitted build artifacts
-in `build/` while it is running.
+The current wrapper does not discover topology or expose these values as
+overrides, so manual adaptation is required. A future portable revision should
+provide explicit CPU-list, NUMA-node, worker-count, and tag overrides; validate
+nonempty/nonoverlapping online CPU lists and valid NUMA nodes before a run; and
+offer a dry-run mode that prints all four resolved experiments. It should keep
+the four experiment meanings stable while recording the resolved topology in
+the output labels.
 
-All controls are environment variables. Comma-separated values define a sweep;
-single values hold that parameter fixed.
+The runner forwards `OMP_PLACES`, `OMP_PROC_BIND`, `NUMA_CMD`, and the named
+NUMA policy to the tuning script. `perf` access is governed by the host's
+permissions and `kernel.perf_event_paranoid`; use `ELEVATE=always` only where
+permitted by local administration policy.
 
-| Variable | Default | Description |
-|---|---|---|
-| `LIBPOPCNT_MODES` | `0` | Algorithms to compare: `0` is the direct SIMD kernel and `1` is the libpopcnt scratch-buffer path. |
-| `CPU_TILES` | `4,8,16,32` | CPU database tile sizes compiled as `CPU_TILE`. |
-| `K_BLOCKS` | `256,512,768,1024` | K-dimension block sizes compiled as `BITVECTOR_TILE`. |
-| `SHAPES` | `1x1,2x2,2x4,4x2` | Outer microkernel shapes, written as `ROWSxCOLS`. |
-| `UNROLLS` | `1,2,4` | `OUTER_VEC_BLK` values; swept only for mode `0`. |
-| `BUFFER_SIZES` | `16,32,64,128` | `BUFFER_SIZE` values; swept only for mode `1`. |
-| `CC` | `clang` | Compiler supplied to `make`. |
-| `CORES` | `0-9` | CPU list passed to `taskset -c`. Match this to physical cores where possible. |
-| `BITS`, `LEFT`, `RIGHT` | `65536`, `10240`, `1024` | Bitset length and left/right container counts passed to `openmp_bit_container`. |
-| `THREADS`, `REPS` | `10`, `5` | OpenMP thread count and timed benchmark repetitions per invocation. |
-| `PERF_REPS` | `3` | Repetitions requested from `perf stat` for each profile and configuration. |
-| `PERF_PROFILES` | summary, cache L1/L2/L3/DRAM/stalls, fill/store buffers, execution uops/ports, front end, frequency, vectorization, tlb, uncore-numa, power-rapl | Comma-separated diagnostic profiles. The script dynamically maps hardware architectures (Intel P-Cores, AMD Zen, ARM SBCs) to their kernel PMU equivalents. Each profile is a separate, deliberately small `perf stat` event group to avoid PMU multiplexing. Use `PERF_PROFILES=summary` for a faster ranking-only sweep. |
-| `PERF_EVENTS` | summary event group | Optional comma-separated replacement event list for the `summary` profile. It preserves compatibility with custom counter sets. |
-| `ELEVATE` | `auto` | `never` avoids `sudo`; `auto` uses a cached noninteractive sudo credential when available; `always` obtains a sudo credential once, then reuses it for every profiled run. |
-| `PRIORITY` | `nice` | Process scheduling policy: `normal`, `nice` (nice level `-20`), or `rr` (real-time round-robin priority 50). `nice` and `rr` need elevation. |
-| `MAX_CONFIGS` | `0` | Stop after this many configurations; `0` means no limit. |
-| `ARCH_TAG` | detected architecture and CPU model | Optional safe filename label for published summaries; use it to distinguish otherwise similar systems or non-Linux CPU descriptions. |
-| `RUN_LABEL` | unset | Optional safe experiment label inserted after `ARCH_TAG` in report, CSV, and raw-artifact names. |
-| `NUMA_POLICY` | `default OS policy` | Descriptive NUMA-policy text recorded in the Markdown report; apply the actual policy by launching the sweep through `numactl`. |
-| `NUMA_CMD` | unset | Optional command string (e.g. `numactl --membind=0`) dynamically prepended to the benchmark execution command within the Perl script to bind the payload's memory access exclusively to a NUMA node without affecting compile or profiling overhead. |
-| `RESULTS_DIR` | `tuning-results` | Directory for compact, commit-ready `summary-<architecture>-<timestamp>.csv` and `llm-summary-<architecture>-<timestamp>.md` results. |
-| `OUT_DIR` | `tuning-results/.work/<architecture>-<timestamp>` | Local directory for per-configuration build, benchmark, and perf logs. This is ignored by Git by default. |
+### Experimental `gpuOpt` GPU Parameter Sweep
 
-The default direct-SIMD sweep contains 192 configurations; its eleven default
-perf profiles therefore execute 2,112 profiled benchmark invocations. Enabling
-both algorithms produces 448 configurations, so a full diagnostic run can take
-substantial time. Use `PERF_PROFILES=summary` while narrowing the tuning space,
-then run the complete profile set on the best candidates. `perf` access is controlled by the host's
-`kernel.perf_event_paranoid` setting; use `ELEVATE=always` where permitted or
-adjust that policy according to local system-administration requirements.
-
-The repository [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits) 
-contains benchmarks against other bitset/bitvector/bitmaps in C and Perl.
-
-### OpenMP Parallel Region/Worksharing strategies in CPU and GPU
-
-The CPU OpenMP implementation is a tiled implementation of a collapsed `omp parallel for` region that attempts to squeeze as much performance as possible by exploiting memory alignment (or lack thereof) of the containerized buffers. This is an enhancement over the very first implementation of the OpenMP code that did not use tiling. The code as is, is similar to the `SHARED_TILE_ILP` experimental GPU kernel in which both containers are presented to the algorithm in their untransposed version. In the present implementation the GPU kernel follows the `TEAM_PARALLEL_SIMD` algorithm (see the gpuOpt branch for details of this and other algorithms that are currently being evaluated). Currently I am evaluating numerous alternative approaches to see how much OpenMP can be pushed to deliver performance comparable to native CUDA and HIP implementations. Internally these algorithms are implemented via highly structured, modular preprocessor macros, so extension is fairly straightforward.
-
-### Working with the gpuOpt branch
-
-This branch exposes an additional makefile (`Makefile_bench.mak`) that is used in active development of native CUDA/HIP code that may at some point replace the OpenMP code.  The CUDA/HIP sections are being developed with heavy AI assist, so if you end up using, you are at the mercy of the clankers (mostly Raptor mini, Gemini Flash with the occasional Grok). The branch also contains a GPU only target that is being used to experiment with different offload kernels that are used in the library.
-
-The GPU-only benchmark (`openmp_bit_nocpu`) runs only containerized GPU
-offloaded intersection counts. Its 4th argument uses the same CLI position as
-`max threads`, but is interpreted as the number of GPU iterations.
-This is a safe harbor for testing various implementations of GPU code (e.g. 
-OpenMP directives, or popcount algorithms) without messing with `bit.c`.
-
-This is how you use the the gpuOpt branch specific makefile, `Makefile_bench.mak`:
+`scripts/gpu_param_sweep.pl` sweeps the experimental native benchmark matrix
+through `Makefile_bench.mak`. It supports `--backend`, `--make-args`,
+`--iterations`, `--out-dir`, `--summary`, `--log`, and `--dry-run`.
 
 ```bash
-# GPU-only OpenMP benchmark and native CUDA/HIP benchmarks (Makefile_bench.mak)
-make -f Makefile_bench.mak openmp_bit_nocpu CC=clang GPU=NVIDIA GPU_ARCH=sm_70
-make -f Makefile_bench.mak openmp_bit_nocpu CC=clang GPU=AMD GPU_ARCH=gfx90a
-make -f Makefile_bench.mak cuda_gpu_bench GPU=NVIDIA GPU_ARCH=sm_70
-make -f Makefile_bench.mak hip_gpu_bench GPU=AMD GPU_ARCH=gfx90a
+CUDA_VISIBLE_DEVICES=0 perl ./scripts/gpu_param_sweep.pl \
+  --backend=NVIDIA \
+  --make-args='CC=clang GPU_ARCH=sm_70'
 
+ROCR_VISIBLE_DEVICES=0 perl ./scripts/gpu_param_sweep.pl \
+  --backend=AMD \
+  --make-args='CC=clang GPU_ARCH=gfx1010'
 ```
 
-#### Interpreting `openmp_bit_nocpu` Output
+Choose the GPU with `--backend`; reserve `--make-args` for compiler,
+architecture, and other Make variables.
+By default, the script writes backend/architecture-labelled CSV and raw log
+files in `benchmark_GPU_params/`. It remains an experimental `gpuOpt` native
+CUDA/HIP workflow, not part of the planned `main` CPU sweep suite.
 
-The GPU-only benchmark prints multiple timing blocks so on can separate kernel
-cost from host/device transfer and orchestration overhead:
+### Ancillary Analysis Utilities
 
-- **GPU Algorithm Timing**
-  - Time spent in the GPU intersection algorithm itself (kernel-focused view).
-  - Use this to compare algorithmic efficiency across architectures/compilers.
+The FAISS Python scripts and R scripts in `scripts/` are research utilities,
+not required parts of the Bit library API or build. They have their own fixed
+workloads and dependencies such as FAISS, NumPy, R, `data.table`, and `ggplot2`.
+Review their source and input/output directories before running them.
 
-- **GPU Algorithm + PCIe Timings**
-  - End-to-end device path including host/device movement.
-  - Use this to evaluate real execution cost when transfers are part of each
-    iteration.
+`scripts/generate_bug_report.sh` is the implementation behind `make bug_report`.
+The branch synchronization scripts are maintenance workflows, not installation
+commands; they require a clean worktree and should be reviewed before use.
 
-- **CPU Overhead Timings**
-  - Host-side setup/dispatch/synchronization overhead around GPU work.
-  - Useful for understanding launch/runtime overhead at small problem sizes.
+### Script Helpers and Branch Workflows
 
-- **Per-Iteration Data Movement Breakdown**
-  - Reports transfer volume and transfer time per iteration.
-  - Use this to see whether runtime is dominated by movement or compute.
+- `scripts/generate_bug_report.sh` collects the configuration, build log,
+  preprocessed source, and optional backtrace used by `make bug_report`.
+- `scripts/push_gpuOpt_to_main.sh` is intended to copy a curated set of paths
+  from `gpuOpt` into `main`, create a commit, and push the destination branch.
+  It requires a clean worktree and should be reviewed before use because the
+  selected-path list is deliberately maintained by hand.
+- `scripts/push_gpuOpt_to_inteliGPU.sh` updates `inteliGPU` by merging
+  `gpuOpt`; it likewise requires a clean worktree and starts from `gpuOpt`.
 
-- **Estimated Throughput**
-  - Effective rate computed from processed data and measured time.
-  - Treat this as a practical end-to-end throughput metric (not a pure bus
-    bandwidth number unless only transfer time is used in the denominator).
+The separate [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits)
+repository contains comparative C and Perl bitset/bitmap benchmarks. It is a
+research companion rather than a dependency of this library.
 
-In short: compare **GPU Algorithm Timing** for compute behavior, and compare
-**GPU Algorithm + PCIe Timings** plus movement breakdown for real workload
-performance.
+## Constraints and Current Status
 
-#### OpenMP Kernel Execution Strategies - GPU
+- **Capacity:** Bitsets have fixed, `int`-sized capacities.
+- **Validation:** Most pointer, index, shape, and allocation checks use
+  `assert`. Defining `NDEBUG` removes them; callers still provide valid indexes,
+  equal-length operands, and correctly sized borrowed buffers.
+- **Concurrency:** You synchronize shared mutation. GPU calls are synchronous
+  in the current library path.
+- **GPU residency:** Update and release flags control device mappings. GPU
+  strategy selection belongs to the experimental benchmark layer, not the
+  runtime library API.
+- **Current research surfaces:** Intel OpenMP offload and native CUDA/HIP
+  benchmarks remain experimental.
+- **Generated files:** GPU binaries, LLVM intermediates, profiler reports, and
+  benchmark results record builds and experiments; the public API is defined by
+  the header and implementation.
 
-When compiling device benchmarks in this branch, you can dictate the parallelization and memory layout technique utilized by OpenMP. Pass the OPENMP_GPU_IMPL variable to swap between bitwise optimization strategies:
+## Design, Concurrency, and Performance Notes
 
-```bash
-# Default strategy utilizing team parallel SIMD execution
-make CC=clang GPU=NVIDIA OPENMP_GPU_IMPL=TEAM_PARALLEL_SIMD
+### Concurrency and Execution
 
-# Transposed variant of team parallel SIMD processing
-make CC=clang GPU=NVIDIA OPENMP_GPU_IMPL=TRANSPOSED_TEAM_PARALLEL_SIMD
+Individual bitsets are mutable buffers, so you coordinate concurrent access to
+shared objects. CPU container calls use OpenMP internally; keep shared operands
+and result buffers under one controlling call unless your application provides
+its own synchronization.
 
-# Strategy optimized for shared tile Instruction-Level Parallelism
-make CC=clang GPU=NVIDIA OPENMP_GPU_IMPL=SHARED_TILE_ILP
-```
+GPU-facing container functions are synchronous. Device, update, and release
+options control data residency across calls; they do not provide asynchronous
+execution or cross-thread synchronization. The `gpuOpt` layout machinery may
+retain prepared layouts, so keep ownership and lifetime boundaries explicit.
 
-The `TEAM_PARALLEL_SIMD` utilizes all three levels of parallelization that OpenMP uses to map  concepts from the OpenMP CPU world to the GPU universe. GCC seems to like this strategy especially for NVIDIA cards.
-The `TRANPOSED_TEAM_PARALLEL_SIMD` is effectively the same algorithm, but "transposes" the reference bitsets before carrying out the same operations. While this approach will generate less performant code with gcc, code generated via clang will often boost performance by 200% or more relative to `TEAM_PARALLEL_SIMD` in the same cards. See the section about Concurrency Safety regarding the "mechanics" and potential for racing conditions with this approach.
-`SHARED_TILE_ILP` uses tiling and instruction level parallelism, ILP (this is also approach used by the CUDA and HIP backends in the gpuOpt branch) within OpenMP. When computing the population count after a bitlevel operation (e.g. AND or XOR) in the GPU, one faces similar challenges as writing matrix multiplication kernels in the GPU. By manipulating the size of the tiles,  the extent of the ILP and thread local memory one can squeeze extremely high level of performance from the native code, and this performance seems to transplate to the OpenMP world as well. Unfortunately this kernel will not generate correct results with gcc (v 12,13), though it is the most performant method when clang is used to build the library. 
+I have used the container API through its ordinary fork-join path: one thread
+enters a call and OpenMP parallelizes the work inside it. Nested tasks, multiple
+controlling threads sharing operands, and `fork` after OpenMP initialization
+remain untested here. An application may use runtime tools such as
+`omp_pause_resource_all` before `fork`; test that sequence with the OpenMP
+implementation you deploy.
 
-## Usage Example
+The implementation uses C preprocessor helpers and `_Pragma` to express a
+family of OpenMP CPU and GPU regions without duplicating every variant by hand.
+That is an implementation technique, not a public macro interface. The
+benchmark sources are the practical reference for how those regions are mapped
+and measured.
 
-For those of you who (like me) are dazzled by C:
+### Population Count and WWG
+
+The codebase uses the name Wilkes-Wheeler-Gill (WWG) for a portable
+sideways-addition population-count technique. Historical literature also calls
+the technique Gillies-Miller sideways addition.[^wwg-history] The distinction is historical;
+the relevant engineering point is that the arithmetic form offers a portable
+fallback when a specific target or compiler path does not use a native popcount
+instruction.
+
+For GPU work, WWG is the default code path unless
+`USE_BUILTIN_POPCOUNT=1` is selected at build time. Modern compiler/target
+combinations may recognize either form efficiently, but generated instructions
+and performance must be measured for the selected compiler, architecture, data
+layout, and memory-transfer pattern. The GPU-only benchmark exists to make that
+comparison explicit.
+
+There is a useful compiler lesson hiding here: source spelling is not the same
+thing as generated machine code. In a project investigation using Clang's
+NVIDIA target, the hand-written WWG expression and `__builtin_popcountll`
+produced byte-identical device PTX containing `popc.b64`. LLVM recognized the
+classic SWAR pattern and canonicalized it to the hardware operation. That is a
+specific observation, not a promise about every compiler, optimization level,
+or AMD/NVIDIA target, but it explains why toggling `USE_BUILTIN_POPCOUNT` need
+not change performance. Inspect generated code and benchmark the intended
+binary before assigning speed to the source-level choice.
+
+### Why Containers and OpenMP
+
+The non-containerized bitset operations are straightforward to parallelize at
+the application level. Packed containers additionally make it practical to
+schedule many all-pairs count operations while controlling the storage layout.
+CPU tiling, OpenMP scheduling, and GPU layout experiments are all attempts to
+make locality and work distribution visible to the implementation rather than
+leaving every choice to a generic loop nest.
+
+This distinction is intentional. An application with an array of independent
+`Bit_T` objects can write an OpenMP loop directly:
 
 ```c
 #include "bit.h"
-#include <stdio.h>
-
-int main() {
-    // Create a bitset with 1024 bits
-    Bit_T bitset1 = Bit_new(1024);
-    Bit_T bitset2 = Bit_new(1024);
-
-    // Set some bits
-    Bit_bset(bitset1, 42);
-    Bit_bset(bitset1, 100);
-    Bit_bset(bitset2, 42);
-    Bit_bset(bitset2, 200);
-
-    // Calculate intersection count
-    int count = Bit_inter_count(bitset1, bitset2);
-    printf("Intersection count: %d\n", count);  // Output: 1
-
-    // Create a bitset to hold the interesection
-    Bit_T intersection = Bit_inter(bitset1, bitset2);
-
-    // Clean up
-    Bit_free(&bitset1);
-    Bit_free(&bitset2);
-    Bit_free(&intersection);
-
-    // How to properly utilize an externally allocated buffer
-    int length = 1024;
-    int nbytes = Bit_buffer_size(length);
-    unsigned char *buffer = malloc(nbytes);
-    fill_with_values(buffer);
-    Bit_T bitset = Bit_load(length,buffer);
-    do_things_with(bitset);
-    Bit_free(&bitset);
-    do_otherthings_with(buffer);
-    free(buffer);
-
-    //----------------------------------------------------------------
-    // Using the packed containers; based on the openmp_bit.c benchmark
-    int num_of_bits = 65536;
-    int num_of_bits = 1000;
-    int num_of_ref_bitsets = 5000;
-
-    // allocate the bitsets as arrays of Bit_T & put some data in them
-    Bit_T *bits = malloc(num_of_bits * sizeof(Bit_T));
-    Bit_T *bitsets = malloc(num_of_ref_bits * sizeof(Bit_T));
-    for (int i = 0; i < num_of_bits; i++) {
-      bits[i] = Bit_new(size);
-      Bit_set(bits[i], size / 2, size - 1);
-    }
-    for (int i = 0; i < num_of_ref_bits; i++) {
-      bitsets[i] = Bit_new(size);
-      Bit_set(bitsets[i], size / 2, size - 1);
-    }
-
-    // move them to packed containers
-    Bit_DB_T db1 = BitDB_new(size, num_of_bits);
-    Bit_DB_T db2 = BitDB_new(size, num_of_ref_bits);
-    for (int i = 0; i < num_of_bits; i++)
-      BitDB_put_at(db1, i, bits[i]);
-    for (int i = 0; i < num_of_ref_bits; i++)
-      BitDB_put_at(db2, i, bitsets[i]);
-
-    // These give equivalent results
-    int *results_CPU_container =
-      BitDB_inter_count_cpu(db1, db2,
-      (SETOP_COUNT_OPTS){.num_cpu_threads = num_threads});
-
-    int *results_GPU_container = BitDB_inter_count_gpu(db1, db2,
-                           (SETOP_COUNT_OPTS){.device_id = 0,
-                                              .upd_1st_operand = true,
-                                              .upd_2nd_operand = false,
-                                              .release_1st_operand = true,
-                                              .release_2nd_operand = true,
-                                              .release_counts = true});
-
-    // In case you would like to do intersection counts on Bit_T arrays
-    size_t workload = (size_t)num_of_bits * (size_t)num_of_ref_bits;
-    int *results_CPU_OMP = (int *)calloc(workload, sizeof(int));
-      assert(counts != NULL);
-    omp_set_num_threads(threads);
-    #pragma omp parallel for schedule(guided)
-    for (int i = 0; i < num_of_bits; i++) {
-      for (int j = 0; j < num_of_ref_bits; j++) {
-        counts[i * num_of_ref_bits + j] = Bit_inter_count(bit[i], bitsets[j]);
-      }
-    }
-
-
-    return 0;
-}
-```
-
-Keep reading for a deeper overview of the library's API.
-
-
-## API Overview
-
-### Creation and Destruction
-
-Create, free a _Bitset_ or load and extract a bitset using externally allocated
-buffers.
-
-```c
-extern Bit_T Bit_new(int length);
-extern void* Bit_free(T* set);
-extern Bit_T Bit_load(int length, void* buffer);
-extern int Bit_extract(Bit_T set, void* buffer);
-
-```
-
-Create (de novo or from an external buffer) and free a _Bitset container_ aka a _BitDB_
-
-```C
-extern Bit_T_DB BitDB_new(int length, int num_of_bitsets);
-extern void* BitDB_free(T_DB* set);
-extern Bit_T_DB BitDB_load(int length, int num_of_bitsets, void* buffer);
-```
-
-Both free functions return the NULL pointer if the buffer was allocated by the
-library, or the pointer to the buffer that was loaded externally.
-
-### Bitset and Bitset container properties
-
-Return the length (capacity) of the _Bitset_, the current population count of the
-bitset or the size (in bytes) of the buffer needed to store the bits in the bitset
-of a given length.
-
-```c
-int Bit_length(Bit_T set);
-int Bit_count(Bit_T set);
-int Bit_buffer_size(int length);
-```
-
-Return the length of a _Bitset_ in a _BitDB_ container and the number of bitsets
-in the container. Other functions return the total population count of the
-container, or the count at a particular index in the container
-
-```c
-extern int BitDB_length(Bit_DB_T set);
-extern int BitDB_nelem(Bit_DB_T set);
-extern int BitDB_count_at(Bit_DB_T set, int index);
-extern int* BitDB_count(Bit_DB_T set);
-```
-
-### Bitset and Bitset container Manipulation
-
-Setting and clearing of irregular arrays (aset/aclear) of bits in a _Bitset_,
-setting and clearing of ranges of bits (set/clear), or individual bits
-(bset/bclear).
-Other functions put a specific value in a given bit (and return the old bit),
-i.e. put, or return the current value of the bit (get). We can also map a
-function on the entire bit, clear the entire bitset or negate the bitset (not).
-
-```c
-void Bit_aset(Bit_T set, int indices[], int n);
-void Bit_bset(Bit_T set, int index);
-void Bit_aclear(Bit_T set, int indices[], int n);
-void Bit_bclear(Bit_T set, int index);
-void Bit_clear(Bit_T set, int lo, int hi);
-int Bit_get(Bit_T set, int index);
-void Bit_map(Bit_T set, void apply(int n, int bit, void *cl), void *cl);
-void Bit_not(Bit_T set, int lo, int hi);
-int Bit_put(Bit_T set, int n, int bit);
-void Bit_set(Bit_T set, int lo, int hi);
-```
-
-For the _Bitset_ container (_BitDB_), the manipulation functions operate on
-individual bitsets within the container. There are functions that extract
-bitsets from the given index of a container and return them as a bitset, or
-functions that replace bitsets at a particular index.
-One can also use raw byte buffers to extract or replace bitsets at specific
-indices. Finally one can clear entire bitset containers, or bitsets in a
-particular index in the container.
-
-```c
-extern Bit_T BitDB_get_from(Bit_DB_T set, int index);
-extern void BitDB_put_at(Bit_DB_T set, int index, T bitset);
-extern void BitDB_extract_from(Bit_DB_T set, int index, void* buffer);
-extern void BitDB_replace_at(Bit_DB_T set, int index, void* buffer);
-extern void BitDB_clear(Bit_DB_T set);
-extern void BitDB_clear_at(Bit_DB_T set, int index);
-
-```
-
-### Bitset Comparisons
-
-Standard equality, less than equal, more than equal operations between two
-bitsets
-
-```c
-int Bit_eq(Bit_T s, Bit_T t);
-int Bit_leq(Bit_T s, Bit_T t);
-int Bit_lt(Bit_T s, Bit_T t);
-```
-
-### Set Operations
-
-Those are grouped in functions that return a _Bitset_ that is the difference
-(minus), symmetric difference (diff), union and intersection of two bitsets.
-Alternatively, one returns the population counts of the result of these set
-operations, without actually forming it.
-
-```c
-Bit_T Bit_diff(Bit_T s, Bit_T t);
-Bit_T Bit_inter(Bit_T s, Bit_T t);
-Bit_T Bit_minus(Bit_T s, Bit_T t);
-Bit_T Bit_union(Bit_T s, Bit_T t);
-
-int Bit_diff_count(Bit_T s, Bit_T t);
-int Bit_inter_count(Bit_T s, Bit_T t);
-int Bit_minus_count(Bit_T s, Bit_T t);
-int Bit_union_count(Bit_T s, Bit_T t);
-```
-
-_Bitset container_ operations are available through two separate interfaces:
-
-- A _macro-based interface_ for use within C
-- A _function-based interface_ when interfacing with foreign code
-
-#### Macro based interface
-
-The macro-based interface involves two sets of four functions:
-BitDB_SETOP_count and BitDB_SETOP_count_store, where SETOP can be one of the following:
-
-1. inter = intersection
-2. union = union
-3. diff = difference
-4. minus = symmetric difference
-
-Each of these functions take as arguments two Bitset containers, performs the
-SETOP operation, for all the bitsets in these containers and either returns
-the result as an array of integers or uses the an externally allocated
-buffer that is provided as an argument to the (store) functions.
-
-For example:
-
-```c
-BitDB_inter_count(bit, bits, opts, TARGET);
-BitDB_inter_count_store(bit, bits, opts, results, TARGET)
-```
-
-both calculate the population count of the intersection of the bitsets of the
-cartesian product of the two containers. While the former returns the result as an
-array of integers, the latter stores the result in the provided buffer
-(results). In these invocations, if the number of elements of the first bitset is N,
-and that of the second index is M, the total number of elements returned by the
-first function call will be N \* M (i.e. a two-dimensional array stored in
-row-major order). Similarly, the space that must be pre-allocated to hold the
-results will need to be of size N \* M \* sizeof(int) bytes.
-
-When invoking the functions, the TARGET is one of cpu or gpu providing the
-execution context. The opts is a structure of type SETOP_COUNT_OPTS
-that is defined as follows:
-
-```c
-typedef struct {
-    int num_cpu_threads;  // number of CPU threads
-    int device_id;        // GPU device ID, ignored for CPU
-    bool upd_1st_operand; // if true, update the first container in the GPU
-    bool upd_2nd_operand; // if true, update the second container in the GPU
-    bool release_1st_operand; // if true, release the first container in the GPU
-    bool release_2nd_operand; // if true, release the second container in the GPU
-    bool release_counts;    // if true, release the counts buffer in the GPU
-} SETOP_COUNT_OPTS;
-```
-
-This structure provides the number of CPU threads that will be utilized when
-running the code in the CPU, the device id for GPU execution, and various flags
-for managing the GPU memory. Memory allocations and de-allocations in the CPU
-are very costly, so it pays handsomely in terms of performance if one did not
-have to move things around unless absolutely necessary.
-Consider for example the scenario in which one has 3 containers, each of size N
-that must be matched against a single container of size M. The device has enough
-memory to fit a single container of size N, another one of size N, and the
-results of size N \* M. In this case,
-
-```c
-SETOP_COUNT_OPTS opts_1to2 = {
-    .device_id = 0,
-    .upd_1st_operand = true,
-    .upd_2nd_operand = false,
-    .release_1st_operand = false,
-    .release_2nd_operand = false,
-    .release_counts = false
-};
-```
-
-instructs the mapper to update the first operand in the GPU when iterating over
-the first two containers of size N. To process the final container, one can use
-
-```c
-SETOP_COUNT_OPTS opts_3 = {
-    .device_id = 0,
-    .upd_1st_operand = true,
-    .upd_2nd_operand = false,
-    .release_1st_operand = true,
-    .release_2nd_operand = true,
-    .release_counts = true
-};
-```
-
-which will update the first operand in the GPU and _release_ all the buffers
-on the device upon exit. Since OpenMP manages device memory regions using
-reference counting, releasing of the regions amounts to decreasing the reference
-counters for each of the regions. Regions that are no longer referenced will be
-automatically de-allocated.
-
-#### Function based interface
-
-The macro interface expands to the functions in the function based interface.
-Those are the following:
-
-```c
-extern int* BitDB_inter_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
-    SETOP_COUNT_OPTS opts);
-extern void BitDB_inter_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
-    SETOP_COUNT_OPTS opts);
-extern int* BitDB_inter_count_cpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
-extern int* BitDB_inter_count_gpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
-
-extern void BitDB_union_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
-    SETOP_COUNT_OPTS opts);
-extern void BitDB_union_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
-    SETOP_COUNT_OPTS opts);
-extern int* BitDB_union_count_cpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
-extern int* BitDB_union_count_gpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
-
-extern void BitDB_diff_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
-    SETOP_COUNT_OPTS opts);
-extern void BitDB_diff_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
-    SETOP_COUNT_OPTS opts);
-extern int* BitDB_diff_count_cpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
-extern int* BitDB_diff_count_gpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
-
-extern void BitDB_minus_count_store_cpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
-    SETOP_COUNT_OPTS opts);
-extern void BitDB_minus_count_store_gpu(Bit_DB_T bit, Bit_DB_T bits, int* buffer,
-    SETOP_COUNT_OPTS opts);
-extern int* BitDB_minus_count_cpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
-extern int* BitDB_minus_count_gpu(Bit_DB_T bit, Bit_DB_T bits, SETOP_COUNT_OPTS opts);
-```
-
-## Error checking for functions in the interface
-
-C's assert is used to validate input parameters, memory allocations and internal
-states within the functions. It is highly advisable NOT to define NDEBUG (e.g.
-as a compiler flag) when compiling the library, as this will disable all checks
-whatsoever. If you do so, please feel free to email me any disasters you may
-encounter, especially in your GPU deployments.
-
-The checked runtime errors for each function are described in the header file of
-the API.
-
-## Concurency safety in the CPU and GPU
-
-The library has the aspiration to eventually be absolutely safe for concurency operations, but the implementation only partially lives up to the aspiration. 
-
-1. For individual Bitsets, you the user are absoluterly responsible for ensuring concurency safety as with any buffer in a C program. People can play with atomics, native C thread or OpenMP, but at the end of the day you are only as safe as the context of use of `Bit`. The section "rationale for multi-threaded CPU and GPU deployments" provides one such implementation using OpenMP, but I encourage you to explore others e.g. tasks. 
-2. For containerized operations in the CPU, OpenMP provides some form of concurency safety assuming you utilize the OpenMP functionality of containers from a single (main) thread: the fork-join model will allow you to use threads and cores of your processor in a safe manner, but the parent thread one should only be one. I have not for example tried to use these containerized operations within tasks, but I welcome you to try and share the results! Another area with the potential of reward, but also pain is the use of multi-processing to _fork_ distinct processes that then utilize containerized operations. This may seem like a weird thing to do, but it may be absolutely necessary if one were to squeeze the last drop of compute power in multi-socket systems,  if one were to use the library to go through large amounts of work when the scaling of the OpenMP containerized operations starts dropping off, or for parallel scripting with the Perl interface. In that case be aware that you must pause OpenMP  e.g. by including `omp_pause_resource_all(omp_pause_hard);` in your C code before forking.
-3. Containerized operations in the GPU pause an interesting dilemna. Currently the library allows the launching of a large number of GPU threads from a single (blocking) CPU thread. There is no asynchronous communication and no opportunity to use devices for offloading from the controlling CPU thread (though one could _fork_ multiple processes and offload to multiple CPUs if they are present in the system). The infrastructure for creating multithread safe applications across CPU and GPU is present (i.e. the relevant data structures have been created), but the functionality has not been implemented. This infrastructure is currently used to ensure that buffers that must be transposed in certain GPU algorithms are transposed only once during the execution of a single task in the experimental gpuOpt branch, but are currently not used in the main branch. 
-
-## Libraries Used
-
-This project incorporates other open-source libraries:
-
-- **libpopcnt**: A C/C++ library for counting the number of 1 bits (bit
-  population count) specialized for different CPU architectures. Licensed under
-  BSD 2-Clause.
-  https://github.com/kimwalisch/libpopcnt
-
-- **SIMDe**: The SIMDe header-only library provides fast, portable implementations of SIMD intrinsics on hardware which doesn't natively support them, such as calling SSE functions on ARM. There is no performance penalty if the hardware supports the native implementation (e.g., SSE/AVX runs at full speed on x86, NEON on ARM, etc.).
-https://github.com/simd-everywhere/simde
-
-## Libraries that inspired this project
-
-All the libraries below inspired me to dive in the C preprocessor, learn new stuff or simply structure my code in a better manner.
-
-- **sse-popcount**: The SIMD population count implementation of the Harley-Seal
-  algorithm based on the paper "Faster Population Counts using AVX2
-  Instructions" by Daniel Lemire, Nathan Kurz and Wojciech Mula.
-  https://github.com/WojciechMula/sse-popcount
-
-- **cii** : The Bit_T library in C interfaces and implementations by David
-  Hanson
-  https://github.com/drh/cii
-
-## Performance
-
-The library `libpopcnt` is optimized for performance, with specialized implementations of
-the _population count_ for different CPU architectures:
-
-- **AVX512**: Utilizes 512-bit vector operations for maximum throughput.
-  The implementation will depend on the processor architecture and may include HW
-  popcounts or the Harley - Searl algorithm.
-- **AVX2**: Uses 256-bit vector operations on supported CPUs to implement the
-  Harley - Searl algorithm
-- **NEON**: Falls back to 128-bit vector operations on older CPUs
-- **SVE**
-- **Scalar**: Provides optimized scalar implementations for universal
-  compatibility. The scalar implementation is based on the **Wilkes-Wheeler-Gill
-  Algorithm**: A highly portable and efficient algorithm for counting set bits
-  documented in "The Preparation of Programs for an Electronic Digital
-  Computer".
-
-The Wilkes-Wheeler-Gill algorithm is used as default for GPU deployments given
-the straightforward translation into highly efficient GPU code (under -O3). Native GPU popcount instructions do exist and are 2.5x faster ONLY is one can stage their data to operate in registers or in shared (thread local) memory. For naive implementations of the container operations (such as mine!), performance is memory bound so it makes absolutely no practical difference is one is using the builtin directive or the WWG function in the GPU.
-
-## A note about the rationale for multi-threaded CPU and GPU deployments
-
-The non-containerized bitset operations can be very easily parallelized on the CPU using OpenMP or
-even native C threads. By far the easiest path to parallelization on the CPU is
-offered by OpenMP, e.g. the following code in the `openmp_bit.c` source will
-carry out a similarity search using the count of the intersection to find the
-most similar reference bitset for each query bitset.
-
-```c
-int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
-  int num_of_ref_bits, int threads) {
-  // Perform the intersection count in parallel
-  int max = 0, current = 0;
-  size_t workload = (size_t)num_of_bits * (size_t)num_of_ref_bits;
-  int* counts = (int*)calloc(workload, sizeof(int));
-  if(counts == NULL) {
-    fprintf(stderr, "Error: Unable to allocate memory for counts array of "
-    "size %zu in %s\n", workload,__func__);
-    exit(EXIT_FAILURE);
+#include <assert.h>
+#include <stdlib.h>
+
+int main(void) {
+  const int query_count = 2;
+  const int reference_count = 3;
+  Bit_T queries[2];
+  Bit_T references[3];
+  int *counts = calloc((size_t)query_count * reference_count, sizeof(*counts));
+  assert(counts != NULL);
+
+  for (int i = 0; i < query_count; ++i) {
+    queries[i] = Bit_new(128);
+    Bit_bset(queries[i], 10 + i);
   }
-  omp_set_num_threads(threads);
-#pragma omp parallel for schedule(guided)
-  for (int i = 0; i < num_of_bits; i++) {
-    for (int j = 0; j < num_of_ref_bits; j++) {
-      counts[i * num_of_ref_bits + j] = Bit_inter_count(bit[i], bitsets[j]);
+  for (int j = 0; j < reference_count; ++j) {
+    references[j] = Bit_new(128);
+    Bit_bset(references[j], 10 + j);
+  }
+
+#pragma omp parallel for collapse(2)
+  for (int i = 0; i < query_count; ++i) {
+    for (int j = 0; j < reference_count; ++j) {
+      counts[i * reference_count + j] =
+          Bit_inter_count(queries[i], references[j]);
     }
   }
 
-  for (size_t i = 0; i < workload; i++) {
-    current = counts[i];
-    if (current > max) {
-      max = current;
-    }
-  }
+  for (int i = 0; i < query_count; ++i) Bit_free(&queries[i]);
+  for (int j = 0; j < reference_count; ++j) Bit_free(&references[j]);
   free(counts);
-  return max;
+  return 0;
 }
 ```
 
-The containerized versions not only fully leverage the capabilities of OpenMP to generate
-code for either CPU or GPU environments, but go a step further by exploiting memory locality to deliver even higher performance. The icing on the cake is GPU offloading which is entirely opt-in: the default
-build (`GPU=NONE`) routes all GPU calls to CPU implementations. Pass `GPU=NVIDIA` or `GPU=AMD` to enable device offloading as we discussed previously.Those who are interested in the implementation feel free to look into code of
-`bit.c`. I found the C preprocessor to be a valuable tool for managing the complexity of the codebase and enabling code reuse. As the OpenMP itself uses
-#pragma directive for parallel regions in both CPU and GPU, parameterizing these directives, required the liberal use of the `_Pragma` operator to construct
-#pragma directives from macro expansions. At some unspecified point in thefuture, these and possibly other macros may be split into a header only library
-to manage the expressive complexity of OpenMP for beginners.
+`Bit_DB_T` exists for the cases where I want the library to own that bulk
+organization. Its contiguous storage lets the implementation tile the two
+outer container dimensions and block the inner bit-vector reduction. The
+`CPU_TILE`, `BITVECTOR_TILE`, outer-row/column shape, unroll, and scratch-buffer
+settings are experiments in cache use, register pressure, and memory traffic;
+they are tuning controls, not universal constants.
 
+The internal `_Pragma` helpers serve the same purpose on the code-organization
+side. They let one family of loops express CPU worksharing, SIMD reduction, GPU
+teams, and mapping choices without maintaining several nearly identical
+kernels. This is one of the places where the C preprocessor is earning its keep,
+but those helpers remain private implementation machinery rather than an API
+applications should depend on.
 
-## Applications
+On a single socket, the relevant limits are often cache capacity and memory
+bandwidth. On a multi-socket host, page placement and thread binding matter as
+well; the `main`-only NUMA sweep documents one way to make those variables
+measurable. On a GPU, transfer volume, residency, layout conversion, and launch
+overhead can dominate a small or poorly shaped workload even when the inner
+kernel is fast.
 
-Bit is particularly useful for:
+[^wwg-history]: Maurice V. Wilkes, David J. Wheeler, and Stanley Gill describe
+  the Gillies-Miller method for sideways addition in *The Preparation of
+  Programs for an Electronic Digital Computer*, 2nd ed., pp. 191-193 (1957).
+  Wojciech Mula, Nathan Kurz, and Daniel Lemire later used the name
+  “Wilkes-Wheeler-Gill” in “Faster Population Counts Using AVX2
+  Instructions,” *The Computer Journal* 61(1), 2018.
 
-- Bioinformatics and genomic data processing (k-mer encoding)
-- Network packet filtering and bloom filters
-- Dense data representation (for sparse bitsets over large domains, one is
-  probably better off exploring sparse representations e.g. roaring bitsets)
-- High-performance set operations
+## Dependencies, Inspiration, and Applications
 
-## TO-DO
+This project incorporates or integrates the following open-source libraries:
 
-- Build the entire library in the CPU using [SIMDe](https://github.com/simd-everywhere/simde) (SIMD everywhere). This will allow portable, vectorized operations for both bitsets and containers. At that point we may no longer rely on `libpopcnt`.
-- Port experimental algorithms for setop count operations from the gpuOpt branch to the main branch
-- Implement additional set-op operations (e.g. the Jaccard index)
-- Implement additional, OS agnostic build systems (lowest priority)
-- Code the setop functions (e.g. and, not, xor etc) using SIMD directives. This will require us to redesign the `cii` set-op interface for these operations. 
-- Ensure that gcc and clang are fully tested across CPU, NVIDIA, and AMD paths
-- CUDA and HIP implementations to replace OpenMP implementations in systems that feature the `nvcc` or the `hipcc` compiler
-- Utilize Unified Shared Memory if available in the system
-- TPU & NPU support (low priority but will be cool with all the new chips)
+- [libpopcnt](https://github.com/kimwalisch/libpopcnt), a BSD 2-Clause
+  population-count library with architecture-specific implementations.
+- [SIMDe](https://github.com/simd-everywhere/simde), a header-only SIMD
+  portability layer used by the CPU implementation.
+
+Several libraries and projects also informed the structure of this codebase and
+the author's exploration of the C preprocessor and SIMD implementation work:
+
+- [sse-popcount](https://github.com/WojciechMula/sse-popcount), including the
+  Harley-Seal population-count work associated with Lemire, Kurz, and Mula.
+- [cii](https://github.com/drh/cii), David Hanson's C Interfaces and
+  Implementations library and the original `Bit_T` design.
+
+### Applications
+
+Bit is particularly useful for dense set and membership workloads such as:
+
+- Bioinformatics and genomic data processing, including k-mer-like encodings.
+- Network packet filtering and Bloom-filter-style membership tests.
+- Dense data representation over large fixed domains.
+- High-performance set operations and all-pairs intersection-count searches.
+
+For genuinely sparse domains, a compressed representation such as a roaring
+bitmap can be a better fit than this uncompressed library.
+
+## Roadmap
+
+- Continue validating CPU, NVIDIA, AMD, and Intel build paths.
+- Extend SIMD-oriented CPU work across more set-operation paths while retaining
+  portable fallbacks.
+- Port or evaluate selected experimental `gpuOpt` count algorithms on the
+  branches where they belong.
+- Add set-operation metrics such as Jaccard similarity.
+- Improve OS-agnostic build, profiling, and reproducibility workflows.
+- Continue evaluating native CUDA/HIP backends alongside OpenMP offload.
+- Investigate Unified Shared Memory where the target runtime supports it.
+
+TPU and NPU support are not implemented and are not supported build targets.
 
 ## License
 
-BSD 2-Clause License. See the LICENSE file for details.
+BSD 2-Clause License. See `LICENSE` for details.
 
 ## Author
 
 Christos Argyropoulos (April 2025 -  May 2026)
 
-## AI disclosure
+## AI Disclosure and Scientific Publication Transparency Statement
 
-Github Copilot has been very helpful when it comes to generating the makefile, run ideas about the OpenMP and to generate the CUDA and HIP implementations.
+This session is intended to document the involvement of AI in this project and a
+roadmap to preserve, collect and characterize the involvement over time. In retrospect,
+some of the steps (in particular recovery of history from other machines) should have
+done much earlier than September 2026. The following few sections represent to the best of
+my knowledge the use of AI in this project, which started of as a retype and extension of
+the Bit T by David Hanson.
 
-[^1]: Historical Trivia: The method is identified as the Gillies-Miller
-"sideways addition” in the original reference (Maurice V. Wilkes,
-David J. Wheeler, and Stanley Gill. _The Preparation of Programs for
-an Electronic Digital Computer_, chapter Gillies–Miller method for
-sideways addition, pages 191–193. Addison-Wesley Publishing Company,
-Reading, Mass., 2nd edition, 1957.) but it was named the
-”Wilkes-Wheeler-Gill function in C” by Mula, Kurz and Lemire
-(Faster population counts using avx2 instructions. _The Computer Journal_,
- 61(1):111–120, May 2017.), leaving some confusion about who originated
- the method, though the first implementation may had been written by
-  Wilkes, Wheeler andGill in support of their 1957 book.
+### AI-Assisted Work
+
+GitHub Copilot and Google Gemini assisted with generating and refactoring
+Makefile content, exploring test ideas for the OpenMP implementations, drafting
+and refactoring templated C work used for the CUDA and HIP implementations, and
+maintaining this README as the source evolved.
+
+During development of the benchmarking framework and associated automation,
+generative AI assisted with script refactoring, Perl automation boilerplate,
+JSON configuration schemas, R authoring, OpenMP macro work, and documentation.
+The following model-specific roles are author-confirmed and are described as
+regular contributions, not as a complete per-file provenance record:
+
+- Google Gemini 3.1: Perl automation, R authoring, and OpenMP macro work.
+- Claude Sonnet 5 and Claude Sonnet 4.6: Makefile work.
+
+GitHub Copilot is retained here as a development platform attribution. This
+document does not infer its underlying model routing, per-turn model selection,
+or relative model frequency from repository contents.
+
+### Attribution Evidence and Limits
+
+The repository does not use watermark analysis to identify authorship or assign
+source code to a particular AI model. There is no universal source-code
+watermark detector, and any provider-specific verification must use that
+provider's supported process. Editing, formatting, copying, transformation, and
+mixed human/AI work can make retrospective attribution incomplete or invalid.
+
+Writing style, comments, formatting, compiled artifacts, commit wording, and
+Git history are not sufficient evidence of a particular model's involvement.
+Model-level claims in this disclosure are maintained from author-confirmed
+records rather than inferred from source code.
+
+### Recovering History From Other Machines
+
+For work completed on other user-owned computers, collect first-party records
+instead of attempting retrospective source attribution:
+
+1. On each VS Code installation signed into the same account, enable
+  `chat.sessionSync.enabled` and `github.copilot.chat.localIndex.enabled`.
+2. Run `/chronicle reindex` on each machine to index retained local sessions and
+  synchronize them where the account configuration permits it.
+3. Preserve unpushed branches and reflogs from each checkout as work chronology,
+  for example with `git branch -avv` and `git reflog show --all`.
+4. Retrieve any account-level Copilot history or usage export available to the
+  account owner, then reconcile it with author-maintained records.
+5. Redact credentials, tokens, personal data, proprietary prompts, and other
+  sensitive material before centralizing transcripts or exports.
+
+These steps can recover only history still retained by the device or provider.
+They do not recreate deleted sessions and may not expose the model routed for
+each request.
+
+### Author Responsibility
+
+All core problem framing, architectural decisions (including decoupling
+execution engines from target schemas), code validation, security reviews, and
+scientific evaluations were performed directly by the author. The author
+maintains responsibility for the accuracy, licensing, and integrity of all
+submitted code and materials.

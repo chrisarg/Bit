@@ -450,11 +450,69 @@ bool test_bitDB_inter_count() {
     (inter_count[1] == 1 && inter_count[SIZEOF_BITDB] == 1 &&
       inter_count[SIZEOF_BITDB + 1] == 2);
 
+  free(inter_count);
+  free(count2);
+  free(count);
   Bit_free(&bitset1);
   Bit_free(&bitset2);
   BitDB_free(&bit1);
   BitDB_free(&bit2);
 
+  report_test(__func__, success);
+  return success;
+}
+
+bool test_bitDB_store_macros() {
+  Bit_DB_T left = BitDB_new(128, 2);
+  Bit_DB_T right = BitDB_new(128, 2);
+  Bit_T value = Bit_new(128);
+
+  Bit_bset(value, 1);
+  Bit_bset(value, 3);
+  BitDB_put_at(left, 0, value);
+  Bit_clear(value, 0, 127);
+  Bit_bset(value, 2);
+  BitDB_put_at(left, 1, value);
+
+  Bit_clear(value, 0, 127);
+  Bit_bset(value, 3);
+  BitDB_put_at(right, 0, value);
+  Bit_clear(value, 0, 127);
+  Bit_bset(value, 1);
+  Bit_bset(value, 2);
+  BitDB_put_at(right, 1, value);
+
+  const SETOP_COUNT_OPTS opts = {.num_cpu_threads = 1};
+  int actual[4] = {0};
+  const int expected_inter[4] = {1, 1, 0, 1};
+  const int expected_union[4] = {2, 3, 2, 2};
+  const int expected_diff[4] = {1, 2, 2, 1};
+  const int expected_minus[4] = {1, 1, 1, 0};
+  bool success = true;
+
+  BitDB_inter_count_store(left, right, actual, opts, cpu);
+  for (int i = 0; i < 4; ++i)
+    success = success && actual[i] == expected_inter[i];
+
+  BitDB_union_count_store(left, right, actual, opts, cpu);
+  for (int i = 0; i < 4; ++i)
+    success = success && actual[i] == expected_union[i];
+
+  BitDB_diff_count_store(left, right, actual, opts, cpu);
+  for (int i = 0; i < 4; ++i)
+    success = success && actual[i] == expected_diff[i];
+
+  BitDB_minus_count_store(left, right, actual, opts, cpu);
+  for (int i = 0; i < 4; ++i)
+    success = success && actual[i] == expected_minus[i];
+
+  BitDB_inter_count_store(left, right, actual, opts, gpu);
+  for (int i = 0; i < 4; ++i)
+    success = success && actual[i] == expected_inter[i];
+
+  Bit_free(&value);
+  BitDB_free(&right);
+  BitDB_free(&left);
   report_test(__func__, success);
   return success;
 }
@@ -498,6 +556,7 @@ void run_tests() {
   test_bitDB_get_put();
   test_bitDB_extract_replace();
   test_bitDB_inter_count();
+  test_bitDB_store_macros();
 
   // Print summary
   printf("\nTest Summary:\n");

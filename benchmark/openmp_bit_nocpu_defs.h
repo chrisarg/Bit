@@ -1,6 +1,7 @@
 // types and definitions for the OpenMP GPU benchmark without CPU overhead measurement
 #pragma once
 #include <stdbool.h> // For bool type (is_Bit_T_allocated)
+#include <stdint.h>  // For uint64_t
 #include <time.h>    // For struct timespec
 
 typedef struct {
@@ -15,12 +16,12 @@ typedef struct {
 } GPU_Instrumentation;
 
 struct Bit_T {
-  int length;                 // capacity of the bitset in bits
-  int size_in_bytes;          // number of bytes of the 8 bit container
-  int size_in_qwords;         // number of qwords of the 64 bit container
-  bool is_Bit_T_allocated;    // true if allocated by the library
+  unsigned int length;        // capacity of the bitset in bits
+  unsigned int size_in_bytes; // number of bytes of the 8 bit container
+  unsigned int size_in_qwords; // number of qwords of the 64 bit container
   unsigned char *bytes;       // pointer to the first byte
-  unsigned long long *qwords; // pointer to the first qword
+  uint64_t *qwords;           // pointer to the first qword
+  bool is_Bit_T_allocated;    // true if allocated by the library
 };
 
 // Bitset DB structure
@@ -30,12 +31,12 @@ struct Bit_T {
   processing large number of bitsets.
 */
 struct Bit_DB_T {
-  int nelem;                  // number of bitsets in the packed container
-  int length;                 // capacity of the bitset in bits
-  int size_in_bytes;          // number of bytes of the 8 bit set container
-  int size_in_qwords;         // number of qwords of the 64 bit set container
-  bool is_Bit_T_allocated;    // true if allocated by the library
+  unsigned int nelem;         // number of bitsets in the packed container
+  unsigned int length;        // capacity of the bitset in bits
+  unsigned int size_in_bytes; // number of bytes of the 8 bit set container
+  unsigned int size_in_qwords; // number of qwords of the 64 bit set container
   unsigned char *bytes;       // pointer to the first byte
-  unsigned long long *qwords; // pointer to the first qword
+  uint64_t *qwords;           // pointer to the first qword
+  bool is_Bit_T_allocated;    // true if allocated by the library
 };
 
