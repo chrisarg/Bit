@@ -27,8 +27,6 @@ EXACT_PATHS=(
   scripts/benchmark_config_cpu.json
   scripts/cpu_param_sweep.pl
   scripts/cpu_profiling_analytics.R
-  scripts/faiss_multigpu_benchmark_nocpu.py
-  scripts/faiss_multigpu_benchmark.py
   scripts/generate_bug_report.sh
   scripts/gpu_param_sweep.pl
   scripts/plot_performance.R
