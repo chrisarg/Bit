@@ -1,0 +1,69 @@
+{
+  "build_matrix": {
+    "cc": ["clang", "gcc"],
+    "opt_level": ["-O3"],
+    "lto": ["1"],
+    "march": ["native"],
+    "libpopcnt": [0, 1],
+    "cpu_tile": [16, 32],
+    "bitvector_tile": [512, 1024],
+    "buffer_size": [256, 512],
+    "outer_row_num": [2, 4],
+    "outer_col_num": [2, 4],
+    "outer_vec_blk": [2, 4]
+  },
+  "run_matrix": {
+    "num_bits": [65536, 262144],
+    "dim_left": [1024],
+    "dim_right": [1024],
+    "threads": [1, 2, 4, 8, 10, 20],
+    "omp_bind": ["close", "spread"],
+    "numa_policy": ["--interleave=all", "--localalloc"],
+    "rep_id": [1, 2, 3]
+  },
+  "telemetry": {
+    "hardware": {
+      "file": "/proc/cpuinfo",
+      "extractors": {
+        "Processor": "model name\\s*:\\s*(.+)",
+        "SIMD": "(?:flags|Features|isa).*?\\b(avx512f|avx2(?!.*\\bavx512f\\b)|avx(?!.*\\bavx2\\b|.*\\bavx512f\\b)|sse4_2(?!.*\\bavx)|sve2|sve(?!.*\\bsve2\\b)|asimd(?!.*\\bsve)|rv64[a-z]*v[a-z]*)\\b",
+        "vpopcountHW": "(?:flags|Features|isa).*?\\b(avx512_vpopcntdq|avx512_bitalg|zvbb|asimd)\\b"
+      }
+    },
+    "os": {
+      "file": "/etc/os-release",
+      "extractors": {
+        "Operating_System": "PRETTY_NAME=\"([^\"]+)\""
+      }
+    },
+    "toolchain": {
+      "cmd": "{cc} --version | head -n 1",
+      "extractors": {
+        "Compiler_Version": "(.*)"
+      }
+    }
+  },
+  "system_env": {
+    "out_dir": "benchmark_CPU_params",
+    "summary_csv": "{out_dir}/{base_name}.csv",
+    "raw_log": "{out_dir}/{base_name}_raw.log",
+    "exec_context": "auto",
+    "taskset": "0-9",
+    "priority": "normal",
+    "build_cmd": "make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC={cc} OPT={opt_level} APPLY_LTO={lto} MARCH={march} LIBPOPCNT={libpopcnt} CPU_TILE={cpu_tile} BITVECTOR_TILE={bitvector_tile} BUFFER_SIZE={buffer_size} OUTER_ROW_NUM={outer_row_num} OUTER_COL_NUM={outer_col_num} OUTER_VEC_BLK={outer_vec_blk}",
+    "run_cmd": "env OMP_PLACES=cores OMP_PROC_BIND={omp_bind} numactl {numa_policy} ../build/cpu_param_sweep {num_bits} {dim_left} {dim_right} {threads}",
+    "pre_run_cmd": "",
+    "output_parser": {
+      "regex": "(?i)Total\\s+time\\s+for\\s+(?<Benchmark_Type>Container\\s+-\\s+)?Multi-threaded\\s+-\\s+OpenMP:\\s+(?<Timing_ns>\\d+)\\s+ns.*?Number\\s+of\\s+threads:\\s+(?<Threads>\\d+)",
+      "columns": ["Benchmark_Type", "Threads", "Timing_ns"],
+      "map": {
+        "Benchmark_Type": {
+          "Container - ": "Containerized",
+          "Container -": "Containerized",
+          "__UNDEF__": "Non-Containerized"
+        }
+      }
+    },
+    "dry_run": 0
+  }
+}
