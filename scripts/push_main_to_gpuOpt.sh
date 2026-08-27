@@ -24,16 +24,7 @@ EXACT_PATHS=(
   benchmark/openmp_bit_container.c
   tests/test_bit.c
   tests/test_offload.c
-  scripts/benchmark_config_cpu.json
-  scripts/cpu_param_sweep.pl
-  scripts/cpu_profiling_analytics.R
-  scripts/faiss_multigpu_benchmark_nocpu.py
-  scripts/faiss_multigpu_benchmark.py
   scripts/generate_bug_report.sh
-  scripts/gpu_param_sweep.pl
-  scripts/plot_performance.R
-  scripts/run_numa_sweeps.sh
-  scripts/sweep_cpu_tuning.pl
 )
 
 # Directories whose complete tracked file trees, including subdirectories,
