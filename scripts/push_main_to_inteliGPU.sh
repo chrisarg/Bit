@@ -7,11 +7,12 @@ CURRENT_BRANCH="$(git branch --show-current)"
 
 cd "$(git rev-parse --show-toplevel)"
 
-FILES=(
+# Individual required files. Each path is used exactly as listed, and the
+# script aborts before switching branches if any path is missing from main.
+EXACT_PATHS=(
   Makefile
   README.md
   include/bit.h
-  include/simde/*
   src/bit_internal.h
   src/bit.c
   src/bit_gpu.c
@@ -23,7 +24,26 @@ FILES=(
   benchmark/openmp_bit_container.c
   tests/test_bit.c
   tests/test_offload.c
+  scripts/benchmark_config_cpu.json
+  scripts/cpu_param_sweep.pl
+  scripts/cpu_profiling_analytics.R
+  scripts/faiss_multigpu_benchmark_nocpu.py
+  scripts/faiss_multigpu_benchmark.py
+  scripts/generate_bug_report.sh
+  scripts/gpu_param_sweep.pl
+  scripts/plot_performance.R
+  scripts/run_numa_sweeps.sh
+  scripts/sweep_cpu_tuning.pl
+
 )
+
+# Directories whose complete tracked file trees, including subdirectories,
+# are synchronized. This is appropriate for header trees that move as a unit.
+RECURSIVE_DIRS=(include)
+
+# Directories that contribute only tracked files immediately beneath them;
+# nested files are filtered out when SYNC_PATHS is built below.
+DIRECT_FILE_DIRS=()
 
 if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
   echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
@@ -46,9 +66,8 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-CHECKOUT_PATHS=(include "${FILES[@]}")
 missing=()
-for path in "${CHECKOUT_PATHS[@]}"; do
+for path in "${EXACT_PATHS[@]}"; do
   if ! git cat-file -e "${BRANCH_SRC}:${path}" 2>/dev/null; then
     missing+=("$path")
   fi
@@ -60,13 +79,30 @@ if (( ${#missing[@]} > 0 )); then
   exit 1
 fi
 
-mapfile -t SYNC_PATHS < <(
-  git ls-tree -r --name-only "$BRANCH_SRC" -- "${CHECKOUT_PATHS[@]}"
-)
-if (( ${#SYNC_PATHS[@]} == 0 )); then
-  echo "ERROR: the allowlist contains no tracked files in ${BRANCH_SRC}."
-  exit 1
-fi
+SYNC_PATHS=("${EXACT_PATHS[@]}")
+for directory in "${RECURSIVE_DIRS[@]}"; do
+  mapfile -t paths < <(git ls-tree -r --name-only "$BRANCH_SRC" -- "$directory")
+  if (( ${#paths[@]} == 0 )); then
+    echo "ERROR: no tracked source files found under ${directory}."
+    exit 1
+  fi
+  SYNC_PATHS+=("${paths[@]}")
+done
+
+for directory in "${DIRECT_FILE_DIRS[@]}"; do
+  paths=()
+  while IFS= read -r path; do
+    relative_path="${path#"${directory}/"}"
+    if [[ "$relative_path" != */* ]]; then
+      paths+=("$path")
+    fi
+  done < <(git ls-tree -r --name-only "$BRANCH_SRC" -- "$directory")
+  if (( ${#paths[@]} == 0 )); then
+    echo "ERROR: no tracked source files found directly under ${directory}."
+    exit 1
+  fi
+  SYNC_PATHS+=("${paths[@]}")
+done
 
 restore_branch() {
   status=$?
