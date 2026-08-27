@@ -3,11 +3,13 @@ set -euo pipefail
 
 BRANCH_SRC="gpuOpt"
 BRANCH_DST="main"
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-FILES=(
+CURRENT_BRANCH="$(git branch --show-current)"
+
+cd "$(git rev-parse --show-toplevel)"
+
+EXACT_PATHS=(
   Makefile
   README.md
-  src/*
   benchmark/benchmark.c
   benchmark/openmp_bit_helpers.c
   benchmark/openmp_bit_helpers.h
@@ -16,8 +18,8 @@ FILES=(
   tests/test_bit.c
   tests/test_offload.c
 )
-
-cd "$(git rev-parse --show-toplevel)"
+RECURSIVE_DIRS=(include)
+DIRECT_FILE_DIRS=(src scripts)
 
 if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
   echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
@@ -40,9 +42,8 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-CHECKOUT_PATHS=(include "${FILES[@]}")
 missing=()
-for path in "${CHECKOUT_PATHS[@]}"; do
+for path in "${EXACT_PATHS[@]}"; do
   if ! git cat-file -e "${BRANCH_SRC}:${path}" 2>/dev/null; then
     missing+=("$path")
   fi
@@ -54,18 +55,54 @@ if (( ${#missing[@]} > 0 )); then
   exit 1
 fi
 
+SYNC_PATHS=("${EXACT_PATHS[@]}")
+for directory in "${RECURSIVE_DIRS[@]}"; do
+  mapfile -t paths < <(git ls-tree -r --name-only "$BRANCH_SRC" -- "$directory")
+  if (( ${#paths[@]} == 0 )); then
+    echo "ERROR: no tracked source files found under ${directory}."
+    exit 1
+  fi
+  SYNC_PATHS+=("${paths[@]}")
+done
+
+for directory in "${DIRECT_FILE_DIRS[@]}"; do
+  paths=()
+  while IFS= read -r path; do
+    relative_path="${path#"${directory}/"}"
+    if [[ "$relative_path" != */* ]]; then
+      paths+=("$path")
+    fi
+  done < <(git ls-tree -r --name-only "$BRANCH_SRC" -- "$directory")
+  if (( ${#paths[@]} == 0 )); then
+    echo "ERROR: no tracked source files found directly under ${directory}."
+    exit 1
+  fi
+  SYNC_PATHS+=("${paths[@]}")
+done
+
 restore_branch() {
+  status=$?
+
+  if (( status != 0 )) &&
+     [[ "$(git branch --show-current)" == "$BRANCH_DST" ]] &&
+     [[ -n "${DESTINATION_START:-}" ]] &&
+     [[ "$(git rev-parse HEAD)" == "$DESTINATION_START" ]]; then
+    git restore --source=HEAD --staged --worktree -- "${SYNC_PATHS[@]}" \
+      >/dev/null 2>&1 || true
+  fi
+
   git switch "$CURRENT_BRANCH" >/dev/null 2>&1 || true
+  return "$status"
 }
 trap restore_branch EXIT
 
 git fetch origin "$BRANCH_DST"
 git switch "$BRANCH_DST"
 git pull --ff-only origin "$BRANCH_DST"
+DESTINATION_START="$(git rev-parse HEAD)"
 
-git checkout "$BRANCH_SRC" -- "${CHECKOUT_PATHS[@]}"
+git restore --source="$BRANCH_SRC" --staged --worktree -- "${SYNC_PATHS[@]}"
 
-git add -- "${CHECKOUT_PATHS[@]}"
 if git diff --cached --quiet; then
   echo "No selected-file changes to commit."
 else

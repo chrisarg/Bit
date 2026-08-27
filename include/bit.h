@@ -1,6 +1,6 @@
 /*
     Provides an interface to
-    1) a BIT_T type and a set of functions to manipulate it.
+    1) a Bit_T type and a set of functions to manipulate it.
     2) Packed containers of Bit_T (Bit_DB_T) that can be used to
        store multiple bitsets in a contiguous memory region.
 
@@ -14,16 +14,14 @@
 
     This is not a general bitset library, i.e. one cannot grow the bitset.
     Bitsets are also limited in capacity to int (at the time of the
-    writting the same size as uint32_t). If one needs larger bitsets, then
+    writing the same size as uint32_t). If one needs larger bitsets, then
     they should probably be using roaring or compressed bitsets.
 
     Functions that create, free or load an externally created bitset into a T.
     * Bit_new           : Create a new bitset with a fixed capacity/length
-    * Bit_free          : Free the bitset and zeros the pointer for safe
-                          deallocation (if the space for the bit was allocated
-                          by the library). Returns the address of the storage
-                          if allocated externally, or NULL if the
-                          bitset was allocated by the library.
+    * Bit_free          : Free the bitset wrapper and set its handle to NULL.
+                Returns borrowed storage when loaded externally, or
+                NULL when storage was allocated by the library.
     * Bit_load          : Load an externally allocated bitset into a (new) T.
                           The buffer must be large enough to hold the bitset (so
                           please ensure that you use Bit_buffer_size(length) to
@@ -31,9 +29,9 @@
                           The library expects the buffer size to be a multiple
                           of uint64_t, so if the length is not a multiple of
                           64 bits, the buffer should be padded to the next
-                          multiple of 8 bytes. If you allocate a shorter buffer,
-                          contratulations, you just inserted an overrun buffer
-                          bug in your application.
+                          multiple of 8 bytes. A shorter buffer causes an
+                          out-of-bounds access and is a security bug in the
+                          calling application.
     * Bit_extract       : Extract the bitset from a T into an externally
                           allocated buffer. Returns the number of bytes written.
 
@@ -67,16 +65,15 @@
 
     Functions that operate on sets of bitsets (and create a new one):
     * Bit_inter         : Perform an intersection operation with another bitset
-    * Bit_diff          : Perform a difference operation, logical AND
-    * Bit_minus         : Perform a symmetric difference operation, ie the XOR
+    * Bit_diff          : Perform symmetric difference, logical XOR
+    * Bit_minus         : Perform left set difference, logical AND-NOT
     * Bit_union         : Perform a union operation with another bitset
 
 
     Functions that perform counts on set operations of two bitsets:
-    * Bit_diff_count    : Count the number of bits set in the difference
+    * Bit_diff_count    : Count bits in the symmetric difference
     * Bit_inter_count   : Count the number of bits set in the intersection
-    * Bit_minus_count   : Count the number of bits set in the symmetric
-                          difference
+    * Bit_minus_count   : Count bits in the left set difference
     * Bit_union_count   : Count the number of bits set in the union
 
     ===========================================================================
@@ -100,24 +97,19 @@
     * BitDB_get_from    : Returns a bitset from the bytes at a given index.
     * BitDB_put_at      : Set a bit in the bitset at a given index in the packed
                           container to the contents of another bitset.
-    * BitDB_extract_from: Extract a bitset from the packed container at a given
-   index into an externally allocated buffer. Returns the number of bytes
-   written. The buffer must be large enough to hold the bitset (so please ensure
-   that you use Bit_buffer_size(BitDB_length(set)) to obtain the size of the
-   buffer you need if you don't already know this information).
+    * BitDB_extract_from: Copy a bitset from the packed container at a given
+                index into an externally allocated buffer. The buffer
+                must be at least
+                Bit_buffer_size(BitDB_length(set)) bytes.
 
     * BitDB_replace_at   : Replace a bitset in the packed container at a given
    index with the contents of a buffer.
-    * BitDB_insert_at    : Insert a new bitset into the packed container at
-    *                     a given index.
-
-
     * BitDB_SETOP_count : Count the number of bits set in the SETOP
                           of all the bitsets in the container with all the
                           bitsets in another container. This is a macro that
                           expands to a function that takes two containers,
                           a structure for various control options and a target
-                          that is their the token cpu or gpu. The actual
+                          that is either the token cpu or gpu. The actual
                           functions are BitDB_inter_count_cpu and
                           BitDB_inter_count_gpu.
 
@@ -127,26 +119,24 @@
                           expands to a function that takes two containers,
                           a structure for various control options and a target
                           pre-allocated buffer to store the results and a target
-                          that is their the token cpu or gpu. The actual
+                          that is either the token cpu or gpu. The actual
                           functions are BitDB_inter_count_store_cpu and
                           BitDB_inter_count_store_gpu.
 
     > SETOP can be one of the following:
         1. inter = intersection
         2. union = union
-        3. diff = difference
-        4. minus = symmetric difference
+        3. diff = symmetric difference (XOR)
+        4. minus = left set difference (AND-NOT)
 
-    DANGER: While the load functions will write the appropriate number of bytes
-    to the buffer, the caller is responsible for ensuring that the buffer is
-    large enough to hold the results. Extreme (sprintf level) FAFO may obtain
-    in the form of security bugs and buffer overflows if the user fails to
-   ensure the buffer is adequately sized.
+    DANGER: The library cannot determine the allocation size behind a raw
+    pointer. The caller must provide sufficiently large buffers to load,
+    extract, replace, or store results; undersized buffers cause out-of-bounds
+    access and security bugs.
 
-   NOTE that the macro functions are not callable if one is to compile this
-   into a dynamic library, as the macro expansion will not be visible. In this
-   case one has to call the functions directly, e.g. BitDB_inter_count_cpu
-   or BitDB_inter_count_store_cpu.
+  The target-selecting macros are expanded in C source that includes this
+  header. Call the cpu/gpu function forms directly from foreign-function
+  interfaces or other callers that cannot use C preprocessor macros.
 */
 
 #ifndef BIT_INCLUDED
@@ -172,25 +162,23 @@ typedef struct {
   enum {
     TRANSPOSED_TEAM_PARALLEL_SIMD = 0, // transpose + team parallel + SIMD
     SHARED_TILE_ILP = 1,               // Shared tile + Instruction level parallelism
-  } algorithm; // algorithm to use for GPU set operations
+  } algorithm; // reserved; current library dispatch does not read this field
 } SETOP_COUNT_OPTS;
 
 /*
     Functions that create, free and obtain the properties of the bitset. Note
     the following error checking
-    * Bit_new           : Checked runtime error if length is less than 0 or
-                          greater than INT_MAX.L.
-    * Bit_free          : It is a checked runtime error to try to free a bitset
-                          that was not allocated by the library.
-    * Bit_load          : Checked runtime error if length is less than 0 or
-                          greater than INT_MAX. Also checks if buffer is NULL
+    * Bit_new           : Assertion failure if length is nonpositive or not
+                less than INT_MAX.
+    * Bit_free          : Accepts library-allocated and externally loaded
+                bitsets. It returns borrowed storage and sets the
+                bitset handle to NULL.
+    * Bit_load          : Assertion failure if length is nonpositive or not
+                less than INT_MAX. Also checks if buffer is NULL.
                           Cannot possibly check if the buffer is padded to
                           the next multiple of the size of a uint64_t.
-    * Bit_buffer_size   : Checked runtime error if length is less than 0 or
-                          greater than INT_MAX.
-    * Bit_length        : Obtains the length (capacity of the bitset) in bits.
-                          It is a checked runtime error to a non-positive length
-                          or a length greater than INT_MAX.
+    * Bit_buffer_size   : Assertion failure if length is nonpositive.
+    * Bit_length        : Obtains the stored length (capacity) in bits.
     * Bit_count         : Counts the number of set bits set in the bitset.
 
     It is a checked runtime error to pass a NULL set to any of these routines.
@@ -259,9 +247,9 @@ extern int Bit_lt(T s, T t);  // compare two bitsets for less than
 
 
 */
-extern T Bit_diff(T s, T t);  // difference of two bitsets
+extern T Bit_diff(T s, T t);  // symmetric difference (XOR)
 extern T Bit_inter(T s, T t); // intersection of two bitsets
-extern T Bit_minus(T s, T t); // symmetric difference of two bitsets
+extern T Bit_minus(T s, T t); // left set difference (AND-NOT)
 extern T Bit_union(T s, T t); // union of two bitsets
 
 /*
@@ -272,18 +260,21 @@ extern T Bit_union(T s, T t); // union of two bitsets
     If one of the bitsets is NULL, then the corresponding operation is
     interpreted as against the empty set. In particularBit_
 
-        > Bit_diff_count(s,NULL) or Bit_diff_count(NULL, t) returns t or s
-        > Bit_diff_count(s,s) returns (a copy of of) the empty set
-        > Bit_inter_count(s,NULL) or Bit_inter_count(NULL, t) returns the empty
-   set > Bit_minus_count(NULL,s) or Bit_minus_count(s,s) returns 0 >
-   Bit_minus_count(s,NULL) returns Bit_count(s) > Bit_union_count(s,NULL) or
-   Bit_union_count(NULL, t) > Bit_union_count(s,s) returns a copy of s
+        > Bit_diff_count(s,NULL) returns Bit_count(s)
+        > Bit_diff_count(NULL,t) returns Bit_count(t)
+        > Bit_diff_count(s,s) returns 0
+        > Bit_inter_count(s,NULL) or Bit_inter_count(NULL,t) returns 0
+        > Bit_minus_count(NULL,s) or Bit_minus_count(s,s) returns 0
+        > Bit_minus_count(s,NULL) returns Bit_count(s)
+        > Bit_union_count(s,NULL) returns Bit_count(s)
+        > Bit_union_count(NULL,t) returns Bit_count(t)
+        > Bit_union_count(s,s) returns Bit_count(s)
 
 
 */
-extern int Bit_diff_count(T s, T t);  // difference of two bitsets
+extern int Bit_diff_count(T s, T t);  // symmetric-difference count
 extern int Bit_inter_count(T s, T t); // intersection of two bitsets
-extern int Bit_minus_count(T s, T t); // symmetric difference of two bitsets
+extern int Bit_minus_count(T s, T t); // left-set-difference count
 extern int Bit_union_count(T s, T t); // union of two bitsets
 
 /*
@@ -292,15 +283,14 @@ extern int Bit_union_count(T s, T t); // union of two bitsets
     Functions that create, free, load from an external buffer and obtain the
    properties of a packed  container of bitsets (a Bit Database, Bit_DB). Note
    the following error checking
-    * BitDB_new          : Checked runtime error if length or size is less
-                          than 0 or greater than INT_MAX.L.
-    * BitDB_free         : It is a checked runtime error to try to free a Bit_DB
-                          that was not allocated by the library.
-    * BitDB_load         : Checked runtime error if length or size is less
-                          than 0 or greater than INT_MAX. Also checks if buffer
-                          is NULL
-    * BitDB_length       : It is a checked runtime error to a non-positive
-   length or a length greater than INT_MAX.
+    * BitDB_new          : Assertion failure if length or size is nonpositive
+                 or not less than INT_MAX.
+    * BitDB_free         : Accepts library-allocated and externally loaded
+                 containers. It returns borrowed storage and sets the
+                 container handle to NULL.
+    * BitDB_load         : Uses the same length/size checks and requires a
+                 non-NULL buffer.
+    * BitDB_length       : Returns the stored bitset length.
     * BitDB_nelem        : See footnote
     * BitDB_count_at     : See footnote; it is also a checked runtime error
                           to pass an index that is less than 0 or greater than
@@ -350,33 +340,33 @@ extern void BitDB_clear_at(T_DB set, int index);
     the two containers have different lengths. Note that this is
     contrast to the same functions for Bit_T which allow for one or more
     of the containers to be NULL.
-    2. For the load functions, it is a checked runtime error to pass
-    a NULL buffer.
+     2. Store functions require a non-NULL result buffer large enough for
+       BitDB_nelem(bit) * BitDB_nelem(bits) integers.
 */
 
 #define BitDB_inter_count(bit, bits, opts, TARGET)                             \
   BitDB_inter_count_##TARGET((bit), (bits), (opts))
 
-#define BitDB_inter_count_store(bit, bits, opts, results, TARGET)              \
-  BitDB_inter_count_store_##TARGET((bit), (bits), (opts), (results))
+#define BitDB_inter_count_store(bit, bits, results, opts, TARGET)              \
+  BitDB_inter_count_store_##TARGET((bit), (bits), (results), (opts))
 
 #define BitDB_union_count(bit, bits, opts, TARGET)                             \
   BitDB_union_count_##TARGET((bit), (bits), (opts))
 
-#define BitDB_union_count_store(bit, bits, opts, results, TARGET)              \
-  BitDB_union_count_store_##TARGET((bit), (bits), (opts), (results))
+#define BitDB_union_count_store(bit, bits, results, opts, TARGET)              \
+  BitDB_union_count_store_##TARGET((bit), (bits), (results), (opts))
 
 #define BitDB_diff_count(bit, bits, opts, TARGET)                              \
   BitDB_diff_count_##TARGET((bit), (bits), (opts))
 
-#define BitDB_diff_count_store(bit, bits, opts, results, TARGET)               \
-  BitDB_diff_count_store_##TARGET((bit), (bits), (opts), (results))
+#define BitDB_diff_count_store(bit, bits, results, opts, TARGET)               \
+  BitDB_diff_count_store_##TARGET((bit), (bits), (results), (opts))
 
 #define BitDB_minus_count(bit, bits, opts, TARGET)                             \
   BitDB_minus_count_##TARGET((bit), (bits), (opts))
 
-#define BitDB_minus_count_store(bit, bits, opts, results, TARGET)              \
-  BitDB_minus_count_store_##TARGET((bit), (bits), (opts), (results))
+#define BitDB_minus_count_store(bit, bits, results, opts, TARGET)              \
+  BitDB_minus_count_store_##TARGET((bit), (bits), (results), (opts))
 
 extern void BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, int *buffer,
                                         SETOP_COUNT_OPTS opts);

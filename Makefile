@@ -305,6 +305,7 @@ BUG_REPORT ?= 0
 APPLY_LTO ?= 1
 LIBPOPCNT ?= 1
 USE_BUILTIN_POPCOUNT ?= 0
+CLANG_RUNTIME_RPATH ?= 1
 
 ifeq ($(IS_CLEAN_GOAL),)
   $(foreach var,$(TILE_VARS), \
@@ -318,6 +319,7 @@ ifeq ($(IS_CLEAN_GOAL),)
   VALID_APPLY_LTO            := $(call validate_boolean,APPLY_LTO,1)
   VALID_LIBPOPCNT            := $(call validate_boolean,LIBPOPCNT,1)
   VALID_USE_BUILTIN_POPCOUNT := $(call validate_boolean,USE_BUILTIN_POPCOUNT,0)
+  VALID_CLANG_RUNTIME_RPATH  := $(call validate_boolean,CLANG_RUNTIME_RPATH,1)
 
 endif
 
@@ -367,6 +369,25 @@ ifeq ($(VALID_BUG_REPORT),1)
   endif
 endif
 
+# `USE_BUILTIN_POPCOUNT` must be folded into DEFINES *before* CFLAGS/
+# HOST_ONLY_CFLAGS snapshot it below (`:=` is immediate/simply-expanded
+# assignment in Make - it captures DEFINES' value at this exact line, so
+# any `DEFINES +=` appended AFTER this point would silently never reach
+# the compiler). This was a real bug: USE_BUILTIN_POPCOUNT=1 had zero
+# effect on any build - `openmp_bit_nocpu`'s own runtime self-report
+# ("Using OpenMP GPU popcount: WWG") proved the macro was never defined,
+# even though the Makefile's own $(info ...) message claimed it was - that
+# message only reflects Make's recognition of intent, not what actually
+# reached the compiler.
+ifeq ($(IS_CLEAN_GOAL),)
+  ifeq ($(VALID_USE_BUILTIN_POPCOUNT),1)
+    $(info Using built-in popcount for GPU kernels)
+    DEFINES += -DUSE_BUILTIN_POPCOUNT
+  else
+    $(info Using custom popcount implementation for GPU kernels)
+  endif
+endif
+
 CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) $(REPORT_CFLAGS)
 HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS)
 
@@ -377,6 +398,102 @@ ifeq ($(VALID_APPLY_LTO),1)
     $(info Link Time Optimization (LTO) is enabled for compiler $(CC))
     CFLAGS += -flto
     HOST_ONLY_CFLAGS += -flto
+  endif
+endif
+
+# ============================================================================
+# clang toolchain-consistency fixes
+# ----------------------------------------------------------------------------
+# Systems with multiple LLVM versions installed side by side (e.g. llvm-14,
+# llvm-18, llvm-19 packages coexisting, common on shared HPC/dev
+# workstations that also have ROCm/oneAPI environment modules) can cause
+# clang's build-time tools and run-time library resolution to silently pick
+# a DIFFERENT LLVM version than the one that is actually compiling the code.
+# Two distinct failure modes of this were diagnosed empirically in this repo:
+#
+#   1. BUILD-TIME: with LTO enabled, ld.bfd/gold and ar resolve their LTO
+#      bitcode-reading plugin (LLVMgold.so) via their own default search
+#      path, independent of which clang produced the bitcode. If an
+#      unrelated/older LLVMgold.so is found first, linking fails with
+#      "Opaque pointers are only supported in -opaque-pointers mode"
+#      errors, or - worse - `ar` silently produces a static archive with an
+#      EMPTY symbol table (no error at all).
+#      Fixed below (still gated by APPLY_LTO, since it only matters for LTO
+#      bitcode) by preferring a version-matched lld/llvm-ar.
+#
+#   2. RUN-TIME: clang does not embed an rpath to its own runtime lib
+#      directory (libomp.so.5, libomptarget.so, libomptarget.rtl.*.so) by
+#      default - only a plain RUNPATH for the build dir gets added (see
+#      BUILD_RPATH_FLAG below), and RUNPATH is searched AFTER
+#      LD_LIBRARY_PATH. So if the caller's shell has an LD_LIBRARY_PATH that
+#      happens to list a *different* LLVM version's lib dir earlier (e.g.
+#      exported by an Intel oneAPI or ROCm environment script), the process
+#      silently loads a MISMATCHED-version OpenMP runtime at run time even
+#      though it was compiled against a different clang version. This was
+#      confirmed to cause a hard deadlock: a clang-18-compiled binary
+#      loading LLVM 19's libomp.so.5/libomptarget.so hung at 100% CPU
+#      *before main() even ran*, stuck inside libomptarget's OMPT connector
+#      (ompt_libomp_connect -> __kmp_serial_initialize -> bootstrap lock
+#      acquisition), because that connector runs from a `.init_array`
+#      constructor that clang emits into any shared library/executable
+#      containing OpenMP-offload code. This affected even CPU-only/no-GPU
+#      benchmarks, since they still link against the same libbit.so/.a that
+#      was built with GPU-offload code compiled in.
+#      Fixed below (independent of APPLY_LTO - this matters whether or not
+#      LTO is used) by embedding an *old-style* RPATH (via
+#      -Wl,--disable-new-dtags) to clang's own matching runtime lib
+#      directory. Old-style RPATH, unlike RUNPATH, is searched BEFORE
+#      LD_LIBRARY_PATH, so the matching runtime is always found regardless
+#      of the caller's shell environment.
+#
+# Both fixes apply automatically to every target in Makefile_bench.mak too,
+# since that file does `include Makefile` and only appends to
+# CFLAGS/HOST_ONLY_CFLAGS rather than overriding them.
+# ============================================================================
+
+ifeq ($(COMPILER_ID),clang)
+  CLANG_LTO_VER := $(shell $(CC) --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d. -f1)
+endif
+
+# --- Fix 1: version-matched lld/llvm-ar for LTO bitcode (see above) --------
+ifeq ($(VALID_APPLY_LTO),1)
+  ifeq ($(COMPILER_ID),clang)
+    ifeq ($(findstring -fuse-ld=,$(DEFINES)),)
+      LLD_CANDIDATE := $(firstword $(foreach c,ld.lld-$(CLANG_LTO_VER) ld.lld lld,\
+        $(shell which $(c) 2>/dev/null)))
+      ifneq ($(strip $(LLD_CANDIDATE)),)
+        $(info Using $(LLD_CANDIDATE) for LTO linking (avoids ld.bfd/gold plugin version drift))
+        CFLAGS += -fuse-ld=lld
+        HOST_ONLY_CFLAGS += -fuse-ld=lld
+      endif
+    endif
+
+    ifeq ($(origin AR),default)
+      AR_CANDIDATE := $(firstword $(foreach c,llvm-ar-$(CLANG_LTO_VER) llvm-ar,\
+        $(shell which $(c) 2>/dev/null)))
+      ifneq ($(strip $(AR_CANDIDATE)),)
+        $(info Using $(AR_CANDIDATE) for static archive creation (LTO-aware, version-matched))
+        AR := $(AR_CANDIDATE)
+      endif
+    endif
+  endif
+endif
+
+# --- Fix 2: version-matched OpenMP runtime rpath (see above) ---------------
+# Disable with CLANG_RUNTIME_RPATH=0 if you deliberately want to test
+# against a different OpenMP runtime via LD_LIBRARY_PATH.
+# `-print-file-name=libomp.so` does NOT search clang's runtime lib
+# directory (it only echoes the name back unresolved), so instead derive
+# the lib dir from `-print-resource-dir`, which always reports
+# <libdir>/clang/<version>.
+ifeq ($(VALID_CLANG_RUNTIME_RPATH),1)
+  ifeq ($(COMPILER_ID),clang)
+    CLANG_OMP_LIBDIR := $(shell $(CC) -print-resource-dir 2>/dev/null | sed -E 's#/clang/[0-9]+$$##')
+    ifneq ($(filter /%,$(CLANG_OMP_LIBDIR)),)
+      $(info Embedding rpath to $(CLANG_OMP_LIBDIR) for version-matched OpenMP runtime resolution)
+      CFLAGS += -Wl,-rpath,$(CLANG_OMP_LIBDIR) -Wl,--disable-new-dtags
+      HOST_ONLY_CFLAGS += -Wl,-rpath,$(CLANG_OMP_LIBDIR) -Wl,--disable-new-dtags
+    endif
   endif
 endif
 
@@ -424,13 +541,16 @@ BENCH_EXEC := $(BUILD_DIR)/benchmark
 BENCH_OMP_SRC := benchmark/openmp_bit.c
 BENCH_OMP_OBJ := $(BUILD_DIR)/openmp_bit.o
 BENCH_OMP_EXEC := $(BUILD_DIR)/openmp_bit
-BENCH_OMP_GPU_SRC := benchmark/openmp_bit_nogpu.c
-BENCH_OMP_GPU_OBJ := $(BUILD_DIR)/openmp_bit_nogpu.o
-BENCH_OMP_GPU_EXEC := $(BUILD_DIR)/openmp_bit_nogpu
+BENCH_OMP_NOGPU_SRC := benchmark/openmp_bit_nogpu.c
+BENCH_OMP_NOGPU_OBJ := $(BUILD_DIR)/openmp_bit_nogpu.o
+BENCH_OMP_NOGPU_EXEC := $(BUILD_DIR)/openmp_bit_nogpu
 BENCH_CONTAINER_SRC := benchmark/openmp_bit_container.c
 BENCH_CONTAINER_OBJ := $(BUILD_DIR)/openmp_bit_container.o
 BENCH_CONTAINER_EXEC := $(BUILD_DIR)/openmp_bit_container
 OPENMP_BIT_HELPERS_OBJ := $(BUILD_DIR)/openmp_bit_helpers.o
+BENCH_SWEEP_SRC  := benchmark/cpu_param_sweep.c
+BENCH_SWEEP_OBJ  := $(BUILD_DIR)/cpu_param_sweep.o
+BENCH_SWEEP_EXEC := $(BUILD_DIR)/cpu_param_sweep
 
 
 # use libpopcnt integration by default, but allow user to disable it 
@@ -445,14 +565,6 @@ ifeq ($(IS_CLEAN_GOAL),)
     LIBPOPCNT_VAL := 0
   endif
   HOST_ONLY_CFLAGS += -DUSE_LIBPOPCNT=$(LIBPOPCNT_VAL)
-
-
-   ifeq ($(VALID_USE_BUILTIN_POPCOUNT),1)
-    $(info Using built-in popcount for GPU kernels)
-    DEFINES += -DUSE_BUILTIN_POPCOUNT
-  else
-    $(info Using custom popcount implementation for GPU kernels)
-  endif
 
   $(info setop buffer size used: $(BUFFER_SIZE))
   $(info bitvector tile used: $(BITVECTOR_TILE))
@@ -510,7 +622,7 @@ $(TARGET): $(OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -shared -o $@ $^ $(BUILD_RPATH_FLAG)
 
 $(TARGET_STATIC): $(OBJ)
-	ar rcs $@ $^
+	$(AR) rcs $@ $^
 
 test: $(TARGET) $(TEST_OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) -L$(BUILD_DIR) \
@@ -525,15 +637,15 @@ bench: $(TARGET) $(BENCH_OBJ) bench_omp
     -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lrt
 
 ifeq ($(filter NONE,$(GPU_LIST)),NONE)
-bench_omp: $(BENCH_OMP_GPU_EXEC) $(BENCH_CONTAINER_EXEC)
+bench_omp: $(BENCH_OMP_NOGPU_EXEC) $(BENCH_CONTAINER_EXEC) $(BENCH_SWEEP_EXEC)
 else
-bench_omp: $(BENCH_OMP_EXEC) $(BENCH_OMP_GPU_EXEC) $(BENCH_CONTAINER_EXEC)
+bench_omp: $(BENCH_OMP_EXEC) $(BENCH_OMP_NOGPU_EXEC) $(BENCH_CONTAINER_EXEC)
 endif
 
 $(BENCH_OMP_OBJ): $(BENCH_OMP_SRC) $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
-$(BENCH_OMP_GPU_OBJ): $(BENCH_OMP_GPU_SRC) $(CONFIG_STAMP)
+$(BENCH_OMP_NOGPU_OBJ): $(BENCH_OMP_NOGPU_SRC) $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
 $(BENCH_CONTAINER_OBJ): $(BENCH_CONTAINER_SRC) $(CONFIG_STAMP)
@@ -546,13 +658,20 @@ $(BENCH_OMP_EXEC): $(BENCH_OMP_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
 	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_OBJ)  \
     $(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
-$(BENCH_OMP_GPU_EXEC): $(BENCH_OMP_GPU_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_GPU_OBJ) \
+$(BENCH_OMP_NOGPU_EXEC): $(BENCH_OMP_NOGPU_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_NOGPU_OBJ) \
   $(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
 $(BENCH_CONTAINER_EXEC): $(BENCH_CONTAINER_OBJ) $(TARGET)
 	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_CONTAINER_OBJ) \
   -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
+
+$(BENCH_SWEEP_OBJ): $(BENCH_SWEEP_SRC) $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
+$(BENCH_SWEEP_EXEC): $(BENCH_SWEEP_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_SWEEP_OBJ) \
+	$(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
 bug_report:
 	@BUG_GPU_ARCH_TAG := $(subst $(space),-,$(strip $(NVIDIA_ARCH_LIST)        \

@@ -456,6 +456,9 @@ void print_Bit_configuration(void) {
     
     printf("------------------------------------------\n");
     printf(" %-20s : %s\n", "Using LIBPOPCNT",     USE_LIBPOPCNT ? "Yes" : "No");
+#ifdef _OPENMP
+     printf(" %-20s : %d\n", "OpenMP version", _OPENMP);
+#endif
     printf("==========================================\n");
 }
 /* --- End Section 10: PUBLIC API — SINGLE BITSET --- */

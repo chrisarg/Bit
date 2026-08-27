@@ -32,7 +32,9 @@
    SECTION 4: PRIVATE IMPLEMENTATION MACROS
    Reserved for file-local operational macros.
    ========================================================================== */
+
 #define GPU_KERNEL_ALLOC(dev, count) omp_target_alloc((count) * sizeof(uint64_t), (dev))
+
 /* --- End Section 4: PRIVATE IMPLEMENTATION MACROS --- */
 
 /* ==========================================================================
@@ -67,6 +69,7 @@ static void _GPU_transpose_kernel(uint64_t *bits, size_t rows,
    SECTION 8: INTERNAL HELPER FUNCTION DEFINITIONS
    Low-level helpers and device kernels.
    ========================================================================== */
+
 static void _GPU_transpose_kernel(uint64_t *bits, size_t rows,
                                   size_t columns, int device_id) {
     size_t t_elements = rows * columns;
