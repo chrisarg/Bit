@@ -18,6 +18,7 @@ EXACT_PATHS=(
   benchmark/cpu_param_sweep.c
   tests/test_bit.c
   tests/test_offload.c
+  scripts/benchmark_config_cpu.json
 )
 RECURSIVE_DIRS=(include)
 DIRECT_FILE_DIRS=(src scripts)
