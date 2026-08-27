@@ -13,7 +13,6 @@ FILES=(
   benchmark/openmp_bit_helpers.h
   benchmark/openmp_bit.c
   benchmark/openmp_bit_nogpu.c
-  simd/simde_integration.h
   tests/test_bit.c
   tests/test_offload.c
   scripts/*

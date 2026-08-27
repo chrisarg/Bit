@@ -76,7 +76,7 @@ every command documented below exists on every branch.
 | --- | --- | --- |
 | `gpuOpt` | Active GPU/offload, build-system, SIMD, and benchmark work | This checkout. GPU-only and native CUDA/HIP benchmark work is experimental. |
 | `main` | Baseline library development and CPU/NUMA tuning workflow | Currently contains `scripts/sweep_cpu_tuning.pl` and `scripts/run_numa_sweeps.sh`; after the planned sync, it will also host `scripts/cpu_param_sweep.pl` and `scripts/benchmark_config_cpu.json`. |
-| `inteliGPU` | Intel OpenMP-offload integration snapshot | Intel support is experimental and has no native CUDA/HIP benchmark backend. |
+| `inteliGPU` | Intel oneAPI CPU build and validation branch | Build with `CC=icx GPU=NONE`; despite the historical branch name, this branch does not enable GPU offload. |
 
 Identify the checked-out branch, source revision, and working-tree state with:
 
