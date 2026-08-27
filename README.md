@@ -1276,8 +1276,14 @@ commands; they require a clean worktree and should be reviewed before use.
   from `gpuOpt` into `main`, create a commit, and push the destination branch.
   It requires a clean worktree and should be reviewed before use because the
   selected-path list is deliberately maintained by hand.
-- `scripts/push_gpuOpt_to_inteliGPU.sh` updates `inteliGPU` by merging
-  `gpuOpt`; it likewise requires a clean worktree and starts from `gpuOpt`.
+- `scripts/push_gpuOpt_to_inteliGPU.sh` copies the same curated set of paths
+  from `gpuOpt` into `inteliGPU`; it likewise requires a clean worktree and
+  starts from `gpuOpt`.
+
+For both synchronization scripts, `gpuOpt` is authoritative for the selected
+paths: destination changes to those files are overwritten without merge
+conflict resolution. Files outside the selected paths, including
+destination-only files, are left untouched.
 
 The separate [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits)
 repository contains comparative C and Perl bitset/bitmap benchmarks. It is a

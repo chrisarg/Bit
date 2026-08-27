@@ -7,6 +7,20 @@ CURRENT_BRANCH="$(git branch --show-current)"
 
 cd "$(git rev-parse --show-toplevel)"
 
+EXACT_PATHS=(
+  Makefile
+  README.md
+  benchmark/benchmark.c
+  benchmark/openmp_bit_helpers.c
+  benchmark/openmp_bit_helpers.h
+  benchmark/openmp_bit.c
+  benchmark/openmp_bit_nogpu.c
+  tests/test_bit.c
+  tests/test_offload.c
+)
+RECURSIVE_DIRS=(include)
+DIRECT_FILE_DIRS=(src scripts)
+
 if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
   echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
   exit 1
@@ -28,12 +42,53 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
+missing=()
+for path in "${EXACT_PATHS[@]}"; do
+  if ! git cat-file -e "${BRANCH_SRC}:${path}" 2>/dev/null; then
+    missing+=("$path")
+  fi
+done
+
+if (( ${#missing[@]} > 0 )); then
+  echo "ERROR: the following paths are not present in ${BRANCH_SRC}:"
+  printf "  %s\n" "${missing[@]}"
+  exit 1
+fi
+
+SYNC_PATHS=("${EXACT_PATHS[@]}")
+for directory in "${RECURSIVE_DIRS[@]}"; do
+  mapfile -t paths < <(git ls-tree -r --name-only "$BRANCH_SRC" -- "$directory")
+  if (( ${#paths[@]} == 0 )); then
+    echo "ERROR: no tracked source files found under ${directory}."
+    exit 1
+  fi
+  SYNC_PATHS+=("${paths[@]}")
+done
+
+for directory in "${DIRECT_FILE_DIRS[@]}"; do
+  paths=()
+  while IFS= read -r path; do
+    relative_path="${path#"${directory}/"}"
+    if [[ "$relative_path" != */* ]]; then
+      paths+=("$path")
+    fi
+  done < <(git ls-tree -r --name-only "$BRANCH_SRC" -- "$directory")
+  if (( ${#paths[@]} == 0 )); then
+    echo "ERROR: no tracked source files found directly under ${directory}."
+    exit 1
+  fi
+  SYNC_PATHS+=("${paths[@]}")
+done
+
 restore_branch() {
   status=$?
 
-  if git rev-parse --verify --quiet MERGE_HEAD >/dev/null; then
-    echo "Merge failed; aborting it before returning to '$CURRENT_BRANCH'." >&2
-    git merge --abort >/dev/null 2>&1 || true
+  if (( status != 0 )) &&
+     [[ "$(git branch --show-current)" == "$BRANCH_DST" ]] &&
+     [[ -n "${DESTINATION_START:-}" ]] &&
+     [[ "$(git rev-parse HEAD)" == "$DESTINATION_START" ]]; then
+    git restore --source=HEAD --staged --worktree -- "${SYNC_PATHS[@]}" \
+      >/dev/null 2>&1 || true
   fi
 
   git switch "$CURRENT_BRANCH" >/dev/null 2>&1 || true
@@ -44,9 +99,16 @@ trap restore_branch EXIT
 git fetch origin "$BRANCH_DST"
 git switch "$BRANCH_DST"
 git pull --ff-only origin "$BRANCH_DST"
+DESTINATION_START="$(git rev-parse HEAD)"
 
-git merge "$BRANCH_SRC" --no-ff -m "Merge '$BRANCH_SRC' into '$BRANCH_DST'"
-git push origin "$BRANCH_DST"
+git restore --source="$BRANCH_SRC" --staged --worktree -- "${SYNC_PATHS[@]}"
+
+if git diff --cached --quiet; then
+  echo "No selected-file changes to commit."
+else
+  git commit -m "Copy selected gpuOpt files into inteliGPU"
+  git push origin "$BRANCH_DST"
+fi
 
 git switch "$CURRENT_BRANCH"
 echo "Switched back to '$CURRENT_BRANCH'"
