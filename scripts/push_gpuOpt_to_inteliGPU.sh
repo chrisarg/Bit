@@ -15,6 +15,7 @@ EXACT_PATHS=(
   benchmark/openmp_bit_helpers.h
   benchmark/openmp_bit.c
   benchmark/openmp_bit_nogpu.c
+  benchmark/cpu_param_sweep.c
   tests/test_bit.c
   tests/test_offload.c
 )

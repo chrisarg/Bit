@@ -1,0 +1,504 @@
+[2026-08-27 04:29:35] [INFO] Starting Universal Benchmark Engine
+[2026-08-27 04:29:35] [INFO] Run ID: 20260827_042935_1065262 | Node: bioinformatics (a0:af:bd:58:13:9e) | Context: Manual
+[2026-08-27 04:29:35] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=16 BITVECTOR_TILE=512 BUFFER_SIZE=256 OUTER_ROW_NUM=2 OUTER_COL_NUM=4 OUTER_VEC_BLK=4
+[2026-08-27 04:29:36] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration enabled
+setop buffer size used: 256
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:36] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:36] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=16 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=2 OUTER_COL_NUM=2 OUTER_VEC_BLK=2
+[2026-08-27 04:29:36] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:36] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:36] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=16 BITVECTOR_TILE=512 BUFFER_SIZE=512 OUTER_ROW_NUM=2 OUTER_COL_NUM=4 OUTER_VEC_BLK=2
+[2026-08-27 04:29:36] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:36] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:36] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=16 BITVECTOR_TILE=512 BUFFER_SIZE=256 OUTER_ROW_NUM=2 OUTER_COL_NUM=2 OUTER_VEC_BLK=4
+[2026-08-27 04:29:36] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration enabled
+setop buffer size used: 256
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:36] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:36] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=16 BITVECTOR_TILE=512 BUFFER_SIZE=256 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=4
+[2026-08-27 04:29:37] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration disabled
+setop buffer size used: 256
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:37] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:37] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=16 BITVECTOR_TILE=1024 BUFFER_SIZE=256 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=2
+[2026-08-27 04:29:37] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 256
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:37] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:37] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=2 OUTER_COL_NUM=4 OUTER_VEC_BLK=4
+[2026-08-27 04:29:37] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration enabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:37] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:37] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=4
+[2026-08-27 04:29:37] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:37] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:37] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=16 BITVECTOR_TILE=512 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=2
+[2026-08-27 04:29:38] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:38] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:38] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=4
+[2026-08-27 04:29:38] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration enabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:38] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:38] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=512 BUFFER_SIZE=256 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=4
+[2026-08-27 04:29:38] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration disabled
+setop buffer size used: 256
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:38] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:38] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=32 BITVECTOR_TILE=512 BUFFER_SIZE=256 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=2
+[2026-08-27 04:29:38] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration enabled
+setop buffer size used: 256
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:38] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:38] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=2
+[2026-08-27 04:29:39] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration enabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:39] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:39] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=512 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=2
+[2026-08-27 04:29:39] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:39] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:39] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=256 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=2
+[2026-08-27 04:29:39] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 256
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:39] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:39] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=512 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=2
+[2026-08-27 04:29:39] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:39] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:39] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=512 BUFFER_SIZE=256 OUTER_ROW_NUM=2 OUTER_COL_NUM=4 OUTER_VEC_BLK=4
+[2026-08-27 04:29:39] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 256
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:39] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:39] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=16 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=4
+[2026-08-27 04:29:40] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:40] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:40] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=2
+[2026-08-27 04:29:40] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:40] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:40] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=256 OUTER_ROW_NUM=2 OUTER_COL_NUM=4 OUTER_VEC_BLK=4
+[2026-08-27 04:29:40] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration enabled
+setop buffer size used: 256
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:40] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:40] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=16 BITVECTOR_TILE=1024 BUFFER_SIZE=256 OUTER_ROW_NUM=2 OUTER_COL_NUM=4 OUTER_VEC_BLK=4
+[2026-08-27 04:29:40] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration disabled
+setop buffer size used: 256
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:40] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:40] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=2 OUTER_COL_NUM=2 OUTER_VEC_BLK=4
+[2026-08-27 04:29:41] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:41] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:41] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=32 BITVECTOR_TILE=512 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=2
+[2026-08-27 04:29:41] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration enabled
+setop buffer size used: 512
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:41] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:41] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=16 BITVECTOR_TILE=1024 BUFFER_SIZE=256 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=2
+[2026-08-27 04:29:41] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration enabled
+setop buffer size used: 256
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:41] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:41] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=16 BITVECTOR_TILE=512 BUFFER_SIZE=512 OUTER_ROW_NUM=2 OUTER_COL_NUM=4 OUTER_VEC_BLK=4
+[2026-08-27 04:29:41] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:41] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:41] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=16 BITVECTOR_TILE=512 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=2
+[2026-08-27 04:29:41] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration enabled
+setop buffer size used: 512
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:41] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:41] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=2
+[2026-08-27 04:29:42] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:42] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:42] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=2 OUTER_COL_NUM=2 OUTER_VEC_BLK=2
+[2026-08-27 04:29:42] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration enabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:42] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:42] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=16 BITVECTOR_TILE=512 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=4
+[2026-08-27 04:29:42] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration enabled
+setop buffer size used: 512
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:42] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:42] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=32 BITVECTOR_TILE=512 BUFFER_SIZE=512 OUTER_ROW_NUM=2 OUTER_COL_NUM=4 OUTER_VEC_BLK=2
+[2026-08-27 04:29:42] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler clang
+Using /usr/bin/ld.lld-18 for LTO linking (avoids ld.bfd/gold plugin version drift)
+Using /usr/bin/llvm-ar-18 for static archive creation (LTO-aware, version-matched)
+Embedding rpath to /usr/lib/llvm-18/lib for version-matched OpenMP runtime resolution
+libpopcnt integration enabled
+setop buffer size used: 512
+bitvector tile used: 512
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:42] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:42] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=16 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=2
+[2026-08-27 04:29:43] [ERROR] Compilation Exception:
+Build returned non-zero status. at ./cpu_param_sweep.pl line 183.
+
+Output:
+make: Entering directory '/home/chrisarg/software-dev/Bit'
+Active GPU execution targets:  NONE
+Using custom popcount implementation for GPU kernels
+Link Time Optimization (LTO) is enabled for compiler gcc
+libpopcnt integration disabled
+setop buffer size used: 512
+bitvector tile used: 1024
+make: *** No rule to make target 'benchmark/cpu_param_sweep.c', needed by 'build/cpu_param_sweep.o'.  Stop.
+make: Leaving directory '/home/chrisarg/software-dev/Bit'
+[2026-08-27 04:29:43] [WARN] Build failed for configuration. Skipping inner run matrix.
+[2026-08-27 04:29:43] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=gcc OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=1 CPU_TILE=32 BITVECTOR_TILE=1024 BUFFER_SIZE=512 OUTER_ROW_NUM=4 OUTER_COL_NUM=2 OUTER_VEC_BLK=2
