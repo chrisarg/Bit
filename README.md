@@ -74,9 +74,9 @@ every command documented below exists on every branch.
 
 | Branch | Purpose | Notes |
 | --- | --- | --- |
-| `gpuOpt` | Active GPU/offload and benchmark work of various GPU kernels against FAISS| Work with GPU kernels in OpenMP and CUDA/HIP. GPU-only and native CUDA/HIP benchmark work is experimental. |
-| `main` | Baseline library development, SIMD, and benchmark work and CPU/NUMA tuning workflow | Currently contains all benchmarking/tuning and profiling scripts; benchmarks against FAISS are . |
-| `inteliGPU` | Intel oneAPI CPU build and validation branch | Build with `CC=icx GPU=Intel`; tests offloads in integrated Intel GPUs. |
+| `main` | Baseline library, SIMD, CPU tuning, NUMA experiments, and shared benchmark work | Owns the CPU sweep/tuning scripts and the `main`-to-branch synchronization helpers. |
+| `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns the FAISS comparison scripts and the `gpuOpt`-to-branch synchronization helpers. GPU-only and native CUDA/HIP work remains experimental. |
+| `inteliGPU` | Intel oneAPI CPU build and offload validation | Build with `CC=icx GPU=INTEL`. Its `scripts/` directory retains only the shared bug-report helper after branch-specific cleanup. |
 
 Identify the checked-out branch, source revision, and working-tree state with:
 
@@ -858,9 +858,9 @@ from the library's public execution path.
 
 ## Automation Scripts
 
-### CPU Sweep Workflow (planned `main` suite)
+### CPU Sweep Workflow (`main`)
 
-The planned `main` CPU tools are complementary stages of investigation, not
+The `main` CPU tools are complementary stages of investigation, not
 interchangeable benchmark front ends:
 
 | Stage | Tool and benchmark | Configuration | Measurements and artifacts |
@@ -875,9 +875,9 @@ diagnosis, then use the NUMA runner when the question is memory placement on a
 dual-socket host. The stages can be used independently when that is the only
 question being investigated.
 
-This section describes the intended `main` layout after the planned sync. At
-present, the broad runner and its JSON configuration remain in `gpuOpt`; the
-sync will transfer them with compatible benchmark and Makefile support.
+These scripts and their configuration live on `main`. The benchmark sources
+and Makefile targets may also exist on another branch without the coordinating
+scripts being present there.
 
 #### 1. Broad Parameter Discovery: `cpu_param_sweep.pl`
 
@@ -888,7 +888,7 @@ invokes. It requires `--config` and uses
 telemetry, commands, and output parsing.
 
 The checked-in configuration uses paths relative to the `scripts/` directory,
-so run it from there after the planned sync:
+so run it from there:
 
 ```bash
 git switch main
@@ -1235,7 +1235,7 @@ NUMA policy to the tuning script. `perf` access is governed by the host's
 permissions and `kernel.perf_event_paranoid`; use `ELEVATE=always` only where
 permitted by local administration policy.
 
-### Experimental `gpuOpt` GPU Parameter Sweep
+### GPU Parameter Sweep (`main` and `gpuOpt`)
 
 `scripts/gpu_param_sweep.pl` sweeps the experimental native benchmark matrix
 through `Makefile_bench.mak`. It supports `--backend`, `--make-args`,
@@ -1254,36 +1254,84 @@ ROCR_VISIBLE_DEVICES=0 perl ./scripts/gpu_param_sweep.pl \
 Choose the GPU with `--backend`; reserve `--make-args` for compiler,
 architecture, and other Make variables.
 By default, the script writes backend/architecture-labelled CSV and raw log
-files in `benchmark_GPU_params/`. It remains an experimental `gpuOpt` native
-CUDA/HIP workflow, not part of the planned `main` CPU sweep suite.
+files in `benchmark_GPU_params/`. The native CUDA/HIP workflow is experimental,
+is shared by `main` and `gpuOpt`, and is separate from the CPU sweep suite.
 
-### Ancillary Analysis Utilities
+### Script Inventory by Branch
 
-The FAISS Python scripts and R scripts in `scripts/` are research utilities,
-not required parts of the Bit library API or build. They have their own fixed
-workloads and dependencies such as FAISS, NumPy, R, `data.table`, and `ggplot2`.
-Review their source and input/output directories before running them.
+The script trees are intentionally different. This table reflects the current
+branch organization after removing the FAISS utilities from `inteliGPU`.
 
-`scripts/generate_bug_report.sh` is the implementation behind `make bug_report`.
-The branch synchronization scripts are maintenance workflows, not installation
-commands; they require a clean worktree and should be reviewed before use.
+| Script or group | `main` | `gpuOpt` | `inteliGPU` | Purpose |
+| --- | --- | --- | --- | --- |
+| `generate_bug_report.sh` | Yes | Yes | Yes | Backend for `make bug_report`; collects build configuration, diagnostics, preprocessed source, and an optional backtrace. |
+| `cpu_param_sweep.pl` + `benchmark_config_cpu.json` | Yes | No | No | JSON-driven broad CPU build/runtime sweep. |
+| `cpu_profiling_analytics.R` | Yes | No | No | Intended analysis and plotting companion for broad CPU sweep CSV files; see the compatibility note below. |
+| `sweep_cpu_tuning.pl` | Yes | No | No | Focused CPU kernel timing and `perf stat` profiling; writes its own CSV and Markdown reports. |
+| `run_numa_sweeps.sh` | Yes | No | No | Runs four dual-socket scenarios through `sweep_cpu_tuning.pl`. |
+| `gpu_param_sweep.pl` + `plot_performance.R` | Yes | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
+| `faiss_multigpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. |
+| `faiss_multigpu_benchmark_nocpu.py` | No | Yes | No | Similar FAISS GPU comparison without a measured CPU baseline; reports devices relative to GPU 0. |
+| `push_main_to_gpuOpt.sh`, `push_main_to_inteliGPU.sh` | Yes | No | No | Copy curated paths from `main` to the named destination branch. |
+| `push_gpuOpt_to_main.sh`, `push_gpuOpt_to_inteliGPU.sh` | No | Yes | No | Mirror the same selective-copy workflow with `gpuOpt` as the source branch. |
 
-### Script Helpers and Branch Workflows
+The FAISS programs require Python, NumPy, and a FAISS build with GPU support.
+They print fixed-workload timing summaries and do not feed either R script.
 
-- `scripts/generate_bug_report.sh` collects the configuration, build log,
-  preprocessed source, and optional backtrace used by `make bug_report`.
-- `scripts/push_gpuOpt_to_main.sh` is intended to copy a curated set of paths
-  from `gpuOpt` into `main`, create a commit, and push the destination branch.
-  It requires a clean worktree and should be reviewed before use because the
-  selected-path list is deliberately maintained by hand.
-- `scripts/push_gpuOpt_to_inteliGPU.sh` copies the same curated set of paths
-  from `gpuOpt` into `inteliGPU`; it likewise requires a clean worktree and
-  starts from `gpuOpt`.
+### Benchmark Producers and Analytics
 
-For both synchronization scripts, `gpuOpt` is authoritative for the selected
-paths: destination changes to those files are overwritten without merge
-conflict resolution. Files outside the selected paths, including
-destination-only files, are left untouched.
+The script names suggest several pairings, but the file formats decide which
+ones work end to end:
+
+- **GPU sweep and plot:** `gpu_param_sweep.pl` writes architecture-labelled
+  CSV files under `benchmark_GPU_params/`. `plot_performance.R` reads those
+  files using the same `TILE_J`, `ILP`, workload, timing-type, and throughput
+  columns. This is the working Perl-to-R pair.
+- **Broad CPU sweep and analytics:** `cpu_param_sweep.pl` and
+  `cpu_profiling_analytics.R` are intended companions, but the current R script
+  still expects an older contract. It searches for `cpu_sweep_*.csv`, while the
+  producer uses a processor/host/run name, and it expects columns such as
+  `OUTER_ROW_NUM`, `Bitset_Size`, and `Compiler` where the producer writes
+  `outer_row_num`, `num_bits`, and `cc`. Update the R reader or normalize the
+  producer schema before treating this pair as runnable.
+- **Focused CPU tuning:** `sweep_cpu_tuning.pl` is self-contained. It writes
+  `summary-<run-tag>.csv`, `llm-summary-<run-tag>.md`, and per-configuration
+  build/benchmark/perf files under `tuning-results/.work/`; no R script in this
+  repository currently consumes that schema.
+- **NUMA orchestration:** `run_numa_sweeps.sh` is not an analytics consumer. It
+  invokes `sweep_cpu_tuning.pl` four times with socket-local, first-touch, and
+  interleaved-memory settings, producing comparable tuning reports.
+
+The R helpers use packages such as `data.table`, `ggplot2`, `this.path`, and
+`bit64`; consult each script for its exact package list and output behavior.
+
+### Branch Synchronization Helpers
+
+Synchronization is available in both directions between `main` and `gpuOpt`,
+and both source branches can update `inteliGPU`:
+
+| Run from | Helper | Destination |
+| --- | --- | --- |
+| `main` | `scripts/push_main_to_gpuOpt.sh` | `gpuOpt` |
+| `main` | `scripts/push_main_to_inteliGPU.sh` | `inteliGPU` |
+| `gpuOpt` | `scripts/push_gpuOpt_to_main.sh` | `main` |
+| `gpuOpt` | `scripts/push_gpuOpt_to_inteliGPU.sh` | `inteliGPU` |
+
+All four helpers require a clean source worktree and both local branches. They
+fetch and fast-forward the destination, copy the paths selected by that helper
+with `git restore`, create a commit when content changed, push the destination,
+and return to the starting branch. For one invocation, the selected source
+paths are authoritative: corresponding destination edits are replaced rather
+than merged, while files outside the selected set remain untouched.
+
+The workflows mirror one another, but each helper defines its own curated path
+set. The `main` helpers copy the listed shared library/test/benchmark paths and
+the complete `include/` tree. The `gpuOpt` helpers additionally select tracked
+files directly under `src/` and `scripts/`. Review the arrays before running a
+sync when branch-specific files have changed.
+
+`README.md` is selected by every helper, so a sync also replaces the
+destination branch's README with the source branch version.
 
 The separate [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits)
 repository contains comparative C and Perl bitset/bitmap benchmarks. It is a
