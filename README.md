@@ -33,12 +33,12 @@ the tests in `tests/` take precedence over historical notes (because updating th
 Bit began as a retype and extension of David Hanson's `Bit_T` interface from
 Chapter 13 of *C Interfaces and Implementations* (Addison-Wesley,
 ISBN 0-201-49841-3). The project keeps the original emphasis on a small C
-interface while extending it with count operations, packed bitset containers,
+interface while extending it with setop count operations, packed bitset containers,
 OpenMP execution paths, and performance-oriented population counting.
 
 I started with Hanson's deliberately small interface because it is easy to
-reason about, then kept adding the things my own workloads needed: fast counts,
-borrowed storage, batches of equally sized bitsets, and enough CPU/GPU
+reason about, then kept adding the things my own workloads needed: fast setop counts,
+borrowed storage, batches of equally sized bitsets (effectively packed vector databases), and enough CPU/GPU
 experimentation to make the preprocessor earn its keep. The result is still a
 small bitset library at heart, but it now has two useful levels of abstraction:
 an individual `Bit_T` and a packed `Bit_DB_T` for bulk work.
@@ -74,9 +74,9 @@ every command documented below exists on every branch.
 
 | Branch | Purpose | Notes |
 | --- | --- | --- |
-| `gpuOpt` | Active GPU/offload, build-system, SIMD, and benchmark work | This checkout. GPU-only and native CUDA/HIP benchmark work is experimental. |
-| `main` | Baseline library development and CPU/NUMA tuning workflow | Currently contains `scripts/sweep_cpu_tuning.pl` and `scripts/run_numa_sweeps.sh`; after the planned sync, it will also host `scripts/cpu_param_sweep.pl` and `scripts/benchmark_config_cpu.json`. |
-| `inteliGPU` | Intel oneAPI CPU build and validation branch | Build with `CC=icx GPU=NONE`; despite the historical branch name, this branch does not enable GPU offload. |
+| `gpuOpt` | Active GPU/offload and benchmark work of various GPU kernels against FAISS| Work with GPU kernels in OpenMP and CUDA/HIP. GPU-only and native CUDA/HIP benchmark work is experimental. |
+| `main` | Baseline library development, SIMD, and benchmark work and CPU/NUMA tuning workflow | Currently contains all benchmarking/tuning and profiling scripts; benchmarks against FAISS are . |
+| `inteliGPU` | Intel oneAPI CPU build and validation branch | Build with `CC=icx GPU=Intel`; tests offloads in integrated Intel GPUs. |
 
 Identify the checked-out branch, source revision, and working-tree state with:
 
@@ -319,7 +319,7 @@ those paths before changing system libraries.
 
 This historical recipe was used for a Radeon Pro W5500 (`gfx1012`) with LLVM
 18. It compiles for the nearby `gfx1010` target and presents that target to the
-runtime for the current shell. Treat it as a record of one working environment,
+runtime for the current shell. Treat it as a record of one working environment that will allow you to repurpose a cheap GPU for real work,
 then verify your own setup with `OMP_TARGET_OFFLOAD=MANDATORY`.
 
 ```bash
