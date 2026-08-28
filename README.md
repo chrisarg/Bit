@@ -868,13 +868,12 @@ interchangeable benchmark front ends:
 | Stage | Tool and benchmark | Configuration | Measurements and artifacts |
 | --- | --- | --- | --- |
 | Broad discovery | `scripts/cpu_param_sweep.pl` -> `build/cpu_param_sweep` | JSON matrices and command-line overrides | External wall-clock timings for ordinary-bitset and packed-container paths, plus host telemetry, CSV, and raw logs under `benchmark_CPU_params/`. |
-| Focused tuning | `scripts/sweep_cpu_tuning.pl` -> `build/openmp_bit_container` | Environment-variable matrix | Repeated packed-container timings, CPU affinity, and `perf stat` profiles under `tuning-results/`. |
+| Profiling for focused tuning | `scripts/sweep_cpu_tuning.pl` -> `build/openmp_bit_container` | Environment-variable matrix | Repeated packed-container timings, CPU affinity, and `perf stat` profiles under `tuning-results/`. |
 | Dual-socket analysis | `scripts/run_numa_sweeps.sh` -> `sweep_cpu_tuning.pl` | Four comparable topology/memory-policy cases | Socket-local baselines plus first-touch and interleaved dual-socket results in the focused tuner's artifact layout. |
 
 Use the broad sweep to find candidates across compiler, kernel, workload, and
-placement choices. Use the focused tuner when a candidate needs counter-based
-diagnosis, then use the NUMA runner when the question is memory placement on a
-dual-socket host. The stages can be used independently when that is the only
+placement choices. Use the focused profiler when you need further insights before locking the configuration for a specific architecture, then use the NUMA runner when the question is memory placement on a
+dual-socket host and how this affects performance. The stages can be used independently when that is the only
 question being investigated.
 
 These scripts and their configuration live on `main`. The benchmark sources
@@ -1000,7 +999,7 @@ The regex and command templates are part of the selected configuration's
 contract. Update them together when changing benchmark output or command-line
 behavior.
 
-#### 2. Focused Kernel Investigation: `sweep_cpu_tuning.pl`
+#### 2. Focused Kernel Profiling & Tuning: `sweep_cpu_tuning.pl`
 
 After the broad parameter sweep identifies candidates, the focused tools on
 `main` answer two different questions: `sweep_cpu_tuning.pl` collects repeated
@@ -1024,8 +1023,8 @@ ELEVATE=always CORES=0-9 REPS=5 PERF_REPS=3 \
 
 ##### Focused Container-Kernel Sweep
 
-`sweep_cpu_tuning.pl` automates CPU tuning of the containerized
-intersection-count kernel. For each configuration it performs a clean rebuild,
+`sweep_cpu_tuning.pl` is used to generate insights before CPU tuning of the containerized
+intersection-count kernel for a given architecture. It really is a "live-cell imaging" of the library in action as it streams data across memory hierarchies. For each configuration it performs a clean rebuild,
 runs `build/openmp_bit_container` with an explicit CPU affinity, and collects
 `perf stat` profiles. It is intended to compare CPU tiles, K blocks,
 outer-product microkernel shapes, unrolling, and the independent libpopcnt
@@ -1070,8 +1069,8 @@ The repetition controls work at different levels. `PERF_REPS=3` becomes
 Each process receives `REPS=5` and performs one untimed warm-up followed by five
 timed intersection calls. The script also runs the benchmark once outside the
 profile loop to collect its primary timing output. Compiler speed, workload
-size, PMU access, and host load determine the wall-clock duration, so plan this
-as a dedicated machine run rather than attaching a generic time estimate.
+size, PMU access, and host load determine the wall-clock duration, so use this
+as a machine specific profiler that can help you understand why the library performs (or not) in the given machine.
 
 Start with a small trial after changing machines, compilers, PMU permissions,
 or event sets:
@@ -1097,7 +1096,7 @@ matrix; a single value fixes that dimension.
 | `K_BLOCKS` | `256,512,768,1024` | Values compiled as `BITVECTOR_TILE`. |
 | `SHAPES` | `1x1,2x2,2x4,4x2` | Outer microkernel shapes, written as `ROWSxCOLS`. |
 | `UNROLLS` | `1,2,4` | `OUTER_VEC_BLK` values, used for the direct-SIMD path. |
-| `BUFFER_SIZES` | `16,32,64,128` | `BUFFER_SIZE` values, used for the libpopcnt path. |
+| `BUFFER_SIZES` | `128,512,1024,4096` | `BUFFER_SIZE` values, used for the libpopcnt path. |
 | `CC` | `clang` | Compiler supplied to `make`. |
 | `CORES` | `0-9` | CPU list supplied to `taskset -c`; choose physical cores where possible. |
 | `BITS` | `65536` | Bitset length passed to `openmp_bit_container`. |
@@ -1268,8 +1267,7 @@ Rscript ./scripts/plot_performance.R
 
 ### Script Inventory by Branch
 
-The script trees are intentionally different. This table reflects the current
-branch organization after removing the FAISS utilities from `inteliGPU`.
+The script trees are intentionally different. 
 
 | Script or group | `main` | `gpuOpt` | `inteliGPU` | Purpose |
 | --- | --- | --- | --- | --- |
@@ -1298,12 +1296,7 @@ ones work end to end:
   files using the same `TILE_J`, `ILP`, workload, timing-type, and throughput
   columns. This is the working Perl-to-R pair.
 - **Broad CPU sweep and analytics:** `cpu_param_sweep.pl` and
-  `cpu_profiling_analytics.R` are intended companions, but the current R script
-  still expects an older contract. It searches for `cpu_sweep_*.csv`, while the
-  producer uses a processor/host/run name, and it expects columns such as
-  `OUTER_ROW_NUM`, `Bitset_Size`, and `Compiler` where the producer writes
-  `outer_row_num`, `num_bits`, and `cc`. Update the R reader or normalize the
-  producer schema before treating this pair as runnable.
+  `cpu_profiling_analytics.R` are intended companions: use the Perl script to generate the data and the R script to help you visualize them.
 - **Focused CPU tuning:** `sweep_cpu_tuning.pl` is self-contained. It writes
   `summary-<run-tag>.csv`, `llm-summary-<run-tag>.md`, and per-configuration
   build/benchmark/perf files under `tuning-results/.work/`; no R script in this
@@ -1353,7 +1346,7 @@ destination branch's README with the source branch version.
 
 The separate [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits)
 repository contains comparative C and Perl bitset/bitmap benchmarks. It is a
-research companion rather than a dependency of this library.
+research companion rather than a dependency of this library. At the time of this writing (August 2026) this repository reflects the performance of an earlier version of `Bit` (the first release version).
 
 ## Constraints and Current Status
 

@@ -76,7 +76,7 @@ my @cpu_tiles       = csv_values( 'CPU_TILES',       '4,8,16,32' );
 my @k_blocks        = csv_values( 'K_BLOCKS',        '256,512,768,1024' );
 my @shapes          = csv_values( 'SHAPES',          '1x1,2x2,2x4,4x2' );
 my @unrolls         = csv_values( 'UNROLLS',         '1,2,4' );
-my @buffer_sizes    = csv_values( 'BUFFER_SIZES',    '16,32,64,128' );
+my @buffer_sizes    = csv_values( 'BUFFER_SIZES',    '128,512,1024,4096' );
 
 my $cc          = $ENV{CC}        // 'clang';
 my $cores       = $ENV{CORES}     // '0-9';
