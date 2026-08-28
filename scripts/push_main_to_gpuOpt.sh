@@ -4,6 +4,16 @@ set -euo pipefail
 BRANCH_SRC="main"
 BRANCH_DST="gpuOpt"
 CURRENT_BRANCH="$(git branch --show-current)"
+DRY_RUN=0
+
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=1
+  shift
+fi
+if (( $# > 0 )); then
+  echo "Usage: $0 [--dry-run]" >&2
+  exit 2
+fi
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -16,12 +26,20 @@ EXACT_PATHS=(
   src/bit_internal.h
   src/bit.c
   src/bit_gpu.c
+  src/gpu_layout.h
+  src/gpu_layout_fsm.c
+  src/gpu_layout_fsm.h
+  src/gpu_layout_kernels.c
+  src/gpu_layout_kernels.h
+  src/gpu_layout_registry.c
+  src/gpu_layout_registry.h
   benchmark/benchmark.c
   benchmark/openmp_bit_helpers.c
   benchmark/openmp_bit_helpers.h
   benchmark/openmp_bit.c
   benchmark/openmp_bit_nogpu.c
   benchmark/openmp_bit_container.c
+  benchmark/cpu_param_sweep.c
   tests/test_bit.c
   tests/test_offload.c
   scripts/generate_bug_report.sh
@@ -34,6 +52,10 @@ RECURSIVE_DIRS=(include)
 # Directories that contribute only tracked files immediately beneath them;
 # nested files are filtered out when SYNC_PATHS is built below.
 DIRECT_FILE_DIRS=()
+
+# gpuOpt owns Makefile_bench.mak, GPU benchmark sources, GPU sweep tooling,
+# FAISS comparisons, and benchmark_GPU_params. Those paths are deliberately
+# outside this curated shared-file sync and remain untouched in gpuOpt.
 
 if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
   echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
@@ -50,7 +72,7 @@ if [[ "$CURRENT_BRANCH" != "$BRANCH_SRC" ]]; then
   exit 1
 fi
 
-if [[ -n "$(git status --porcelain)" ]]; then
+if (( ! DRY_RUN )) && [[ -n "$(git status --porcelain)" ]]; then
   echo "ERROR: working tree is not clean; commit or stash changes first."
   git status --short
   exit 1
@@ -78,6 +100,15 @@ for directory in "${RECURSIVE_DIRS[@]}"; do
   fi
   SYNC_PATHS+=("${paths[@]}")
 done
+
+echo "Shared paths copied from ${BRANCH_SRC} to ${BRANCH_DST}:"
+printf "  %s\n" "${SYNC_PATHS[@]}"
+
+if (( DRY_RUN )); then
+  echo "Changes between ${BRANCH_DST} and ${BRANCH_SRC} within the copy scope:"
+  git diff --name-status "$BRANCH_DST" "$BRANCH_SRC" -- "${SYNC_PATHS[@]}"
+  exit 0
+fi
 
 for directory in "${DIRECT_FILE_DIRS[@]}"; do
   paths=()

@@ -75,7 +75,7 @@ every command documented below exists on every branch.
 | Branch | Purpose | Notes |
 | --- | --- | --- |
 | `main` | Baseline library, SIMD, CPU tuning, NUMA experiments, and shared benchmark work | Owns the CPU sweep/tuning scripts and the `main`-to-branch synchronization helpers. |
-| `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns the FAISS comparison scripts and the `gpuOpt`-to-branch synchronization helpers. GPU-only and native CUDA/HIP work remains experimental. |
+| `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns `Makefile_bench.mak`, GPU-only and native CUDA/HIP benchmarks, GPU sweep/plot tooling and results, FAISS comparisons, and the `gpuOpt`-to-branch synchronization helpers. |
 | `inteliGPU` | Intel oneAPI CPU build and offload validation | Build with `CC=icx GPU=INTEL`. Its `scripts/` directory retains only the shared bug-report helper after branch-specific cleanup. |
 
 Identify the checked-out branch, source revision, and working-tree state with:
@@ -178,18 +178,18 @@ These are Make variables, not runtime environment variables:
 
 ### Compiler and GPU Target Matrix
 
-The table below summarizes the current `gpuOpt` build surfaces. The standard
-`Makefile` builds the library and ordinary benchmarks; the GPU-only and native
-benchmark targets require `make -f Makefile_bench.mak` and remain experimental.
+The standard `Makefile` builds the library and ordinary benchmarks on `main`
+and the specialized branches. The rightmost column below is `gpuOpt`-only: its
+GPU-only and native targets require `make -f Makefile_bench.mak`.
 
-| Compiler (`CC=`) | GPU target (`GPU=`) | Standard targets | OpenMP/offload checks | Experimental benchmark targets |
+| Compiler (`CC=`) | GPU target (`GPU=`) | Standard targets | Standard OpenMP/offload checks | `gpuOpt` experimental benchmark targets |
 | --- | --- | --- | --- | --- |
 | `gcc` or `clang` | `NONE` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload` builds but detects host fallback; `bench_omp` is CPU-only | none |
-| `gcc` or `clang` | `NVIDIA` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | `cuda_gpu_bench`, `gpu_bench_csv` |
-| `gcc` or `clang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | `hip_gpu_bench`, `gpu_bench_csv` |
-| `gcc` or `clang` | `NVIDIA,AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | CUDA, HIP, and CSV runner targets |
-| `amdclang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp`, `openmp_bit_nocpu` | HIP and CSV runner targets |
-| `icx` | `INTEL` | library, tests, benchmarks, bug reports | experimental `test_offload`, `bench_omp`, and `openmp_bit_nocpu` | no native CUDA/HIP backend |
+| `gcc` or `clang` | `NVIDIA` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `cuda_gpu_bench`, `gpu_bench_csv` |
+| `gcc` or `clang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `hip_gpu_bench`, `gpu_bench_csv` |
+| `gcc` or `clang` | `NVIDIA,AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, CUDA, HIP, and CSV runner targets |
+| `amdclang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, HIP, and CSV runner targets |
+| `icx` | `INTEL` | library, tests, benchmarks, bug reports | experimental `test_offload` and `bench_omp` | experimental `openmp_bit_nocpu`; no native CUDA/HIP backend |
 
 The Makefile rejects `CC=amdclang` with a GPU target other than `AMD`,
 `CC=icx` with a GPU target other than `INTEL`, and combinations such as
@@ -199,10 +199,9 @@ Native CUDA and HIP benchmarks deliberately compile their device source with
 `nvcc` and `hipcc`, respectively, rather than the value passed through `CC`.
 They still use `GPU=NVIDIA` or `GPU=AMD` as build guards.
 
-`openmp_bit_nocpu` is blocked when `GPU=NONE`. Its current error message names
-NVIDIA and AMD, although its Makefile guard tests only whether a non-`NONE`
-target was selected. Treat the Intel path as experimental and validate it with
-`test_offload` on the target machine.
+On `gpuOpt`, `openmp_bit_nocpu` is blocked when `GPU=NONE`. Its Makefile guard
+tests whether a non-`NONE` target was selected; validate the experimental Intel
+path with `test_offload` on the target machine.
 
 ### GPU Troubleshooting and Validation
 
@@ -765,9 +764,13 @@ strategy all change the result when that context changes.
 ### Experimental `gpuOpt` Benchmark Layer
 
 `Makefile_bench.mak` is an experimental extension for GPU-only OpenMP kernels
-and native CUDA/HIP benchmarks. It is not the public library build interface.
+and native CUDA/HIP benchmarks. It exists only on `gpuOpt` and is not the public
+library build interface. Switch branches before using any command in this
+section:
 
 ```bash
+git switch gpuOpt
+
 # GPU-only OpenMP benchmark.
 make -f Makefile_bench.mak openmp_bit_nocpu \
   CC=clang GPU=NVIDIA GPU_ARCH=sm_70
@@ -808,9 +811,8 @@ These kernels and native CUDA/HIP paths are experimental. Build for the target
 compiler and architecture, confirm agreement with the CPU reference, and then
 measure the workload you care about.
 
-`main` and `inteliGPU` retain an older benchmark layer with three OpenMP
-strategy choices; the fourth strategy above belongs to the active `gpuOpt`
-version.
+The strategy selector and these benchmark targets belong to `gpuOpt`; `main`
+and `inteliGPU` retain only the standard Makefile build surfaces.
 
 #### Interpreting `openmp_bit_nocpu` Output
 
@@ -1235,13 +1237,15 @@ NUMA policy to the tuning script. `perf` access is governed by the host's
 permissions and `kernel.perf_event_paranoid`; use `ELEVATE=always` only where
 permitted by local administration policy.
 
-### GPU Parameter Sweep (`main` and `gpuOpt`)
+### GPU Parameter Sweep (`gpuOpt`)
 
 `scripts/gpu_param_sweep.pl` sweeps the experimental native benchmark matrix
 through `Makefile_bench.mak`. It supports `--backend`, `--make-args`,
 `--iterations`, `--out-dir`, `--summary`, `--log`, and `--dry-run`.
 
 ```bash
+git switch gpuOpt
+
 CUDA_VISIBLE_DEVICES=0 perl ./scripts/gpu_param_sweep.pl \
   --backend=NVIDIA \
   --make-args='CC=clang GPU_ARCH=sm_70'
@@ -1254,8 +1258,13 @@ ROCR_VISIBLE_DEVICES=0 perl ./scripts/gpu_param_sweep.pl \
 Choose the GPU with `--backend`; reserve `--make-args` for compiler,
 architecture, and other Make variables.
 By default, the script writes backend/architecture-labelled CSV and raw log
-files in `benchmark_GPU_params/`. The native CUDA/HIP workflow is experimental,
-is shared by `main` and `gpuOpt`, and is separate from the CPU sweep suite.
+files in `benchmark_GPU_params/`. The native CUDA/HIP workflow, its result
+files, and `plot_performance.R` belong to `gpuOpt` and are separate from the CPU
+sweep suite. Plot the collected CSV files with:
+
+```bash
+Rscript ./scripts/plot_performance.R
+```
 
 ### Script Inventory by Branch
 
@@ -1269,7 +1278,8 @@ branch organization after removing the FAISS utilities from `inteliGPU`.
 | `cpu_profiling_analytics.R` | Yes | No | No | Intended analysis and plotting companion for broad CPU sweep CSV files; see the compatibility note below. |
 | `sweep_cpu_tuning.pl` | Yes | No | No | Focused CPU kernel timing and `perf stat` profiling; writes its own CSV and Markdown reports. |
 | `run_numa_sweeps.sh` | Yes | No | No | Runs four dual-socket scenarios through `sweep_cpu_tuning.pl`. |
-| `gpu_param_sweep.pl` + `plot_performance.R` | Yes | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
+| `gpu_param_sweep.pl` + `plot_performance.R` | No | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
+| Tracked `benchmark_GPU_params/` results | No | Yes | No | Historical GPU sweep CSV/log results kept with their producer and plotter. |
 | `faiss_multigpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. |
 | `faiss_multigpu_benchmark_nocpu.py` | No | Yes | No | Similar FAISS GPU comparison without a measured CPU baseline; reports devices relative to GPU 0. |
 | `push_main_to_gpuOpt.sh`, `push_main_to_inteliGPU.sh` | Yes | No | No | Copy curated paths from `main` to the named destination branch. |
@@ -1283,7 +1293,7 @@ They print fixed-workload timing summaries and do not feed either R script.
 The script names suggest several pairings, but the file formats decide which
 ones work end to end:
 
-- **GPU sweep and plot:** `gpu_param_sweep.pl` writes architecture-labelled
+- **GPU sweep and plot (`gpuOpt`):** `gpu_param_sweep.pl` writes architecture-labelled
   CSV files under `benchmark_GPU_params/`. `plot_performance.R` reads those
   files using the same `TILE_J`, `ILP`, workload, timing-type, and throughput
   columns. This is the working Perl-to-R pair.
@@ -1317,6 +1327,14 @@ and both source branches can update `inteliGPU`:
 | `gpuOpt` | `scripts/push_gpuOpt_to_main.sh` | `main` |
 | `gpuOpt` | `scripts/push_gpuOpt_to_inteliGPU.sh` | `inteliGPU` |
 
+Preview any synchronization without fetching, switching branches, staging,
+committing, or pushing:
+
+```bash
+./scripts/push_main_to_gpuOpt.sh --dry-run
+# Use the helper available on the current source branch for another direction.
+```
+
 All four helpers require a clean source worktree and both local branches. They
 fetch and fast-forward the destination, copy the paths selected by that helper
 with `git restore`, create a commit when content changed, push the destination,
@@ -1324,11 +1342,11 @@ and return to the starting branch. For one invocation, the selected source
 paths are authoritative: corresponding destination edits are replaced rather
 than merged, while files outside the selected set remain untouched.
 
-The workflows mirror one another, but each helper defines its own curated path
-set. The `main` helpers copy the listed shared library/test/benchmark paths and
-the complete `include/` tree. The `gpuOpt` helpers additionally select tracked
-files directly under `src/` and `scripts/`. Review the arrays before running a
-sync when branch-specific files have changed.
+The workflows mirror one another, and each helper copies the same explicitly
+curated shared library/test/benchmark paths plus the complete `include/` tree.
+Branch-exclusive CPU and GPU benchmark files stay with their owning branch.
+Helpers targeting `main` or `inteliGPU` also remove stale gpuOpt-only benchmark
+files; the helper targeting `gpuOpt` never removes them.
 
 `README.md` is selected by every helper, so a sync also replaces the
 destination branch's README with the source branch version.

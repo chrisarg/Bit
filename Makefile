@@ -374,7 +374,7 @@ endif
 # assignment in Make - it captures DEFINES' value at this exact line, so
 # any `DEFINES +=` appended AFTER this point would silently never reach
 # the compiler). This was a real bug: USE_BUILTIN_POPCOUNT=1 had zero
-# effect on any build - `openmp_bit_nocpu`'s own runtime self-report
+# effect on any build - the gpuOpt `openmp_bit_nocpu` runtime self-report
 # ("Using OpenMP GPU popcount: WWG") proved the macro was never defined,
 # even though the Makefile's own $(info ...) message claimed it was - that
 # message only reflects Make's recognition of intent, not what actually
@@ -446,9 +446,9 @@ endif
 #      LD_LIBRARY_PATH, so the matching runtime is always found regardless
 #      of the caller's shell environment.
 #
-# Both fixes apply automatically to every target in Makefile_bench.mak too,
-# since that file does `include Makefile` and only appends to
-# CFLAGS/HOST_ONLY_CFLAGS rather than overriding them.
+# Both fixes also apply to gpuOpt's Makefile_bench.mak targets because that
+# extension includes this Makefile and only appends to CFLAGS/
+# HOST_ONLY_CFLAGS rather than overriding them.
 # ============================================================================
 
 ifeq ($(COMPILER_ID),clang)
