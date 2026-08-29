@@ -37,7 +37,6 @@ EXACT_PATHS=(
   benchmark/openmp_bit.c
   benchmark/openmp_bit_nogpu.c
   benchmark/openmp_bit_container.c
-  benchmark/cpu_param_sweep.c
   tests/test_bit.c
   tests/test_offload.c
   scripts/generate_bug_report.sh
@@ -45,29 +44,7 @@ EXACT_PATHS=(
 RECURSIVE_DIRS=(include)
 DIRECT_FILE_DIRS=()
 
-CLEANUP_PATHS=(
-  Makefile_bench.mak
-  benchmark/gpu_harness.h
-  benchmark/gpu_kernels.h
-  benchmark/hip_gpu_benchmark.cpp
-  benchmark/hip_gpu_benchmark_old.cpp
-  benchmark/native_device_code.cpp
-  benchmark/native_device_code_old.cpp
-  benchmark/openmp_bit_nocpu.c
-  benchmark/openmp_bit_nocpu.h
-  benchmark/openmp_bit_nocpu_GPU.h
-  benchmark/openmp_bit_nocpu_defs.h
-  scripts/gpu_param_sweep.pl
-  scripts/plot_performance.R
-  scripts/faiss_multigpu_benchmark.py
-  scripts/faiss_multigpu_benchmark_nocpu.py
-  benchmark_GPU_params/amd_gfx1010_sweep_raw.log
-  benchmark_GPU_params/amd_gfx1010_sweep_results.csv
-  benchmark_GPU_params/nvidia_sm_52_sweep_raw.log
-  benchmark_GPU_params/nvidia_sm_52_sweep_results.csv
-  benchmark_GPU_params/nvidia_sm_70_sweep_raw.log
-  benchmark_GPU_params/nvidia_sm_70_sweep_results.csv
-)
+CLEANUP_PATHS=()
 
 if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
   echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
