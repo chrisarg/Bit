@@ -56,10 +56,6 @@ DIRECT_FILE_DIRS=()
 # Directories that should be removed in their entirety during synchronization
 CLEANUP_PATHS=()
 
-# gpuOpt owns Makefile_bench.mak, GPU benchmark sources, GPU sweep tooling,
-# FAISS comparisons, and benchmark_GPU_params. Those paths are deliberately
-# outside this curated shared-file sync and remain untouched in gpuOpt.
-
 if ! git show-ref --verify --quiet "refs/heads/${BRANCH_SRC}"; then
   echo "ERROR: branch ${BRANCH_SRC} does not exist locally."
   exit 1
