@@ -39,6 +39,7 @@ EXACT_PATHS=(
   benchmark/openmp_bit.c
   benchmark/openmp_bit_nogpu.c
   benchmark/openmp_bit_container.c
+  benchmark/cpu_param_sweep.c
   tests/test_bit.c
   tests/test_offload.c
   scripts/generate_bug_report.sh
@@ -51,6 +52,9 @@ RECURSIVE_DIRS=(include)
 # Directories that contribute only tracked files immediately beneath them;
 # nested files are filtered out when SYNC_PATHS is built below.
 DIRECT_FILE_DIRS=()
+
+# Directories that should be removed in their entirety during synchronization
+CLEANUP_PATHS=()
 
 # gpuOpt owns Makefile_bench.mak, GPU benchmark sources, GPU sweep tooling,
 # FAISS comparisons, and benchmark_GPU_params. Those paths are deliberately
@@ -102,10 +106,16 @@ done
 
 echo "Shared paths copied from ${BRANCH_SRC} to ${BRANCH_DST}:"
 printf "  %s\n" "${SYNC_PATHS[@]}"
+echo "gpuOpt-owned paths removed from ${BRANCH_DST} when present:"
+printf "  %s\n" "${CLEANUP_PATHS[@]}"
 
 if (( DRY_RUN )); then
   echo "Changes between ${BRANCH_DST} and ${BRANCH_SRC} within the copy scope:"
   git diff --name-status "$BRANCH_DST" "$BRANCH_SRC" -- "${SYNC_PATHS[@]}"
+  echo "Cleanup paths currently tracked by ${BRANCH_DST}:"
+  for path in "${CLEANUP_PATHS[@]}"; do
+    git cat-file -e "${BRANCH_DST}:${path}" 2>/dev/null && printf "  %s\n" "$path"
+  done
   exit 0
 fi
 
@@ -133,6 +143,12 @@ restore_branch() {
      [[ "$(git rev-parse HEAD)" == "$DESTINATION_START" ]]; then
     git restore --source=HEAD --staged --worktree -- "${SYNC_PATHS[@]}" \
       >/dev/null 2>&1 || true
+    for path in "${CLEANUP_PATHS[@]}"; do
+      if git cat-file -e "HEAD:${path}" 2>/dev/null; then
+        git restore --source=HEAD --staged --worktree -- "$path" \
+          >/dev/null 2>&1 || true
+      fi
+    done
   fi
 
   git switch "$CURRENT_BRANCH" >/dev/null 2>&1 || true
@@ -146,6 +162,7 @@ git pull --ff-only origin "$BRANCH_DST"
 DESTINATION_START="$(git rev-parse HEAD)"
 
 git restore --source="$BRANCH_SRC" --staged --worktree -- "${SYNC_PATHS[@]}"
+git rm --ignore-unmatch -- "${CLEANUP_PATHS[@]}"
 
 if git diff --cached --quiet; then
   echo "No selected-file changes to commit."
