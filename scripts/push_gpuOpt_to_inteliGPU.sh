@@ -42,6 +42,7 @@ EXACT_PATHS=(
   scripts/generate_bug_report.sh
 )
 RECURSIVE_DIRS=(include)
+
 DIRECT_FILE_DIRS=()
 
 CLEANUP_PATHS=()
