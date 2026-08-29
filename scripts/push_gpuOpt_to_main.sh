@@ -37,7 +37,6 @@ EXACT_PATHS=(
   benchmark/openmp_bit.c
   benchmark/openmp_bit_nogpu.c
   benchmark/openmp_bit_container.c
-  benchmark/cpu_param_sweep.c
   tests/test_bit.c
   tests/test_offload.c
   scripts/generate_bug_report.sh
