@@ -539,6 +539,12 @@ static void _BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
   setop_count_db_gpu_instrument(bit, bits, counts, &, opts, instr);
 }
 
+static void _BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+                                         SETOP_COUNT_OPTS opts,
+                                         GPU_Instrumentation *instr) {
+  setop_count_db_gpu_instrument(bit, bits, counts, ^, opts, instr);
+}
+
 /*
 
 

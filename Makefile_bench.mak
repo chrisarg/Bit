@@ -109,7 +109,7 @@ OPENMP_GPU_IMPL_MACRO := -DOPENMP_GPU_IMPL_$(OPENMP_GPU_IMPL)
 # Append ONLY new macros to prevent duplicating all optimization & architecture rules
 CFLAGS += -DUSE_LIBPOPCNT=$(LIBPOPCNT_VAL) $(OPENMP_GPU_IMPL_MACRO) -I./src
 
-.PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu clean-bench distclean-bench
+.PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu openmp_bit_nocpu_filter clean-bench distclean-bench
 
 
 gpu_bench_csv: $(GPU_BENCH_EXECS)
@@ -155,8 +155,11 @@ $(HIP_BENCH_OBJ): $(HIP_BENCH_SRC) $(CONFIG_STAMP)
 
 BENCH_OMP_NO_CPU_SRC := benchmark/openmp_bit_nocpu.c
 BENCH_OMP_NO_CPU_OBJ := $(BUILD_DIR)/openmp_bit_nocpu.o
+BENCH_OMP_NO_CPU_FILTER_SRC := benchmark/openmp_bit_nocpu_filter.c
+BENCH_OMP_NO_CPU_FILTER_OBJ := $(BUILD_DIR)/openmp_bit_nocpu_filter.o
 BENCH_OMP_NO_CPU_BIT_OBJ := $(BUILD_DIR)/bit_nocpu_host.o
 BENCH_OMP_NO_CPU_EXEC := $(BUILD_DIR)/openmp_bit_nocpu
+BENCH_OMP_NO_CPU_FILTER_EXEC := $(BUILD_DIR)/openmp_bit_nocpu_filter
 BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ := $(BUILD_DIR)/gpu_layout_registry.o
 BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ := $(BUILD_DIR)/gpu_layout_fsm.o
 BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ := $(BUILD_DIR)/gpu_layout_kernels.o
@@ -164,10 +167,16 @@ BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ := $(BUILD_DIR)/gpu_layout_kernels.o
 ifeq ($(filter NONE,$(GPU_LIST)),NONE)
 openmp_bit_nocpu:
 	$(error openmp_bit_nocpu requires functional offloading; specify NVIDIA or AMD in your target array)
+openmp_bit_nocpu_filter:
+	$(error openmp_bit_nocpu_filter requires functional offloading; specify NVIDIA or AMD in your target array)
 else
 openmp_bit_nocpu: $(BENCH_OMP_NO_CPU_EXEC)
+openmp_bit_nocpu_filter: $(BENCH_OMP_NO_CPU_FILTER_EXEC)
 
 $(BENCH_OMP_NO_CPU_OBJ): $(BENCH_OMP_NO_CPU_SRC) $(CONFIG_STAMP)
+	$(COMPILE_CMD)
+
+$(BENCH_OMP_NO_CPU_FILTER_OBJ): $(BENCH_OMP_NO_CPU_FILTER_SRC) $(CONFIG_STAMP)
 	$(COMPILE_CMD)
 
 $(BENCH_OMP_NO_CPU_BIT_OBJ): src/bit.c $(CONFIG_STAMP)
@@ -176,6 +185,11 @@ $(BENCH_OMP_NO_CPU_BIT_OBJ): src/bit.c $(CONFIG_STAMP)
 $(BENCH_OMP_NO_CPU_EXEC): $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
 	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
 	$(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
+	$(OMPTARGET_RPATH_FLAG) -lrt -lm
+
+$(BENCH_OMP_NO_CPU_FILTER_EXEC): $(BENCH_OMP_NO_CPU_FILTER_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
+	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
+	$(BENCH_OMP_NO_CPU_FILTER_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
 	$(OMPTARGET_RPATH_FLAG) -lrt -lm
 endif
 
@@ -204,9 +218,9 @@ $(GPU_SWEEP_EXEC): $(GPU_SWEEP_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_C
 endif
 
 clean-bench:
-	rm -f $(BUILD_DIR)/cuda_gpu_benchmark $(BUILD_DIR)/cuda_gpu_benchmark.o $(BUILD_DIR)/hip_gpu_benchmark $(BUILD_DIR)/hip_gpu_benchmark.o $(BUILD_DIR)/openmp_bit_nocpu.o
+	rm -f $(BUILD_DIR)/cuda_gpu_benchmark $(BUILD_DIR)/cuda_gpu_benchmark.o $(BUILD_DIR)/hip_gpu_benchmark $(BUILD_DIR)/hip_gpu_benchmark.o $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_FILTER_OBJ)
 	rm -f $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ)
-	rm -f $(BUILD_DIR)/openmp_bit_nocpu
+	rm -f $(BENCH_OMP_NO_CPU_EXEC) $(BENCH_OMP_NO_CPU_FILTER_EXEC)
 	rm -f $(OPENMP_BIT_HELPERS_OBJ)
 	rm -f $(BUILD_DIR)/gpu_param_sweep $(BUILD_DIR)/gpu_param_sweep.o
 
