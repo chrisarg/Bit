@@ -149,7 +149,9 @@ git pull --ff-only origin "$BRANCH_DST"
 DESTINATION_START="$(git rev-parse HEAD)"
 
 git restore --source="$BRANCH_SRC" --staged --worktree -- "${SYNC_PATHS[@]}"
-git rm --ignore-unmatch -- "${CLEANUP_PATHS[@]}"
+if (( ${#CLEANUP_PATHS[@]} > 0 )); then
+  git rm --ignore-unmatch -- "${CLEANUP_PATHS[@]}"
+fi
 
 if git diff --cached --quiet; then
   echo "No selected-file changes to commit."
