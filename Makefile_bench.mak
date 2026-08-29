@@ -179,10 +179,35 @@ $(BENCH_OMP_NO_CPU_EXEC): $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(
 	$(OMPTARGET_RPATH_FLAG) -lrt -lm
 endif
 
+# ----------------------------------------------------------------------------
+# GPU PARAMETER SWEEP EXECUTABLE
+# ----------------------------------------------------------------------------
+GPU_SWEEP_SRC := benchmark/gpu_param_sweep.c
+GPU_SWEEP_OBJ := $(BUILD_DIR)/gpu_param_sweep.o
+GPU_SWEEP_EXEC := $(BUILD_DIR)/gpu_param_sweep
+
+.PHONY: gpu_param_sweep
+
+ifeq ($(filter NONE,$(GPU_LIST)),NONE)
+gpu_param_sweep:
+	$(error gpu_param_sweep requires functional offloading; specify NVIDIA or AMD in your target array)
+else
+gpu_param_sweep: $(GPU_SWEEP_EXEC)
+
+$(GPU_SWEEP_OBJ): $(GPU_SWEEP_SRC) $(CONFIG_STAMP)
+	$(COMPILE_CMD)
+
+$(GPU_SWEEP_EXEC): $(GPU_SWEEP_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
+	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
+	$(GPU_SWEEP_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
+	$(OMPTARGET_RPATH_FLAG) -lrt -lm
+endif
+
 clean-bench:
 	rm -f $(BUILD_DIR)/cuda_gpu_benchmark $(BUILD_DIR)/cuda_gpu_benchmark.o $(BUILD_DIR)/hip_gpu_benchmark $(BUILD_DIR)/hip_gpu_benchmark.o $(BUILD_DIR)/openmp_bit_nocpu.o
 	rm -f $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ)
 	rm -f $(BUILD_DIR)/openmp_bit_nocpu
 	rm -f $(OPENMP_BIT_HELPERS_OBJ)
+	rm -f $(BUILD_DIR)/gpu_param_sweep $(BUILD_DIR)/gpu_param_sweep.o
 
 distclean-bench: clean-bench
