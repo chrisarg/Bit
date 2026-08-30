@@ -323,8 +323,27 @@ ifeq ($(IS_CLEAN_GOAL),)
 
 endif
 
+# Validate runtime algorithms configuration flags
+# ensures that if the user has not explicitly set OPENMP_GPU_IMPL, a default value is chosen based on the compiler.
+ifeq ($(origin OPENMP_GPU_IMPL),undefined)
+  ifeq ($(filter $(COMPILER_ID),clang icx amdclang),)
+    OPENMP_GPU_IMPL := TEAM_PARALLEL_SIMD
+  else
+    OPENMP_GPU_IMPL := TRANSPOSED_TEAM_PARALLEL_SIMD
+  endif
+endif
 
-  
+override OPENMP_GPU_IMPL := $(shell printf '%s' '$(OPENMP_GPU_IMPL)' | tr 'a-z' 'A-Z' | tr -d '[:space:]')
+OPENMP_GPU_IMPL_OPTIONS := TEAM_PARALLEL_SIMD TRANSPOSED_TEAM_PARALLEL_SIMD SHARED_TILE_ILP TRANSPOSED_TILED_GEMM
+OPENMP_GPU_IMPL_OK := $(filter $(OPENMP_GPU_IMPL),$(OPENMP_GPU_IMPL_OPTIONS))
+ifeq ($(strip $(OPENMP_GPU_IMPL_OK)),)
+  $(eval $(call APPEND_ERROR, OPENMP_GPU_IMPL=$(OPENMP_GPU_IMPL) is not one of \
+  $(subst $(space),$(comma),$(OPENMP_GPU_IMPL_OPTIONS))))
+endif
+
+ifeq ($(IS_CLEAN_GOAL),)
+  $(info Utilizing OpenMP GPU Strategy: $(OPENMP_GPU_IMPL))
+endif
 # Warn about configuration errors and exit early if any are found
 ifneq ($(strip $(ERRORS)),)
   FORMATTED_ERRORS := $(subst |,$(newline) -> ,$(ERRORS))
@@ -342,6 +361,9 @@ $(shell mkdir -p $(BUILD_DIR))
 
 
 
+
+
+OPENMP_GPU_IMPL_MACRO := -DOPENMP_GPU_IMPL_$(OPENMP_GPU_IMPL)
 
 CFLAGS0 := -Wall -Wextra -Iinclude -D_POSIX_C_SOURCE=199309L -std=c11 -fPIC \
   -O3 -march=native -Wno-unused-function -Wno-unused-variable \
@@ -385,7 +407,8 @@ ifeq ($(IS_CLEAN_GOAL),)
   endif
 endif
 
-CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) $(REPORT_CFLAGS)
+CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) \
+          $(OPENMP_GPU_IMPL_MACRO)  $(REPORT_CFLAGS) -I./src
 HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS)
 
 # Link Time Optimization (LTO) is enabled by default for supported compilers, 
@@ -570,6 +593,7 @@ endif
 
 HOST_ONLY_CFLAGS += -DBUFFER_SIZE=$(BUFFER_SIZE)
 HOST_ONLY_CFLAGS += -DBITVECTOR_TILE=$(BITVECTOR_TILE)
+CFLAGS += -DUSE_LIBPOPCNT=$(LIBPOPCNT_VAL) 
 
 
 all: $(TARGET) $(TARGET_STATIC)

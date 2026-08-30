@@ -4,7 +4,7 @@
    benchmark as the openmp_bit.c file.
    */
 #pragma once
-#include "bit.h" // Contains your public API declarations
+#include "bit.h" // Contains the public API declarations
 #include "gpu_layout_registry.h"
 #include "openmp_bit_nocpu_defs.h"
 
@@ -111,8 +111,11 @@ static uint64_t tree_adder_GPU(unsigned long long v);
   }                                                                            \
                                                                                \
   /* --- 4. STANDARD FINALIZE --- */                                           \
-  _Pragma(STRINGIFY(omp target exit data map(                                  \
-      from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+  if (!opts.defer_counts_transfer) {                                           \
+    _Pragma(STRINGIFY(                                                         \
+        omp target exit data map(from : counts [0:num_targets * n])))          \
+  }                                                                            \
+  if (opts.release_1st_operand) {                                              \
     release_gpu_layout(bit_qwords, opts.device_id);                            \
     SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
                        bit_size_in_qwords * num_targets, opts.device_id)       \
@@ -203,8 +206,11 @@ static uint64_t tree_adder_GPU(unsigned long long v);
   }                                                                            \
                                                                                \
   /* --- 4. STANDARD FINALIZE --- */                                           \
-  _Pragma(STRINGIFY(omp target exit data map(                                  \
-      from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+  if (!opts.defer_counts_transfer) {                                           \
+    _Pragma(STRINGIFY(                                                         \
+        omp target exit data map(from : counts [0:num_targets * n])))          \
+  }                                                                            \
+  if (opts.release_1st_operand) {                                              \
     release_gpu_layout(bit_qwords, opts.device_id);                            \
     SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
                        bit_size_in_qwords * num_targets, opts.device_id)       \
@@ -264,8 +270,11 @@ static uint64_t tree_adder_GPU(unsigned long long v);
   }                                                                            \
                                                                                \
   /* --- 4. STANDARD FINALIZE --- */                                           \
-  _Pragma(STRINGIFY(omp target exit data map(                                  \
-      from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+  if (!opts.defer_counts_transfer) {                                           \
+    _Pragma(STRINGIFY(                                                         \
+        omp target exit data map(from : counts [0:num_targets * n])))          \
+  }                                                                            \
+  if (opts.release_1st_operand) {                                              \
     release_gpu_layout(bit_qwords, opts.device_id);                            \
     SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
                        bit_size_in_qwords * num_targets, opts.device_id)       \
@@ -305,8 +314,11 @@ static uint64_t tree_adder_GPU(unsigned long long v);
       }                                                                        \
     }                                                                          \
   }                                                                            \
-  _Pragma(STRINGIFY(omp target exit data map(                                  \
-      from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+  if (!opts.defer_counts_transfer) {                                           \
+    _Pragma(STRINGIFY(                                                         \
+        omp target exit data map(from : counts [0:num_targets * n])))          \
+  }                                                                            \
+  if (opts.release_1st_operand) {                                              \
     release_gpu_layout(bit_qwords, opts.device_id);                            \
     SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
                        bit_size_in_qwords * num_targets, opts.device_id)       \
@@ -527,90 +539,3 @@ static void _BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
                                         GPU_Instrumentation *instr) {
   setop_count_db_gpu_instrument(bit, bits, counts, ^, opts, instr);
 }
-
-/*
-
-
-#define setop_count_db_gpu_instrument(bit, bits, counts, op, opts, instr)      \
-  SETOP_DB_CHECKS(bit, bits)                                                   \
-  SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
-                 num_targets, n)                                               \
-  SETOP_INIT_GPU(bit, bits, counts, opts)                                      \
-  clock_gettime(CLOCK_MONOTONIC, &instr->start_time);                          \
-  OMP_GPU_TEAMS(num_targets, opts.device_id)                                   \
-  for (int k = 0; k < num_targets; k++) {                                      \
-    uint64_t shift_k = k * bit_size_in_qwords;                                 \
-    OMP_PARALLEL(n) {                                                      \
-      OMP_GPU_FOR_NOWAIT                                                       \
-      for (unsigned int i = 0; i < n; i++) {                                   \
-        uint64_t shift_i = i * bit_size_in_qwords;                             \
-        int total_sum_for_i = 0;                                               \
-        OMP_GPU_SIMD_REDUCTION(+, total_sum_for_i)                             \
-        for (unsigned int j = 0; j < bit_size_in_qwords; j++) {                \
-          unsigned long long x =                                               \
-              bit_qwords[shift_k + j] op bits_qwords[shift_i + j];             \
-          total_sum_for_i += (uint32_t)POPCOUNT_GPU(x);                        \
-        }                                                                      \
-        counts[k * n + i] = total_sum_for_i;                                   \
-      }                                                                        \
-    }                                                                          \
-  }                                                                            \
-  clock_gettime(CLOCK_MONOTONIC, &instr->end_time);                            \
-  _Pragma(STRINGIFY(omp target exit data map(                                  \
-      from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
-    SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
-                       bit_size_in_qwords * num_targets, opts.device_id)       \
-  }                                                                            \
-  if (opts.release_2nd_operand) {                                              \
-    SETOP_FINALIZE_GPU(release, bits->qwords, 0, bit_size_in_qwords * n,       \
-                       opts.device_id)                                         \
-  }                                                                            \
-  if (opts.release_counts) {                                                   \
-    SETOP_FINALIZE_GPU(release, counts, 0, num_targets * n, opts.device_id)    \
-  }
-
-
-#define TILE_J 1024
-#if defined(OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD)
-#define setop_count_db_gpu_instrument(bit, bits, counts, op, opts, instr)      \
-  SETOP_DB_CHECKS(bit, bits)                                                   \
-  SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
-                 num_targets, n)                                               \
-  SETOP_INIT_GPU(bit, bits, counts, opts)                                      \
-  clock_gettime(CLOCK_MONOTONIC, &instr->start_time);                          \
-  OMP_GPU_FLAT(opts.device_id)                                                 \
-  for (int k = 0; k < num_targets; k++) {                                      \
-    for (int i = 0; i < n; i++) {                                              \
-      uint64_t shift_k = (uint64_t)k * bit_size_in_qwords;                     \
-      uint64_t shift_i = (uint64_t)i * bit_size_in_qwords;                     \
-      const uint64_t *bit_row = bit_qwords + shift_k;                          \
-      const uint64_t *bits_row = bits_qwords + shift_i;                        \
-      int total_sum_for_i = 0;                                                 \
-      int *counts_kn = counts + (size_t)k * n;                                 \
-      for (int jj = 0; jj < bit_size_in_qwords; jj += TILE_J) {                \
-        OMP_GPU_SIMD_REDUCTION(+, total_sum_for_i)                             \
-        for (int j = jj; j < jj + TILE_J; j++) {                               \
-          unsigned long long x = bit_row[j] op bits_row[j];                    \
-          total_sum_for_i += (uint32_t)POPCOUNT_GPU(x);                        \
-        }                                                                      \
-      }                                                                        \
-      counts_kn[i] = total_sum_for_i;                                          \
-    }                                                                          \
-  }                                                                            \
-  clock_gettime(CLOCK_MONOTONIC, &instr->end_time);                            \
-  _Pragma(STRINGIFY(omp target exit data map(                                  \
-      from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
-    SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
-                       bit_size_in_qwords * num_targets, opts.device_id)       \
-  }                                                                            \
-  if (opts.release_2nd_operand) {                                              \
-    SETOP_FINALIZE_GPU(release, bits->qwords, 0, bit_size_in_qwords * n,       \
-                       opts.device_id)                                         \
-  }                                                                            \
-  if (opts.release_counts) {                                                   \
-    SETOP_FINALIZE_GPU(release, counts, 0, num_targets * n, opts.device_id)    \
-  }
-#endif
-
-
-     */

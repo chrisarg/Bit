@@ -94,20 +94,7 @@ endif
 
 HIPCC_ARCH_FLAGS := $(foreach arch,$(AMD_ARCH_LIST),--offload-arch=$(arch))
 
-# Validate runtime algorithms configuration flags
-OPENMP_GPU_IMPL ?= TEAM_PARALLEL_SIMD
-override OPENMP_GPU_IMPL := $(shell printf '%s' '$(OPENMP_GPU_IMPL)' | tr 'a-z' 'A-Z' | tr -d '[:space:]')
-OPENMP_GPU_IMPL_OPTIONS := TEAM_PARALLEL_SIMD TRANSPOSED_TEAM_PARALLEL_SIMD SHARED_TILE_ILP TRANSPOSED_TILED_GEMM
-OPENMP_GPU_IMPL_OK := $(filter $(OPENMP_GPU_IMPL),$(OPENMP_GPU_IMPL_OPTIONS))
-ifeq ($(strip $(OPENMP_GPU_IMPL_OK)),)
-  $(error OPENMP_GPU_IMPL=$(OPENMP_GPU_IMPL) is not one of $(OPENMP_GPU_IMPL_OPTIONS))
-endif
 
-$(info Utilizing OpenMP GPU Strategy: $(OPENMP_GPU_IMPL))
-OPENMP_GPU_IMPL_MACRO := -DOPENMP_GPU_IMPL_$(OPENMP_GPU_IMPL)
-
-# Append ONLY new macros to prevent duplicating all optimization & architecture rules
-CFLAGS += -DUSE_LIBPOPCNT=$(LIBPOPCNT_VAL) $(OPENMP_GPU_IMPL_MACRO) -I./src
 
 .PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu openmp_bit_nocpu_filter clean-bench distclean-bench
 
