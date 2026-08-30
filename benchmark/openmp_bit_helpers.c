@@ -30,6 +30,31 @@ void compute_cpu_popcount_reference(const uint64_t *queries,
         }
     }
 }
+
+void compute_cpu_popcount_xor_reference(const uint64_t *queries,
+                                    const uint64_t *refs,
+                                    size_t bitset_bits,
+                                    size_t num_queries,
+                                    size_t num_refs,
+                                    uint32_t *cpu_results) {
+    if (num_queries == 0 || num_refs == 0) {
+        return;
+    }
+    const size_t words_per_bitset = (bitset_bits + 63) / 64;
+    #pragma omp parallel for collapse(2) schedule(dynamic)
+    for (size_t qi = 0; qi < num_queries; ++qi) {
+        for (size_t ri = 0; ri < num_refs; ++ri) {
+            uint32_t count = 0;
+            for (size_t wi = 0; wi < words_per_bitset; ++wi) {
+                uint64_t combined = queries[qi * words_per_bitset + wi] ^
+                    refs[ri * words_per_bitset + wi];
+                count += (uint32_t)__builtin_popcountll(combined);
+            }
+            cpu_results[qi * num_refs + ri] = count;
+        }
+    }
+}
+
 void compute_cpu_popcount_reference_32bit(
     const uint32_t *queries,
     const uint32_t *refs,

@@ -16,6 +16,14 @@ void compute_cpu_popcount_reference(
     size_t num_refs,
     uint32_t *cpu_results);
 
+void compute_cpu_popcount_xor_reference(
+    const uint64_t *queries,
+    const uint64_t *refs,
+    size_t bitset_bits,
+    size_t num_queries,
+    size_t num_refs,
+    uint32_t *cpu_results);
+
 void compute_cpu_popcount_reference_32bit(
     const uint32_t *queries,
     const uint32_t *refs,

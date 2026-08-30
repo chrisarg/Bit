@@ -438,6 +438,10 @@ int Bit_union_count(T s, T t) {
   setop_count(_OR, s, t);
 }
 
+#ifndef NOGPU
+extern void _Bit_gpu_configuration(void);
+#endif
+
 void print_Bit_configuration(void) {
     printf("==========================================\n");
     printf("        System Bit Configuration          \n");
@@ -456,6 +460,10 @@ void print_Bit_configuration(void) {
     
     printf("------------------------------------------\n");
     printf(" %-20s : %s\n", "Using LIBPOPCNT",     USE_LIBPOPCNT ? "Yes" : "No");
+    #ifndef NOGPU
+      _Bit_gpu_configuration();
+    #endif
+
 #ifdef _OPENMP
      printf(" %-20s : %d\n", "OpenMP version", _OPENMP);
 #endif

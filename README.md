@@ -94,7 +94,11 @@ use the commit printed by `git rev-parse --short HEAD` as the source revision.
 ### Requirements
 
 - A C compiler supported by the current `Makefile`: `clang`, `gcc`,
-  `amdclang`, or `icx`.
+  `amdclang`, or `icx`. Versions that have been tested are:
+| GCC | AMDClang | Clang | ICX |
+| :---: | :---: | :---: | :---: |
+| 12.4.0 | 18.0.0 | 18.1.8 | 2026.1.1 |
+The major compatibility requirement is the use of a compiler that supports an OpenMP version that is at least 201511 or newer (I have tested OpenMP versions up to 202011)
 - GNU Make.
 - OpenMP support from the selected compiler.
 - CUDA and an OpenMP offload-capable LLVM toolchain for NVIDIA offload.
@@ -159,22 +163,34 @@ make test_offload CC=icx GPU=INTEL
 OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
 ```
 
-The Intel command is an experimental compatibility check, not a performance
-claim. Confirm it on the target hardware before depending on it.
+The Intel builds are intended to build for integrated Intel GPUs and should be
+at best considered experimental. Building for Arc Battlemage has not been tested (but feel free to do a PR!)
+
+When building for an offload target, the `OPENMP_GPU_IMPL` is a compile-time choice. The active `main` values are:
+
+- `TEAM_PARALLEL_SIMD`
+- `TRANSPOSED_TEAM_PARALLEL_SIMD`
+
+If you do not specify the parameter, the build system will use `TEAM_PARALLEL_SIMD` for the gcc and `TRANSPOSED_TEAM_PARALLEL_SIMD` LLVM compilers since these are the paths that lead to optimal code generation for each compiler after benchmarking. 
 
 ### Build Configuration
 
-These are Make variables, not runtime environment variables:
+These are Make variables, not runtime environment variables and are listed alphabetically:
 
 | Variable | Default | Effect |
 | --- | --- | --- |
+| `APPLY_LTO` | `1` | Enables LTO for supported compilers; set to `0` to disable it. |
+| `CC` | `clang` | Selects the compiler, one of `GCC` , `CLANG`, `AMDCLANG`, `ICX` (case insensitive). |
+| `CLANG_RUNTIME_RPATH` | `1` | Embeds the selected Clang OpenMP runtime path; set to `0` only when deliberately testing another runtime. |
 | `GPU` | `NONE` | CPU fallback, or `NVIDIA`, `AMD`, and experimental `INTEL` offload. |
 | `GPU_ARCH` | Auto-detected when possible | NVIDIA `sm_`/`compute_` and AMD `gfx` architecture list. |
 | `LIBPOPCNT` | `1` | Enables bundled libpopcnt integration; set `LIBPOPCNT=0` to disable it. |
+| `OPENMP_GPU_IMPL` | Compiler specific | Selects the backend for GPU accelerated containerized setop counts. |
 | `SIMD_DIAGNOSTICS` | `0` | Enables SIMD configuration diagnostics. |
-| `APPLY_LTO` | `1` | Enables LTO for supported compilers; set to `0` to disable it. |
-| `CLANG_RUNTIME_RPATH` | `1` | Embeds the selected Clang OpenMP runtime path; set to `0` only when deliberately testing another runtime. |
-| `USE_BUILTIN_POPCOUNT` | `0` | Requests built-in GPU popcount instead of the default software implementation. |
+| `USE_BUILTIN_POPCOUNT` | `0` | Enables GPU Hardware accelerated popcounts; the default is the WWG algorithm, but both gcc and the LLVM compilers recognize the pattern and replace the function with the hardware version. |
+
+There are additional optimization flags for CPU and GPU that are detailed in the benchmark sections. 
+At the time of this writing (August 2026), the major GPU optimization is the use of the algorithm for performing the setop_count operations. The two algorithms packaged with the algorithm do not have tuning parameters, but others in the experimental `gpuOpt` branch do. Passing one of those will not nuke your building, but it will not really do anything.
 
 ### Compiler and GPU Target Matrix
 
@@ -694,9 +710,10 @@ decisions:
 | `num_cpu_threads` | A positive value selects the CPU OpenMP thread count; a nonpositive value uses the OpenMP runtime maximum. |
 | `device_id` | Selects the OpenMP target device for GPU calls; ignored by CPU calls. |
 | `upd_1st_operand`, `upd_2nd_operand` | Refresh an operand that is already present on the selected device. An absent operand is mapped on first use regardless of the update flag. |
-| `release_1st_operand`, `release_2nd_operand` | Release the corresponding device mapping after the operation. Leave false only when a later call deliberately reuses that mapping. |
-| `release_counts` | Requests release of the device-side result mapping after results are returned. |
-| `algorithm` | Present in the public structure, but not read by the current library dispatch. It is not a runtime kernel selector. |
+| `release_1st_operand`, `release_2nd_operand` | Decreases the reference counter of the corresponding device mapping after the operation. Leave false only when a later call deliberately reuses that mapping. Setting true will not cause the de-allocation of the buffers if their reference counters is not zero. |
+| `defer_counts_transfer` | Defers the transfer of the counts from the GPU to the host e.g. when further processing should be done. |
+| `release_counts` | Decrements the reference counter of the device mapping for counts if true; may lead to de-allocation of the mapping on the device if this was the last reference to this buffer for the entire program. |
+| `algorithm` | Present in the public structure, but not read by the current library dispatch. It is not a runtime kernel selector (yet). |
 
 A repeated-query workflow can therefore keep an unchanged reference container
 mapped, refresh each modified query container, and release both operand mappings
@@ -791,7 +808,7 @@ build/openmp_bit_nocpu <size> <number-of-bitsets> <number-of-reference-bitsets> 
 
 Its fourth argument is GPU iterations, not a CPU thread count.
 
-`OPENMP_GPU_IMPL` is a compile-time choice for the experimental GPU-only
+`OPENMP_GPU_IMPL` is also a compile-time choice for the experimental GPU
 benchmark, not a public runtime option. The active `gpuOpt` values are:
 
 - `TEAM_PARALLEL_SIMD`
