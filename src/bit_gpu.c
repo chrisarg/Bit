@@ -7,14 +7,18 @@
     * License : BSD-2
 */
 
-#include "bit.h"               // Public API declarations
-#include "omp.h"               // OpenMP parallelization
-#include <assert.h>            // assert() validation
-#include <limits.h>            // INT_MAX
-#include <stdbool.h>           // bool type
-#include <stdint.h>            // uintptr_t and UINT64_C macros
-#include <stdlib.h>            // calloc, free
-#include <string.h>            // memcpy
+
+#include <assert.h>  // assert() validation
+#include <limits.h>  // INT_MAX
+#include <stdbool.h> // bool type
+#include <stdint.h>  // uintptr_t and UINT64_C macros
+#include <stdlib.h>  // calloc, free
+#include <string.h>  // memcpy
+#include "bit.h"     // Public API declarations
+#include "bit_internal.h"
+#include "gpu_layout_registry.h"
+#include "omp.h"     // OpenMP parallelization
+
 
 #ifndef USE_LIBPOPCNT
 #define USE_LIBPOPCNT 1
@@ -27,7 +31,7 @@
 #define T Bit_T
 #define T_DB Bit_DB_T
 
-#include "bit_internal.h"
+
 
 // Make popcount functions available on GPU device targets
 #pragma omp declare target(count_WWG)
@@ -35,7 +39,7 @@
 // GPU popcount alias
 #define POPCOUNT_GPU count_WWG
 
-/* --- 11d. GPU set operations (allocate and return counts buffer) --- */
+
 
 int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
 
@@ -120,3 +124,22 @@ void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *counts,
   setop_count_db_cpu(bit, bits, counts, _AND_NOT, opts);
 #endif
 }
+
+
+#ifndef NOGPU
+#include <stdio.h> // Ensure stdio is available for printf
+
+void _Bit_gpu_configuration(void) {
+    // Print the OpenMP GPU Implementation Strategy
+    #if defined(OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD)
+        printf(" %-20s : %s\n", "OpenMP GPU Impl", "TRANSPOSED_TEAM_PARALLEL_SIMD");
+    #elif defined(OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD)
+        printf(" %-20s : %s\n", "OpenMP GPU Impl", "TEAM_PARALLEL_SIMD");
+    #else
+        printf(" %-20s : %s\n", "OpenMP GPU Impl", "UNKNOWN");
+    #endif
+
+    // You can add your future formatted GPU configurations here
+    // printf(" %-20s : %d\n", "Another GPU Config", SOME_MACRO);
+}
+#endif

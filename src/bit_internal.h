@@ -90,6 +90,17 @@
 #define USE_LIBPOPCNT 1
 #endif
 
+/* OpenMP GPU implementation selection:
+ *   TEAM_PARALLEL_SIMD
+ *   TRANSPOSED_TEAM_PARALLEL_SIMD
+ * If none is defined, defaults to TEAM_PARALLEL_SIMD.
+ */
+#if !defined(OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD) &&                            \
+    !defined(OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD)
+#define OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD
+#endif
+
+
 /* --- Concrete representations of opaque types defined in bit.h --- */
 struct T {
   unsigned int length;         // capacity of the bitset in bits
@@ -675,12 +686,12 @@ static inline uint64_t tree_adder(uint64_t v) {
         VECTOR_TYPE b_vectors[OUTER_COL_NUM];                                  \
                                                                                \
         for (int x = 0; x < OUTER_ROW_NUM; x++) {                              \
-          a_vectors[x] = LOAD_MACRO(                                           \
-              (VECTOR_TYPE *)&a_rows[x][k_idx + VECTOR_OFFSET(u)]);            \
+          a_vectors[x] =                                                       \
+              LOAD_MACRO((VECTOR_TYPE *)&a_rows[x][k_idx + VECTOR_OFFSET(u)]); \
         }                                                                      \
         for (int y = 0; y < OUTER_COL_NUM; y++) {                              \
-          b_vectors[y] = LOAD_MACRO(                                           \
-              (VECTOR_TYPE *)&b_rows[y][k_idx + VECTOR_OFFSET(u)]);            \
+          b_vectors[y] =                                                       \
+              LOAD_MACRO((VECTOR_TYPE *)&b_rows[y][k_idx + VECTOR_OFFSET(u)]); \
         }                                                                      \
                                                                                \
         for (int x = 0; x < OUTER_ROW_NUM; x++) {                              \
@@ -955,7 +966,62 @@ static inline uint64_t tree_adder(uint64_t v) {
         action : buffer [index1:index2]) device(dev_id)))                      \
   }
 
+#if defined(OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD)
+#define setop_count_db_gpu(bit, bits, counts, op, opts)                        \
+  SETOP_DB_CHECKS(bit, bits)                                                   \
+  SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
+                 num_targets, n)                                               \
+  SETOP_INIT_GPU(bit, bits, counts, opts)                                      \
+                                                                               \
+  /* --- 1. ENSURE CORRECT BUFFER LAYOUT BUFFER --- */                         \
+  ENSURE_GPU_LAYOUT(bit_qwords, num_targets, bit_size_in_qwords,               \
+                    LAYOUT_ROW_MAJOR, opts.device_id, NULL, 0);                \
+  ENSURE_GPU_LAYOUT(bits_qwords, n, bit_size_in_qwords, LAYOUT_COL_MAJOR,      \
+                    opts.device_id, NULL, 0);                                  \
+                                                                               \
+  /* --- 2. MAIN COMPUTE KERNEL --- */                                         \
+  OMP_GPU_TEAMS(num_targets, 512, opts.device_id)                              \
+  for (int k = 0; k < num_targets; k++) {                                      \
+    OMP_PARALLEL(n) {                                                          \
+      OMP_GPU_FOR_NOWAIT                                                       \
+      for (unsigned int i = 0; i < n; i++) {                                   \
+        uint64_t shift_k = k * bit_size_in_qwords;                             \
+        int total_sum_for_i = 0;                                               \
+        const uint64_t *__restrict__ ptr_k = &bit_qwords[shift_k];             \
+        const uint64_t *__restrict__ ptr_i = &bits_qwords[i];                  \
+        OMP_GPU_SIMD_REDUCTION(+, total_sum_for_i)                             \
+        for (unsigned int j = 0; j < bit_size_in_qwords; j++) {                \
+          /* Note the new Column-Major index for the second operand */         \
+          unsigned long long x = ptr_k[j] op ptr_i[j * n];                     \
+          total_sum_for_i += POPCOUNT_GPU(x);                                  \
+        }                                                                      \
+        counts[k * n + i] = total_sum_for_i;                                   \
+      }                                                                        \
+    }                                                                          \
+  }                                                                            \
+                                                                               \
+  /* --- 4. STANDARD FINALIZE --- */                                           \
+  if (!opts.defer_counts_transfer) {                                           \
+    _Pragma(STRINGIFY(                                                         \
+        omp target exit data map(from : counts [0:num_targets * n])))          \
+  }                                                                            \
+  if (opts.release_1st_operand) {                                              \
+    release_gpu_layout(bit_qwords, opts.device_id);                            \
+    SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
+                       bit_size_in_qwords * num_targets, opts.device_id)       \
+  }                                                                            \
+  if (opts.release_2nd_operand) {                                              \
+    release_gpu_layout(bits_qwords, opts.device_id);                           \
+    SETOP_FINALIZE_GPU(release, bits->qwords, 0, bit_size_in_qwords * n,       \
+                       opts.device_id)                                         \
+  }                                                                            \
+  if (opts.release_counts) {                                                   \
+    SETOP_FINALIZE_GPU(release, counts, 0, num_targets * n, opts.device_id)    \
+  }
+#endif /* OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD */
+
 /* Full GPU DB set-operation kernel (team-parallel, SIMD inner loop) */
+#if defined(OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD)
 #define setop_count_db_gpu(bit, bits, counts, op, opts)                        \
   SETOP_DB_CHECKS(bit, bits)                                                   \
   SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
@@ -978,8 +1044,11 @@ static inline uint64_t tree_adder(uint64_t v) {
       }                                                                        \
     }                                                                          \
   }                                                                            \
-  _Pragma(STRINGIFY(omp target exit data map(                                  \
-      from : counts [0:num_targets * n]))) if (opts.release_1st_operand) {     \
+  if (!opts.defer_counts_transfer) {                                           \
+    _Pragma(STRINGIFY(                                                         \
+        omp target exit data map(from : counts [0:num_targets * n])))          \
+  }                                                                            \
+  if (opts.release_1st_operand) {                                              \
     SETOP_FINALIZE_GPU(release, bit->qwords, 0,                                \
                        bit_size_in_qwords * num_targets, opts.device_id)       \
   }                                                                            \
@@ -990,6 +1059,7 @@ static inline uint64_t tree_adder(uint64_t v) {
   if (opts.release_counts) {                                                   \
     SETOP_FINALIZE_GPU(release, counts, 0, num_targets * n, opts.device_id)    \
   }
+#endif /* OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD */
 
 #endif /* NOGPU */
 

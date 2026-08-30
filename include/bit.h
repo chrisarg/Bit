@@ -158,10 +158,11 @@ typedef struct {
   bool upd_2nd_operand;     // if true, update the second container in the GPU
   bool release_1st_operand; // if true, release the first container in the GPU
   bool release_2nd_operand; // if true, release the second container in the GPU
-  bool release_counts;      // if true, release the counts buffer in the GPU
+  bool defer_counts_transfer; // if true, defer transfer the counts buffer back
+  bool release_counts;        // if true, release the counts buffer in the GPU
   enum {
     TRANSPOSED_TEAM_PARALLEL_SIMD = 0, // transpose + team parallel + SIMD
-    SHARED_TILE_ILP = 1,               // Shared tile + Instruction level parallelism
+    SHARED_TILE_ILP = 1, // Shared tile + Instruction level parallelism
   } algorithm; // reserved; current library dispatch does not read this field
 } SETOP_COUNT_OPTS;
 
