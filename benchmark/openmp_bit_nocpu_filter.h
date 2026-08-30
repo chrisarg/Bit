@@ -1,5 +1,6 @@
 /*
-  Contains helper function declarations for openmp_bit_nocpu.
+  Contains helper function declarations for openmp_bit_nocpu_filter 
+  and ensures that the mirror, openmp_bit_nocpu is not included simultaneously.
 */
 #ifndef OPENMP_BIT_NOCPU_H
 #define OPENMP_BIT_NOCPU_H
@@ -32,14 +33,14 @@ int64_t timeDiff(struct timespec *timeA_p, struct timespec *timeB_p);
 void summarize_results(const char *test, int64_t timeElapsed, int iteration,
                        int result, float speedup);
 
-int *BitDB_inter_count_gpu_instrument(T_DB bit, T_DB bits,
+
+
+int *BitDB_diff_count_gpu_instrument(T_DB bit, T_DB bits,
                                       SETOP_COUNT_OPTS opts,
                                       GPU_Instrumentation *instr);
-void BitDB_inter_count_store_gpu_instrument(T_DB bit, T_DB bits, int *buffer,
+void BitDB_diff_count_store_gpu_instrument(T_DB bit, T_DB bits, int *buffer,
                                             SETOP_COUNT_OPTS opts,
                                             GPU_Instrumentation *instr);
-
-
 
 int database_match_GPU(Bit_DB_T db1, Bit_DB_T db2, SETOP_COUNT_OPTS opts);
 int database_match_GPU_instrument(Bit_DB_T db1, Bit_DB_T db2,

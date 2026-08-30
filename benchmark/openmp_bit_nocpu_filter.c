@@ -9,10 +9,10 @@ timings and speedup factors.
 */
 #define _POSIX_C_SOURCE 199309L
 
-#include "openmp_bit_nocpu.h"
-#include "openmp_bit_helpers.h"
 
-#include "openmp_bit_nocpu_GPU.h"
+#include "openmp_bit_helpers.h"
+#include "openmp_bit_nocpu_filter.h"
+#include "openmp_bit_nocpu_filter_GPU.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -99,13 +99,15 @@ int database_match_GPU(Bit_DB_T db1, Bit_DB_T db2, SETOP_COUNT_OPTS opts) {
 
 static int candidate_better(int lhs_score, int lhs_id,
                             int rhs_score, int rhs_id) {
-  return lhs_score > rhs_score ||
+  /* Lower distance is better */
+  return lhs_score < rhs_score ||
          (lhs_score == rhs_score && lhs_id < rhs_id);
 }
 
 static int candidate_worse(int lhs_score, int lhs_id,
                            int rhs_score, int rhs_id) {
-  return lhs_score < rhs_score ||
+  /* Higher distance is worse (belongs at the root to be discarded) */
+  return lhs_score > rhs_score ||
          (lhs_score == rhs_score && lhs_id > rhs_id);
 }
 
@@ -217,17 +219,18 @@ static int database_match_GPU_filter_instrument(Bit_DB_T db1, Bit_DB_T db2,
   free(results);
   clock_gettime(CLOCK_MONOTONIC, &instr->end_CPU_overhead);
 
-  int max_score = 0;
-#pragma omp parallel for reduction(max : max_score)
-  for (size_t candidate = 0; candidate < num_queries * top_k; ++candidate) {
-    if (top_scores[candidate] > max_score) {
-      max_score = top_scores[candidate];
-    }
+int min_score = INT_MAX;
+
+#pragma omp parallel for reduction(min : min_score)
+for (size_t candidate = 0; candidate < num_queries * top_k; ++candidate) {
+  if (top_scores[candidate] < min_score) {
+    min_score = top_scores[candidate];
   }
+}
 
   free(top_ids);
   free(top_scores);
-  return max_score;
+  return min_score;
 }
 
 int main(int argc, char *argv[]) {
@@ -328,8 +331,16 @@ int main(int argc, char *argv[]) {
     h_refs[i] = seed;
   }
 
+  puts("\t\t ... first 5 queries and references");
+  for (size_t i = 0; i < 5 && i < num_of_bits; ++i) {
+    printf("Query %zu: 0x%016llx\n", i, (unsigned long long)h_queries[i]);
+  }
+  for (size_t i = 0; i < 5 && i < num_of_ref_bits; ++i) {
+    printf("Ref %zu: 0x%016llx\n", i, (unsigned long long)h_refs[i]);
+  }
+
   puts("Computing CPU reference results...");
-  compute_cpu_popcount_reference(h_queries, h_refs, size, num_of_bits,
+  compute_cpu_popcount_xor_reference(h_queries, h_refs, size, num_of_bits,
                                  num_of_ref_bits, cpu_results);
 
   puts("Loading random bitvectors into Bitsets...");
@@ -355,11 +366,9 @@ int main(int argc, char *argv[]) {
 
   int64_t timings[MAX_GPU_ITERATIONS + 1];
   int64_t PCIe_timings[MAX_GPU_ITERATIONS + 1];
-  int64_t CPU_overhead_timings[MAX_GPU_ITERATIONS + 1];
-  int64_t GPU_transpose_timings[MAX_GPU_ITERATIONS + 1];
-  int64_t PCIe_component_timings[MAX_GPU_ITERATIONS + 1];
-  int64_t end_to_end_timings[MAX_GPU_ITERATIONS + 1];
+  int64_t filter_timings[MAX_GPU_ITERATIONS + 1];
   int results[MAX_GPU_ITERATIONS + 1];
+  int64_t end_to_end_timings[MAX_GPU_ITERATIONS + 1];
   GPU_Instrumentation instr = {0};
   // burn-in iteration to mitigate cold-start overheads
   int max =
@@ -380,19 +389,10 @@ int main(int argc, char *argv[]) {
                            .upd_2nd_operand = false},
         &instr);
     timings[i] = timeDiff(&instr.end_time, &instr.start_time);
-    PCIe_timings[i] = timeDiff(&instr.end_PCIe_time, &instr.start_PCIe_time);
-    CPU_overhead_timings[i] =
+    filter_timings[i] =
         timeDiff(&instr.end_CPU_overhead, &instr.start_CPU_overhead);
-    GPU_transpose_timings[i] =
-        timeDiff(&instr.end_GPU_transpose_time, &instr.start_GPU_transpose_time);
-    PCIe_component_timings[i] =
-        PCIe_timings[i] - timings[i] - GPU_transpose_timings[i];
-    if (PCIe_component_timings[i] < 0) {
-      PCIe_component_timings[i] = 0;
-    }
-    end_to_end_timings[i] = timings[i] + GPU_transpose_timings[i] +
-                            PCIe_component_timings[i] +
-                            CPU_overhead_timings[i];
+    end_to_end_timings[i] = timings[i]  +
+                            filter_timings[i];
     results[i] = max;
   }
 
@@ -425,11 +425,11 @@ int main(int argc, char *argv[]) {
   double stddev_algorithm_time = 0.0;
   compute_int64_mean_stddev(&timings[1], gpu_iterations,
                             &avg_algorithm_time, &stddev_algorithm_time);
-  double avg_total_operation_time = 0.0;
-  double stddev_total_operation_time = 0.0;
-  compute_int64_mean_stddev(&PCIe_timings[1], gpu_iterations,
-                            &avg_total_operation_time,
-                            &stddev_total_operation_time);
+  double avg_filter_operation_time = 0.0;
+  double stddev_filter_operation_time = 0.0;
+  compute_int64_mean_stddev(&filter_timings[1], gpu_iterations,
+                            &avg_filter_operation_time,
+                            &stddev_filter_operation_time);
   double avg_end_to_end_time = 0.0;
   double stddev_end_to_end_time = 0.0;
   compute_int64_mean_stddev(&end_to_end_timings[1], gpu_iterations,
@@ -455,27 +455,15 @@ int main(int argc, char *argv[]) {
                       (float)timings[1] / timings[i]);
   }
 
-  puts("GPU Algorithm + PCIe Timings:");
-  for (int i = 1; i <= gpu_iterations; i++) {
-    summarize_results("Container - GPU - OpenMP", PCIe_timings[i], i,
-                      results[i], (float)PCIe_timings[1] / PCIe_timings[i]);
-  }
 
-  puts("GPU Transpose Timings:");
+  puts("Filter Timings:");
   for (int i = 1; i <= gpu_iterations; i++) {
-    summarize_results("Container - GPU - OpenMP", GPU_transpose_timings[i], i,
-                      results[i], (float)GPU_transpose_timings[1] /
-                                      GPU_transpose_timings[i]);
-  }
-
-  puts("CPU Overhead Timings:");
-  for (int i = 1; i <= gpu_iterations; i++) {
-    summarize_results("Container - GPU - OpenMP", CPU_overhead_timings[i], i,
+    summarize_results("Container - GPU - OpenMP", filter_timings[i], i,
                       results[i],
-                      (float)CPU_overhead_timings[1] / CPU_overhead_timings[i]);
+                      (float)filter_timings[1] / filter_timings[i]);
   }
 
-  puts("End-to-End GPU + Transpose + PCIe + CPU Heap Timings (Component Sum):");
+  puts("End-to-End GPU + Filter Timings (Component Sum):");
   for (int i = 1; i <= gpu_iterations; i++) {
     summarize_results("Container - GPU - OpenMP Filter Total",
                       end_to_end_timings[i], i, results[i],
@@ -498,11 +486,11 @@ int main(int argc, char *argv[]) {
   }
 
   double compute_gbps[MAX_GPU_ITERATIONS];
-  double total_gbps[MAX_GPU_ITERATIONS];
+  double filter_gbps[MAX_GPU_ITERATIONS];
   double end_to_end_gbps[MAX_GPU_ITERATIONS];
   for (int i = 1; i <= gpu_iterations; i++) {
     compute_gbps[i - 1] = payload_per_iteration / ((double)timings[i] / 1E9);
-    total_gbps[i - 1] = payload_per_iteration / ((double)PCIe_timings[i] / 1E9);
+    filter_gbps[i - 1] = payload_per_iteration / ((double)filter_timings[i] / 1E9);
     end_to_end_gbps[i - 1] =
         payload_per_iteration / ((double)end_to_end_timings[i] / 1E9);
   }
@@ -510,10 +498,10 @@ int main(int argc, char *argv[]) {
   double stddev_compute_gbps = 0.0;
   compute_mean_stddev(compute_gbps, gpu_iterations,
                       &avg_compute_gbps, &stddev_compute_gbps);
-  double avg_total_gbps = 0.0;
-  double stddev_total_gbps = 0.0;
-  compute_mean_stddev(total_gbps, gpu_iterations,
-                      &avg_total_gbps, &stddev_total_gbps);
+  double avg_filter_gbps = 0.0;
+  double stddev_filter_gbps = 0.0;
+  compute_mean_stddev(filter_gbps, gpu_iterations,
+                      &avg_filter_gbps, &stddev_filter_gbps);
   double avg_end_to_end_gbps = 0.0;
   double stddev_end_to_end_gbps = 0.0;
   compute_mean_stddev(end_to_end_gbps, gpu_iterations,
@@ -526,52 +514,71 @@ int main(int argc, char *argv[]) {
       avg_algorithm_time, stddev_algorithm_time);
     printf("GPU compute throughput: mean=%.3lf GB/s, stddev=%.3lf GB/s\n",
       avg_compute_gbps, stddev_compute_gbps);
-    printf("Total operation time: mean=%.3f ns, stddev=%.3f ns\n",
-      avg_total_operation_time, stddev_total_operation_time);
-    printf("Total operation throughput: mean=%.3lf GB/s, stddev=%.3lf GB/s\n",
-      avg_total_gbps, stddev_total_gbps);
-    printf("Filtered end-to-end time: mean=%.3f ns, stddev=%.3f ns\n",
+    printf("Filter operation time: mean=%.3f ns, stddev=%.3f ns\n",
+      avg_filter_operation_time, stddev_filter_operation_time);
+    printf("Filter operation throughput: mean=%.3lf GB/s, stddev=%.3lf GB/s\n",
+      avg_filter_gbps, stddev_filter_gbps);
+    printf("End-to-end time: mean=%.3f ns, stddev=%.3f ns\n",
       avg_end_to_end_time, stddev_end_to_end_time);
-    printf("Filtered end-to-end throughput: mean=%.3lf GB/s, stddev=%.3lf GB/s\n",
+    printf("End-to-end throughput: mean=%.3lf GB/s, stddev=%.3lf GB/s\n",
       avg_end_to_end_gbps, stddev_end_to_end_gbps);
   puts("\nNote: Total operation throughput includes GPU compute time, data "
        "staging,");
   puts("      and PCIe transfers combined, representing user-perceived "
        "performance.");
 
-    printf("OPENMP_SUMMARY,method=OpenMP-Intersection-%s,bitset_bits=%d,nelem=%d,"
-      "iterations=%d,avg_ns=%.3lf,stddev_ns=%.3lf,gbps=%.6lf,gbps_stddev=%.6lf,"
-      "max=%d,filter_total_avg_ns=%.3lf,filter_total_stddev_ns=%.3lf,"
-      "filter_total_gbps=%.6lf,filter_total_gbps_stddev=%.6lf\n",
+// 1. Extract the method string to avoid ugly inline macros inside the printf
 #ifdef USE_BUILTIN_POPCOUNT
-         "builtin",
+    const char* method_suffix = "builtin";
 #else
-         "WWG",
+    const char* method_suffix = "WWG";
 #endif
-      size, num_of_bits, gpu_iterations, avg_algorithm_time,
-      stddev_algorithm_time,
-      avg_compute_gbps,
-      stddev_compute_gbps,
-      results[gpu_iterations],
-      avg_end_to_end_time,
-      stddev_end_to_end_time,
-      avg_end_to_end_gbps,
-      stddev_end_to_end_gbps);
 
-    printf("SEARCH_SUMMARY,backend=OpenMP,method=OpenMP-Intersection-%s,"
-      "device=GPU_%d,score=intersection_count,score_order=max,"
-      "selection=CPU_topk_heap,timing_scope=component_sum,bitset_bits=%d,"
-      "num_queries=%d,num_refs=%d,top_k=%zu,iterations=%d,"
-      "end_to_end_avg_ns=%.3lf,end_to_end_stddev_ns=%.3lf,"
-      "end_to_end_searches_per_sec=%.6lf,best_score=%d\n",
-#ifdef USE_BUILTIN_POPCOUNT
-         "builtin",
-#else
-         "WWG",
-#endif
-      gpu_id, size, num_of_bits, num_of_ref_bits, top_k, gpu_iterations,
-      avg_end_to_end_time, stddev_end_to_end_time,
-      avg_end_to_end_searches_per_sec, results[gpu_iterations]);
+    // 2. Beautifully format the OpenMP Summary output
+    printf("\n"
+           "================ OPENMP SUMMARY ================\n"
+           "Method                     : OpenMP-Intersection-%s\n"
+           "Bitset Bits                : %d\n"
+           "Elements                   : %d\n"
+           "Iterations                 : %d\n"
+           "Avg Time (ns)              : %.3lf\n"
+           "StdDev Time (ns)           : %.3lf\n"
+           "Throughput (GB/s)          : %.6lf\n"
+           "Throughput StdDev (GB/s)   : %.6lf\n"
+           "Max Results                : %d\n"
+           "Filter Avg Time (ns)       : %.3lf\n"
+           "Filter StdDev Time (ns)    : %.3lf\n"
+           "Filter Throughput (GB/s)   : %.6lf\n"
+           "Filter Throughput StdDev   : %.6lf\n"
+           "================================================\n",
+           method_suffix, size, num_of_bits, gpu_iterations,
+           avg_algorithm_time, stddev_algorithm_time, avg_compute_gbps,
+           stddev_compute_gbps, results[gpu_iterations], avg_end_to_end_time,
+           stddev_end_to_end_time, avg_end_to_end_gbps, stddev_end_to_end_gbps);
+
+    // 3. Beautifully format the Search Summary output
+    printf("\n"
+           "================ SEARCH SUMMARY ================\n"
+           "Backend                    : OpenMP\n"
+           "Method                     : OpenMP-Intersection-%s\n"
+           "Device                     : GPU_%d\n"
+           "Score Type                 : intersection_count\n"
+           "Score Order                : max\n"
+           "Selection                  : CPU_topk_heap\n"
+           "Timing Scope               : component_sum\n"
+           "Bitset Bits                : %d\n"
+           "Num Queries                : %d\n"
+           "Num Refs                   : %d\n"
+           "Top K                      : %zu\n"
+           "Iterations                 : %d\n"
+           "E2E Avg Time (ns)          : %.3lf\n"
+           "E2E StdDev Time (ns)       : %.3lf\n"
+           "E2E Searches/sec           : %.6lf\n"
+           "Best Score                 : %d\n"
+           "================================================\n",
+           method_suffix, gpu_id, size, num_of_bits, num_of_ref_bits,
+           top_k, gpu_iterations, avg_end_to_end_time, stddev_end_to_end_time,
+           avg_end_to_end_searches_per_sec, results[gpu_iterations]);
 
   free(cpu_results);
 

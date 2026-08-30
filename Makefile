@@ -343,9 +343,6 @@ $(shell mkdir -p $(BUILD_DIR))
 
 
 
-
-
-
 CFLAGS0 := -Wall -Wextra -Iinclude -D_POSIX_C_SOURCE=199309L -std=c11 -fPIC \
   -O3 -march=native -Wno-unused-function -Wno-unused-variable \
   -Wno-unused-but-set-variable

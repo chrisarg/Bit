@@ -352,18 +352,28 @@ int main(int argc, char *argv[]) {
   puts("      and PCIe transfers combined, representing user-perceived "
        "performance.");
 
-    printf("OPENMP_SUMMARY,method=OpenMP-Intersection-%s,bitset_bits=%d,nelem=%d,"
-      "iterations=%d,avg_ns=%.3lf,stddev_ns=%.3lf,gbps=%.6lf,gbps_stddev=%.6lf,max=%d\n",
 #ifdef USE_BUILTIN_POPCOUNT
-         "builtin",
+    const char* method_suffix = "builtin";
 #else
-         "WWG",
+    const char* method_suffix = "WWG";
 #endif
-      size, num_of_bits, gpu_iterations, avg_algorithm_time,
-      stddev_algorithm_time,
-      avg_compute_gbps,
-      stddev_compute_gbps,
-      results[gpu_iterations]);
+
+    printf("\n"
+           "================ OPENMP SUMMARY ================\n"
+           "Method                     : OpenMP-Intersection-%s\n"
+           "Bitset Bits                : %d\n"
+           "Elements                   : %d\n"
+           "Iterations                 : %d\n"
+           "Avg Time (ns)              : %.3lf\n"
+           "StdDev Time (ns)           : %.3lf\n"
+           "Throughput (GB/s)          : %.6lf\n"
+           "Throughput StdDev (GB/s)   : %.6lf\n"
+           "Max Results                : %d\n"
+           "================================================\n",
+           method_suffix, size, num_of_bits, gpu_iterations,
+           avg_algorithm_time, stddev_algorithm_time,
+           avg_compute_gbps, stddev_compute_gbps,
+           results[gpu_iterations]);
 
   free(cpu_results);
 

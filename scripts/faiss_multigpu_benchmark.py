@@ -101,6 +101,23 @@ def parse_arguments():
 
     return args
 
+def generate_lcg_sequence(num_words: int, seed: int = 0xDEADBEEF):
+    """
+    Generates `num_words` uint64 values using the same LCG as the C code.
+    Returns the numpy array and the final seed.
+    """
+    a = 6364136223846793005
+    c = 1442695040888963407
+    MASK64 = 0xFFFFFFFFFFFFFFFF
+
+    seed = int(seed) & MASK64
+    result = np.empty(num_words, dtype=np.uint64)
+    
+    for i in range(num_words):
+        seed = (seed * a + c) & MASK64
+        result[i] = seed
+        
+    return result, np.uint64(seed)
 
 def benchmark_search(index, queries, top_k, iterations):
     _ = index.search(queries, top_k)
@@ -177,20 +194,28 @@ def print_final_results(summaries, baseline_device, workload):
     print("=" * 94)
     for device, summary in summaries.items():
         machine_device = device.replace(" ", "_")
-        print(
-            "SEARCH_SUMMARY,backend=FAISS,method=IndexBinaryFlat,"
-            f"device={machine_device},score=hamming_distance,score_order=min,"
-            "selection=FAISS_topk,timing_scope=end_to_end_search_call,"
-            f"bitset_bits={workload['bitset_bits']},"
-            f"num_queries={workload['num_queries']},"
-            f"num_refs={workload['num_refs']},top_k={workload['top_k']},"
-            f"iterations={workload['iterations']},"
-            f"end_to_end_avg_ns={summary['mean_ns']:.3f},"
-            f"end_to_end_stddev_ns={summary['stddev_ns']:.3f},"
-            f"end_to_end_searches_per_sec={summary['searches_per_sec']:.6f},"
-            f"best_score={summary['best_distance']},"
-            f"distance_checksum={summary['distance_checksum']},"
-            f"id_checksum={summary['id_checksum']}"
+print(
+            "\n"
+            "================ SEARCH SUMMARY ================\n"
+            "Backend                    : FAISS\n"
+            "Method                     : IndexBinaryFlat\n"
+            f"Device                     : {machine_device}\n"
+            "Score Type                 : hamming_distance\n"
+            "Score Order                : min\n"
+            "Selection                  : FAISS_topk\n"
+            "Timing Scope               : end_to_end_search_call\n"
+            f"Bitset Bits                : {workload['bitset_bits']}\n"
+            f"Num Queries                : {workload['num_queries']}\n"
+            f"Num Refs                   : {workload['num_refs']}\n"
+            f"Top K                      : {workload['top_k']}\n"
+            f"Iterations                 : {workload['iterations']}\n"
+            f"E2E Avg Time (ns)          : {summary['mean_ns']:.3f}\n"
+            f"E2E StdDev Time (ns)       : {summary['stddev_ns']:.3f}\n"
+            f"E2E Searches/sec           : {summary['searches_per_sec']:.6f}\n"
+            f"Best Score                 : {summary['best_distance']}\n"
+            f"Distance Checksum          : {summary['distance_checksum']}\n"
+            f"ID Checksum                : {summary['id_checksum']}\n"
+            "================================================"
         )
 
 
@@ -213,8 +238,13 @@ def run_multi_gpu_benchmark(args):
 
     # --- 2. Generate Random Binary Data ---
     print("Generating binary matrices...")
-    matrix_A = np.random.randint(256, size=(num_a, d_bytes), dtype=np.uint8)
-    matrix_B = np.random.randint(256, size=(num_b, d_bytes), dtype=np.uint8)
+    queries_words = (num_a * d_bits + 63) // 64
+    refs_words = (num_b * d_bits + 63) // 64
+    h_queries, seed = generate_lcg_sequence(queries_words, seed=0xDEADBEEF)
+    h_refs,    seed = generate_lcg_sequence(refs_words,    seed=seed) 
+
+    matrix_A = h_queries.view(np.uint8).reshape(num_a, d_bytes)
+    matrix_B = h_refs.view(np.uint8).reshape(num_b, d_bytes)
 
     workload = {
         "bitset_bits": d_bits,
