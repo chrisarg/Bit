@@ -100,7 +100,6 @@
 #define OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD
 #endif
 
-
 /* --- Concrete representations of opaque types defined in bit.h --- */
 struct T {
   unsigned int length;         // capacity of the bitset in bits
@@ -1027,6 +1026,13 @@ static inline uint64_t tree_adder(uint64_t v) {
   SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
                  num_targets, n)                                               \
   SETOP_INIT_GPU(bit, bits, counts, opts)                                      \
+                                                                               \
+  /* --- 1. ENSURE CORRECT BUFFER LAYOUT BUFFER --- */                         \
+  ENSURE_GPU_LAYOUT(bit_qwords, num_targets, bit_size_in_qwords,               \
+                    LAYOUT_ROW_MAJOR, opts.device_id, NULL, 0);                \
+  ENSURE_GPU_LAYOUT(bits_qwords, n, bit_size_in_qwords, LAYOUT_ROW_MAJOR,      \
+                    opts.device_id, NULL, 0);                                  \
+                                                                               \
   OMP_GPU_TEAMS(num_targets, 512, opts.device_id)                              \
   for (int k = 0; k < num_targets; k++) {                                      \
     uint64_t shift_k = k * bit_size_in_qwords;                                 \
