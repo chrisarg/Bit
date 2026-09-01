@@ -1,12 +1,14 @@
 /*
-  Contains helper function declarations for openmp_bit_nocpu_filter 
+  Contains helper function declarations for openmp_bit_nocpu_filter
   and ensures that the mirror, openmp_bit_nocpu is not included simultaneously.
 */
 #ifndef OPENMP_BIT_NOCPU_H
 #define OPENMP_BIT_NOCPU_H
 
-#include "openmp_bit_nocpu_defs.h"
+#include "bit.h"
 #include "omp.h"
+#include "openmp_bit_helpers.h"
+#include "openmp_bit_nocpu_defs.h"
 #include <assert.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -15,8 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "bit.h"
-#include "openmp_bit_helpers.h"
 
 /*
  * Note: openmp_bit_nocpu_GPU.h should be included by openmp_bit_nocpu.c only.
@@ -28,24 +28,28 @@ typedef struct T *T;
 #define T_DB Bit_DB_T
 typedef struct T_DB *T_DB;
 
+typedef struct FilteredResults {
+  int max;
+  int *top_scores;
+  int *top_ids;
+} FilteredResults;
+
 int64_t timeDiff(struct timespec *timeA_p, struct timespec *timeB_p);
 
 void summarize_results(const char *test, int64_t timeElapsed, int iteration,
                        int result, float speedup);
 
-
-
-int *BitDB_diff_count_gpu_instrument(T_DB bit, T_DB bits,
-                                      SETOP_COUNT_OPTS opts,
-                                      GPU_Instrumentation *instr);
+int *BitDB_diff_count_gpu_instrument(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts,
+                                     GPU_Instrumentation *instr);
 void BitDB_diff_count_store_gpu_instrument(T_DB bit, T_DB bits, int *buffer,
-                                            SETOP_COUNT_OPTS opts,
-                                            GPU_Instrumentation *instr);
+                                           SETOP_COUNT_OPTS opts,
+                                           GPU_Instrumentation *instr);
 
 int database_match_GPU(Bit_DB_T db1, Bit_DB_T db2, SETOP_COUNT_OPTS opts);
-int database_match_GPU_instrument(Bit_DB_T db1, Bit_DB_T db2,
-                                  SETOP_COUNT_OPTS opts,
-                                  GPU_Instrumentation *instr);
+FilteredResults database_match_GPU_instrument(Bit_DB_T db1, Bit_DB_T db2,
+                                              SETOP_COUNT_OPTS opts,
+                                              GPU_Instrumentation *instr,
+                                            bool return_filtered);
 
 /* CPU helper declarations are provided by openmp_bit_helpers.h */
 

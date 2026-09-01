@@ -43,18 +43,19 @@ $(foreach var,$(GPU_CSV_STRINGS), \
         $(eval $(call APPEND_ERROR, $(var) must be a non-empty string. Got: '$($(var))')) \
     ) \
 )
-  
-# Warn about configuration errors and exit early if any are found
-ifneq ($(strip $(ERRORS)),)
-  FORMATTED_ERRORS := $(subst |,$(newline) -> ,$(ERRORS))
-  $(info )
-  $(info =============================================)
-  $(info ===       Build Configuration Errors      ===)
-  $(info =============================================)
-  $(info $(FORMATTED_ERRORS))
-  $(info )
-  $(error Build configuration is invalid - see details above)
+
+# this is used to generate GPU-compatible topk code in topk_internal.h
+# stops if one is trying to use a GPU-incompatible configuration for topk
+ifeq ($(origin GPU_COMPILE_TOPK), undefined)
+    GPU_COMPILE_TOPK := $(if $(filter NONE,$(GPU)),0,1)
 endif
+ifeq ($(GPU_COMPILE_TOPK),1)
+    ifeq ($(GPU),NONE)
+        $(eval $(call APPEND_ERROR, GPU_COMPILE_TOPK cannot be 1 when GPU is NONE))
+    endif
+endif
+CFLAGS += -DGPU_COMPILE_TOPK=$(GPU_COMPILE_TOPK)
+
 
 
 CUDA_BENCH_SRC := benchmark/native_device_code.cpp
@@ -96,7 +97,7 @@ HIPCC_ARCH_FLAGS := $(foreach arch,$(AMD_ARCH_LIST),--offload-arch=$(arch))
 
 
 
-.PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu openmp_bit_nocpu_filter clean-bench distclean-bench
+.PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu openmp_bit_nocpu_FAISS_COMP clean-bench gpu_param_sweep distclean-bench
 
 
 gpu_bench_csv: $(GPU_BENCH_EXECS)
@@ -110,19 +111,102 @@ gpu_bench_csv: $(GPU_BENCH_EXECS)
 	done
 
 
-ifeq ($(filter NVIDIA,$(GPU_LIST)),NVIDIA)
-cuda_gpu_bench: $(CUDA_BENCH_EXEC)
+ifeq ($(filter NVIDIA,$(GPU_LIST)),)
+ifneq ($(filter cuda_gpu_bench,$(MAKECMDGOALS) $(.DEFAULT_GOAL)),)
+$(eval $(call APPEND_ERROR,Execution Halted: Cannot build 'cuda_gpu_bench' \
+    because GPU=NVIDIA was not requested in your GPU list. \
+    Current GPU_LIST='$(GPU_LIST)'))
+endif
 else
-cuda_gpu_bench:
-	$(error Execution Halted: Cannot build 'cuda_gpu_bench' because GPU=NVIDIA was not requested in your GPU list. Current GPU_LIST='$(GPU_LIST)')
+cuda_gpu_bench: $(CUDA_BENCH_EXEC)
 endif
 
-ifeq ($(filter AMD,$(GPU_LIST)),AMD)
-hip_gpu_bench: $(HIP_BENCH_EXEC)
-else
-hip_gpu_bench:
-	$(error Execution Halted: Cannot build 'hip_gpu_bench' because GPU=AMD was not requested in your GPU list. Current GPU_LIST='$(GPU_LIST)')
+ifeq ($(filter AMD,$(GPU_LIST)),)
+ifneq ($(filter hip_gpu_bench,$(MAKECMDGOALS) $(.DEFAULT_GOAL)),)
+$(eval $(call APPEND_ERROR,Execution Halted: Cannot build 'hip_gpu_bench' \
+    because GPU=AMD was not requested in your GPU list. \
+    Current GPU_LIST='$(GPU_LIST)'))
 endif
+else
+hip_gpu_bench: $(HIP_BENCH_EXEC)
+endif
+
+BENCH_OMP_NO_CPU_SRC := benchmark/openmp_bit_nocpu.c
+BENCH_OMP_NO_CPU_OBJ := $(BUILD_DIR)/openmp_bit_nocpu.o
+BENCH_OMP_NO_CPU_FAISS_COMP_SRC := benchmark/openmp_bit_nocpu_FAISS_comp.c
+BENCH_OMP_NO_CPU_FAISS_COMP_OBJ := $(BUILD_DIR)/openmp_bit_nocpu_FAISS_comp.o
+BENCH_OMP_NO_CPU_BIT_OBJ := $(BUILD_DIR)/bit_nocpu_host.o
+BENCH_OMP_NO_CPU_EXEC := $(BUILD_DIR)/openmp_bit_nocpu
+BENCH_OMP_NO_CPU_FAISS_COMP_EXEC := $(BUILD_DIR)/openmp_bit_nocpu_FAISS_comp
+BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ := $(BUILD_DIR)/gpu_layout_registry.o
+BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ := $(BUILD_DIR)/gpu_layout_fsm.o
+BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ := $(BUILD_DIR)/gpu_layout_kernels.o
+
+# When NONE is requested we must *not* allow the offloading-only targets
+ifeq ($(filter NONE,$(GPU_LIST)),NONE)
+
+  # Only record the error if the user actually asked for one of these targets
+  ifneq ($(filter openmp_bit_nocpu,$(MAKECMDGOALS) $(.DEFAULT_GOAL)),)
+  $(eval $(call APPEND_ERROR,Execution Halted: \
+  openmp_bit_nocpu requires functional offloading; specify NVIDIA or AMD in your target array))
+  endif
+
+  ifneq ($(filter openmp_bit_nocpu_FAISS_comp,$(MAKECMDGOALS) $(.DEFAULT_GOAL)),)
+  $(eval $(call APPEND_ERROR,Execution Halted: \
+  openmp_bit_nocpu_FAISS_comp requires functional offloading; specify NVIDIA or AMD in your target array))
+  endif
+
+  ifneq ($(filter gpu_param_sweep,$(MAKECMDGOALS) $(.DEFAULT_GOAL)),)
+  $(eval $(call APPEND_ERROR,gpu_param_sweep requires functional offloading; specify NVIDIA or AMD in your target array))
+  endif
+else
+  # Normal case – GPU offloading is available
+  openmp_bit_nocpu:        $(BENCH_OMP_NO_CPU_EXEC)
+  openmp_bit_nocpu_FAISS_comp: $(BENCH_OMP_NO_CPU_FAISS_COMP_EXEC)
+  gpu_param_sweep:         $(BENCH_GPU_PARAM_SWEEP_EXEC)
+endif
+
+ifeq ($(GPU_COMPILE_TOPK),1)
+TOPK_OBJ := $(BUILD_DIR)/topk_gpu.o
+$(BUILD_DIR)/topk_gpu.o: src/topk_gpu.c src/topk.h src/topk_internal.h   
+	$(CC) $(CFLAGS) -c $< -o $@
+else
+TOPK_OBJ := $(BUILD_DIR)/topk_cpu.o
+$(BUILD_DIR)/topk_cpu.o: src/topk_cpu.c src/topk.h src/topk_internal.h
+	$(CC) $(CFLAGS) -c $< -o $@
+endif
+
+# Warn about configuration errors and exit early if any are found
+ifneq ($(strip $(ERRORS)),)
+  FORMATTED_ERRORS := $(subst |,$(newline) -> ,$(ERRORS))
+  $(info )
+  $(info =============================================)
+  $(info ===       Build Configuration Errors      ===)
+  $(info =============================================)
+  $(info $(FORMATTED_ERRORS))
+  $(info )
+  $(error Build configuration is invalid - see details above)
+endif
+
+$(BENCH_OMP_NO_CPU_OBJ): $(BENCH_OMP_NO_CPU_SRC) $(CONFIG_STAMP)
+	$(COMPILE_CMD)
+
+$(BENCH_OMP_NO_CPU_FAISS_COMP_OBJ): $(BENCH_OMP_NO_CPU_FAISS_COMP_SRC) $(CONFIG_STAMP)
+	$(COMPILE_CMD)
+
+$(BENCH_OMP_NO_CPU_BIT_OBJ): src/bit.c $(CONFIG_STAMP)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -c $< -o $@
+
+$(BENCH_OMP_NO_CPU_EXEC): $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
+	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
+	$(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
+	$(OMPTARGET_RPATH_FLAG) -lrt -lm
+
+$(BENCH_OMP_NO_CPU_FAISS_COMP_EXEC): $(BENCH_OMP_NO_CPU_FAISS_COMP_OBJ) $(TOPK_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
+	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
+	$(BENCH_OMP_NO_CPU_FAISS_COMP_OBJ) $(TOPK_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
+	$(OMPTARGET_RPATH_FLAG) -lrt -lm
+
 
 # Wrapped OpenMP linker dependencies for NVCC
 $(CUDA_BENCH_EXEC): $(CUDA_BENCH_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
@@ -140,46 +224,6 @@ $(HIP_BENCH_EXEC): $(HIP_BENCH_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
 $(HIP_BENCH_OBJ): $(HIP_BENCH_SRC) $(CONFIG_STAMP)
 	$(HIPCC) $(HIPCC_FLAGS) $(HIPCC_ARCH_FLAGS) -c $< -o $@
 
-BENCH_OMP_NO_CPU_SRC := benchmark/openmp_bit_nocpu.c
-BENCH_OMP_NO_CPU_OBJ := $(BUILD_DIR)/openmp_bit_nocpu.o
-BENCH_OMP_NO_CPU_FILTER_SRC := benchmark/openmp_bit_nocpu_filter.c
-BENCH_OMP_NO_CPU_FILTER_OBJ := $(BUILD_DIR)/openmp_bit_nocpu_filter.o
-BENCH_OMP_NO_CPU_BIT_OBJ := $(BUILD_DIR)/bit_nocpu_host.o
-BENCH_OMP_NO_CPU_EXEC := $(BUILD_DIR)/openmp_bit_nocpu
-BENCH_OMP_NO_CPU_FILTER_EXEC := $(BUILD_DIR)/openmp_bit_nocpu_filter
-BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ := $(BUILD_DIR)/gpu_layout_registry.o
-BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ := $(BUILD_DIR)/gpu_layout_fsm.o
-BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ := $(BUILD_DIR)/gpu_layout_kernels.o
-
-ifeq ($(filter NONE,$(GPU_LIST)),NONE)
-openmp_bit_nocpu:
-	$(error openmp_bit_nocpu requires functional offloading; specify NVIDIA or AMD in your target array)
-openmp_bit_nocpu_filter:
-	$(error openmp_bit_nocpu_filter requires functional offloading; specify NVIDIA or AMD in your target array)
-else
-openmp_bit_nocpu: $(BENCH_OMP_NO_CPU_EXEC)
-openmp_bit_nocpu_filter: $(BENCH_OMP_NO_CPU_FILTER_EXEC)
-
-$(BENCH_OMP_NO_CPU_OBJ): $(BENCH_OMP_NO_CPU_SRC) $(CONFIG_STAMP)
-	$(COMPILE_CMD)
-
-$(BENCH_OMP_NO_CPU_FILTER_OBJ): $(BENCH_OMP_NO_CPU_FILTER_SRC) $(CONFIG_STAMP)
-	$(COMPILE_CMD)
-
-$(BENCH_OMP_NO_CPU_BIT_OBJ): src/bit.c $(CONFIG_STAMP)
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -c $< -o $@
-
-$(BENCH_OMP_NO_CPU_EXEC): $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
-	$(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
-	$(OMPTARGET_RPATH_FLAG) -lrt -lm
-
-$(BENCH_OMP_NO_CPU_FILTER_EXEC): $(BENCH_OMP_NO_CPU_FILTER_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
-	$(BENCH_OMP_NO_CPU_FILTER_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
-	$(OMPTARGET_RPATH_FLAG) -lrt -lm
-endif
-
 # ----------------------------------------------------------------------------
 # GPU PARAMETER SWEEP EXECUTABLE
 # ----------------------------------------------------------------------------
@@ -187,13 +231,6 @@ GPU_SWEEP_SRC := benchmark/gpu_param_sweep.c
 GPU_SWEEP_OBJ := $(BUILD_DIR)/gpu_param_sweep.o
 GPU_SWEEP_EXEC := $(BUILD_DIR)/gpu_param_sweep
 
-.PHONY: gpu_param_sweep
-
-ifeq ($(filter NONE,$(GPU_LIST)),NONE)
-gpu_param_sweep:
-	$(error gpu_param_sweep requires functional offloading; specify NVIDIA or AMD in your target array)
-else
-gpu_param_sweep: $(GPU_SWEEP_EXEC)
 
 $(GPU_SWEEP_OBJ): $(GPU_SWEEP_SRC) $(CONFIG_STAMP)
 	$(COMPILE_CMD)
@@ -202,12 +239,12 @@ $(GPU_SWEEP_EXEC): $(GPU_SWEEP_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_C
 	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
 	$(GPU_SWEEP_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
 	$(OMPTARGET_RPATH_FLAG) -lrt -lm
-endif
+
 
 clean-bench:
-	rm -f $(BUILD_DIR)/cuda_gpu_benchmark $(BUILD_DIR)/cuda_gpu_benchmark.o $(BUILD_DIR)/hip_gpu_benchmark $(BUILD_DIR)/hip_gpu_benchmark.o $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_FILTER_OBJ)
+	rm -f $(BUILD_DIR)/cuda_gpu_benchmark $(BUILD_DIR)/cuda_gpu_benchmark.o $(BUILD_DIR)/hip_gpu_benchmark $(BUILD_DIR)/hip_gpu_benchmark.o $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_FAISS_COMP_OBJ)
 	rm -f $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ)
-	rm -f $(BENCH_OMP_NO_CPU_EXEC) $(BENCH_OMP_NO_CPU_FILTER_EXEC)
+	rm -f $(BENCH_OMP_NO_CPU_EXEC) $(BENCH_OMP_NO_CPU_FAISS_COMP_EXEC)
 	rm -f $(OPENMP_BIT_HELPERS_OBJ)
 	rm -f $(BUILD_DIR)/gpu_param_sweep $(BUILD_DIR)/gpu_param_sweep.o
 

@@ -29,12 +29,12 @@
 # `faiss` module usually means that the script is using the wrong environment.
 
 import argparse
+from email import parser
 import sys
 import time
 
 import faiss
 import numpy as np
-
 
 MIN_SIZE = 128
 MAX_GPU_ITERATIONS = 1024
@@ -78,7 +78,11 @@ def parse_arguments():
         "gpu_iterations", type=positive_integer, help="measured search iterations"
     )
     parser.add_argument(
-        "gpu_id", nargs="?", type=nonnegative_integer, default=0, help="GPU ID"
+        "gpu_id",
+        nargs="?",
+        type=nonnegative_integer,
+        default=None,
+        help="GPU ID (optional; if omitted, runs on all GPUs)",
     )
     args = parser.parse_args()
 
@@ -94,12 +98,11 @@ def parse_arguments():
         )
         args.gpu_iterations = MAX_GPU_ITERATIONS
     if args.top_k > args.num_ref_bitsets:
-        print(
-            f"Warning: top-k decreased to {args.num_ref_bitsets}", file=sys.stderr
-        )
+        print(f"Warning: top-k decreased to {args.num_ref_bitsets}", file=sys.stderr)
         args.top_k = args.num_ref_bitsets
 
     return args
+
 
 def generate_lcg_sequence(num_words: int, seed: int = 0xDEADBEEF):
     """
@@ -112,12 +115,13 @@ def generate_lcg_sequence(num_words: int, seed: int = 0xDEADBEEF):
 
     seed = int(seed) & MASK64
     result = np.empty(num_words, dtype=np.uint64)
-    
+
     for i in range(num_words):
         seed = (seed * a + c) & MASK64
         result[i] = seed
-        
+
     return result, np.uint64(seed)
+
 
 def benchmark_search(index, queries, top_k, iterations):
     _ = index.search(queries, top_k)
@@ -171,6 +175,22 @@ def print_iteration_results(device, summary):
         )
 
 
+def print_top5_results(device, index, queries, top_k):
+    print("\nPrinting filtered results and scores (five scores, first five queries)")
+    num_queries_to_show = min(5, queries.shape[0])
+    num_results_to_show = min(5, top_k)
+    sub_queries = queries[:num_queries_to_show]
+    distances, ids = index.search(sub_queries, num_results_to_show)
+
+    for q_idx in range(num_queries_to_show):
+        line = f"|Query {q_idx}:\t|"
+        for r_idx in range(num_results_to_show):
+            score = int(distances[q_idx, r_idx])
+            res_id = int(ids[q_idx, r_idx])
+            line += f"  Score: {score:5d}, ID: {res_id:5d} |"
+        print(line)
+
+
 def print_final_results(summaries, baseline_device, workload):
     print("\n" + "=" * 94)
     print("FAISS END-TO-END SEARCH SUMMARY")
@@ -194,7 +214,7 @@ def print_final_results(summaries, baseline_device, workload):
     print("=" * 94)
     for device, summary in summaries.items():
         machine_device = device.replace(" ", "_")
-print(
+        print(
             "\n"
             "================ SEARCH SUMMARY ================\n"
             "Backend                    : FAISS\n"
@@ -241,7 +261,7 @@ def run_multi_gpu_benchmark(args):
     queries_words = (num_a * d_bits + 63) // 64
     refs_words = (num_b * d_bits + 63) // 64
     h_queries, seed = generate_lcg_sequence(queries_words, seed=0xDEADBEEF)
-    h_refs,    seed = generate_lcg_sequence(refs_words,    seed=seed) 
+    h_refs, seed = generate_lcg_sequence(refs_words, seed=seed)
 
     matrix_A = h_queries.view(np.uint8).reshape(num_a, d_bytes)
     matrix_B = h_refs.view(np.uint8).reshape(num_b, d_bytes)
@@ -263,34 +283,44 @@ def run_multi_gpu_benchmark(args):
     print("Running CPU Benchmark...")
     summaries["CPU"] = benchmark_search(cpu_index, matrix_A, k, iterations)
     print_iteration_results("CPU", summaries["CPU"])
+    print_top5_results("CPU", cpu_index, matrix_A, k)
 
     # --- 4. GPU Benchmarks ---
     try:
         num_gpus = faiss.get_num_gpus()
         print(f"\nDetected {num_gpus} GPU(s) via FAISS.")
 
-        if gpu_id >= num_gpus:
-            print(
-                f"\nERROR: requested GPU {gpu_id}, but FAISS detected "
-                f"{num_gpus} GPU(s)."
-            )
+        if num_gpus == 0:
+            print("\nERROR: No GPUs detected by FAISS.")
         else:
-            print(f"\nInitializing GPU {gpu_id}...")
-            res = faiss.StandardGpuResources()
+            # Determine which GPUs to execute on
+            if args.gpu_id is not None:
+                gpu_ids_to_run = [args.gpu_id]
+            else:
+                gpu_ids_to_run = list(range(num_gpus))
 
-            # Transfer the CPU index to the specific GPU ID
-            gpu_index = faiss.index_binary_cpu_to_gpu(res, gpu_id, cpu_index)
+            for gid in gpu_ids_to_run:
+                if gid >= num_gpus:
+                    print(
+                        f"\nERROR: requested GPU {gid}, but FAISS detected {num_gpus} GPU(s). Skipping."
+                    )
+                    continue
 
-            print(f"Running Benchmark on GPU {gpu_id}...")
-            device = f"GPU {gpu_id}"
-            summaries[device] = benchmark_search(gpu_index, matrix_A, k, iterations)
-            print_iteration_results(device, summaries[device])
+                print(f"\nInitializing GPU {gid}...")
+                res = faiss.StandardGpuResources()
+
+                # Transfer the CPU index to the specific GPU ID
+                gpu_index = faiss.index_binary_cpu_to_gpu(res, gid, cpu_index)
+
+                print(f"Running Benchmark on GPU {gid}...")
+                device = f"GPU {gid}"
+                summaries[device] = benchmark_search(gpu_index, matrix_A, k, iterations)
+                print_iteration_results(device, summaries[device])
+                print_top5_results(device, gpu_index, matrix_A, k)
 
     except AttributeError:
         print("\nERROR: FAISS-GPU is not installed or CUDA is not available.")
 
-    # `search` returns host NumPy arrays, so each interval includes completion
-    # of distance calculation, top-k selection, and result transfer.
     print_final_results(summaries, "CPU", workload)
 
 
