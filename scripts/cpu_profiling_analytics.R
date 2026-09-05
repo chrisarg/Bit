@@ -121,13 +121,23 @@ data[, (valid_factors) := lapply(.SD, as.factor), .SDcols = valid_factors]
 data[, vpopcountHW := as.character(vpopcountHW)]
 data[, vpopcountHW := ifelse(vpopcountHW == "asimd", "vcntq_u8", vpopcountHW)]
 
+# Logical_CPUs (machine core count from telemetry) -----------------------------------------
+# Backward-compat: legacy CSVs lack the column; rbindlist(fill=TRUE) yields NA -> "unknown".
+if ("Logical_CPUs" %in% names(data)) {
+  data[is.na(Logical_CPUs) | Logical_CPUs == "", Logical_CPUs := "unknown"]
+  # Order numerically (8 < 16 < 72) rather than lexicographically; keep "unknown" last.
+  cpu_levels <- c(sort(unique(as.numeric(data$Logical_CPUs[data$Logical_CPUs != "unknown"]))), "unknown")
+  data[, Logical_CPUs := factor(Logical_CPUs, levels = cpu_levels, ordered = TRUE)]
+}
+
 # 3. Aggregate Repetitions over Run Matrix
 # Grouping factors for repetition aggregation
 group_cols <- intersect(c("Processor", "SIMD", "vpopcountHW", "Compiler", "Opt_Level", "LTO", "MARCH",
                           "LIBPOPCNT", "CPU_TILE", "BITVECTOR_TILE", "BUFFER_SIZE", 
                           "OUTER_ROW_NUM", "OUTER_COL_NUM", "OUTER_VEC_BLK", 
                           "Benchmark_Type", "Bitset_Size", "Dim_Left", "Dim_Right", 
-                          "Threads", "OMP_Bind", "NUMA_Policy", "Cache_State", "Hugepages"), names(data))
+                          "Threads", "OMP_Bind", "NUMA_Policy", "Cache_State", "Hugepages",
+                          "Logical_CPUs"), names(data))
 
 aggregated_data <- data[, .(
   Mean_Throughput   = mean(Throughput, na.rm = TRUE),
@@ -154,10 +164,15 @@ opt_cont  <- optimal_configs[Benchmark_Type == "Containerized"]
 data_cont <- aggregated_data[Benchmark_Type == "Containerized"]
 
 # Plot 1: Optimization Frontier (Throughput vs Threads by Compiler)
+# NOTE: facet_grid keeps a fixed lattice. When pooling many machines (many distinct
+# Logical_CPUs) the panels can grow very tall -- switch to facet_wrap(..., scales = "free_y").
 p1 <- ggplot(opt_cont, aes(x = Threads, y = Median_Throughput, color = Bitset_Size, linetype = Compiler)) +
   geom_line(linewidth = 1) + 
   geom_point(size = 2) +
-  facet_grid(LIBPOPCNT ~ SIMD, labeller = label_both) +
+  geom_vline(data = opt_cont[!is.na(suppressWarnings(as.numeric(as.character(Logical_CPUs))))],
+             aes(xintercept = as.numeric(as.character(Logical_CPUs))),
+             linetype = "dotted", color = "grey40", alpha = 0.6) +
+  facet_grid(LIBPOPCNT + Logical_CPUs ~ SIMD, labeller = label_both) +
   theme_minimal(base_size = 14) +
   labs(title = "[Containerized] Optimization Frontier: Median Throughput vs Threads", 
        y = "Searches / Sec")
@@ -168,9 +183,11 @@ reg_data <- data_cont[Threads == max_thread_val, .SD[which.max(Median_Throughput
                       by = .(SIMD, LIBPOPCNT, OUTER_ROW_NUM, OUTER_COL_NUM)]
 reg_data[, Registers := (OUTER_ROW_NUM * OUTER_COL_NUM) + OUTER_ROW_NUM + OUTER_COL_NUM]
 
-p2 <- ggplot(reg_data, aes(x = Registers, y = Median_Throughput, color = LIBPOPCNT)) +
+p2 <- ggplot(reg_data, aes(x = Registers, y = Median_Throughput,
+                            color = LIBPOPCNT, linetype = Logical_CPUs,
+                            group = interaction(LIBPOPCNT, Logical_CPUs))) +
   geom_line(linewidth = 1) + 
-  geom_point(size = 3) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
   geom_vline(xintercept = 16, linetype = "dashed", color = "darkred", alpha = 0.6) +
   geom_vline(xintercept = 32, linetype = "dashed", color = "darkblue", alpha = 0.6) +
   facet_wrap(~SIMD, scales = "free_y") +
@@ -180,15 +197,18 @@ p2 <- ggplot(reg_data, aes(x = Registers, y = Median_Throughput, color = LIBPOPC
 print(p2)
 
 # Plot 3: Cache Saturation & Variance Range
+# NOTE: facet_grid keeps a fixed lattice. When pooling many machines (many distinct
+# Logical_CPUs) the panels can grow very tall -- switch to facet_wrap(..., scales = "free_y").
 cache_data <- data_cont[Threads == max_thread_val, .SD[which.max(Median_Throughput)], 
                         by = .(SIMD, Bitset_Size, LIBPOPCNT, vpopcountHW, BUFFER_SIZE)]
 
-p3 <- ggplot(cache_data, aes(x = BUFFER_SIZE, y = Median_Throughput, color = LIBPOPCNT, shape = vpopcountHW)) +
+p3 <- ggplot(cache_data, aes(x = BUFFER_SIZE, y = Median_Throughput,
+                             color = LIBPOPCNT, linetype = vpopcountHW, shape = Logical_CPUs)) +
   geom_line(linewidth = 1) + 
   geom_point(size = 3) +
   geom_errorbar(aes(ymin = Median_Throughput - SD_Throughput, ymax = Median_Throughput + SD_Throughput), width = 0.1) +
   scale_x_continuous(trans = "log2") +
-  facet_grid(Bitset_Size ~ SIMD, labeller = label_both, scales = "free_y") +
+  facet_grid(Bitset_Size + Logical_CPUs ~ SIMD, labeller = label_both, scales = "free_y") +
   theme_minimal(base_size = 14) +
   labs(title = "[Containerized] Cache Saturation Curve with Variance (Log2 Memory Wall)", 
        x = "SETOP_BUFFER_SIZE (Words)", y = "Median Throughput")

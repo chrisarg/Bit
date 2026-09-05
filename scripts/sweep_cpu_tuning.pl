@@ -89,6 +89,29 @@ my $perf_reps   = $ENV{PERF_REPS} // 3;
 my $elevate     = lc( $ENV{ELEVATE}  // 'auto' );
 my $priority    = lc( $ENV{PRIORITY} // 'nice' );
 my $limit       = $ENV{MAX_CONFIGS} // 0;
+
+# 'auto' sentinel for CORES/THREADS: expand against usable logical CPUs (nproc).
+sub auto_cpu_count {
+    if ( open my $ph, '-|', 'nproc' ) {
+        my $n = <$ph>;
+        close $ph;
+        return $1 if defined $n && $n =~ /(\d+)/ && $1 > 0;
+    }
+    if ( open my $fh, '<', '/proc/cpuinfo' ) {
+        my $count = grep { /^processor\b/ } <$fh>;
+        close $fh;
+        return $count if $count > 0;
+    }
+    die "Unable to determine logical CPU count for 'auto' (nproc and /proc/cpuinfo failed).\n";
+}
+if ( lc($cores) eq 'auto' ) {
+    my $n = auto_cpu_count();
+    $cores = '0-' . ( $n - 1 );
+}
+if ( lc($threads) eq 'auto' ) {
+    $threads = auto_cpu_count();
+}
+
 my $timestamp   = strftime( '%Y%m%d-%H%M%S', localtime );
 my $results_dir = $ENV{RESULTS_DIR}
   // File::Spec->catdir( $root, 'tuning-results' );

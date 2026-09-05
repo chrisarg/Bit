@@ -7,7 +7,7 @@
     "libpopcnt": [0, 1],
     "cpu_tile": [16, 32],
     "bitvector_tile": [512, 1024],
-    "buffer_size": [256, 512],
+    "buffer_size": [256, 512, 1024, 2048, 4096],
     "outer_row_num": [2, 4],
     "outer_col_num": [2, 4],
     "outer_vec_blk": [2, 4]
@@ -16,7 +16,7 @@
     "num_bits": [65536, 262144],
     "dim_left": [1024],
     "dim_right": [1024],
-    "threads": [1, 2, 4, 8, 10, 20],
+    "threads": [1, 2, 4, 8, 16, 18, 20, 36, 54, 72, "maxcores"],
     "omp_bind": ["close", "spread"],
     "numa_policy": ["--interleave=all", "--localalloc"],
     "rep_id": [1, 2, 3]
@@ -41,6 +41,12 @@
       "extractors": {
         "Compiler_Version": "(.*)"
       }
+    },
+    "cpu_count": {
+      "cmd": "nproc",
+      "extractors": {
+        "Logical_CPUs": "(\\d+)"
+      }
     }
   },
   "system_env": {
@@ -48,7 +54,8 @@
     "summary_csv": "{out_dir}/{base_name}.csv",
     "raw_log": "{out_dir}/{base_name}_raw.log",
     "exec_context": "auto",
-    "taskset": "0-9",
+    "_taskset_threads_docs": "taskset + threads accept 'auto'; threads lists accept 'maxcores'. See README.md 'Broad Parameter Discovery'.",
+    "taskset": "auto",
     "priority": "normal",
     "build_cmd": "make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC={cc} OPT={opt_level} APPLY_LTO={lto} MARCH={march} LIBPOPCNT={libpopcnt} CPU_TILE={cpu_tile} BITVECTOR_TILE={bitvector_tile} BUFFER_SIZE={buffer_size} OUTER_ROW_NUM={outer_row_num} OUTER_COL_NUM={outer_col_num} OUTER_VEC_BLK={outer_vec_blk}",
     "run_cmd": "env OMP_PLACES=cores OMP_PROC_BIND={omp_bind} numactl {numa_policy} ../build/cpu_param_sweep {num_bits} {dim_left} {dim_right} {threads}",

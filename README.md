@@ -1045,6 +1045,53 @@ perl ./cpu_param_sweep.pl \
 The JSON uses underscore-style option names, such as `out_dir`, because those
 are the configuration keys consumed by `GetOptions`.
 
+##### Affinity and Thread Scaling
+
+`taskset` (a `system_env` scalar) and `threads` (a `run_matrix` list) accept
+machine-portable sentinel values so a single configuration works across hosts
+with different core counts. The resolved logical-core count is the value
+reported by `nproc` (which honors cgroup/affinity limits on shared nodes),
+falling back to counting `processor` entries in `/proc/cpuinfo`.
+
+`taskset` controls the CPU mask passed to `taskset -c`:
+
+| Value | Behavior |
+| --- | --- |
+| explicit cpulist (`0-9`, `0,2,4`, `0-15:2`) | Passed verbatim to `taskset -c`. |
+| `auto` | Expands to `0-(N-1)`, pinning to all N usable logical CPUs. |
+
+`threads` controls the OpenMP thread-count sweep:
+
+| Value | Behavior |
+| --- | --- |
+| explicit list (`[1, 2, 4, 8]`) | Swept as-is. |
+| `["auto"]` | Expands to `1..N` (every logical core). |
+| list containing `"maxcores"` | The sentinel is dropped and numeric entries are capped at `<= N`, preserving order and removing duplicates. On an 8-core machine, `[1, 2, 3, 4, "maxcores", 16, 18]` becomes `[1, 2, 3, 4]`, and `[1, 2, 3, 4, 8, 16, 18, 72, "maxcores"]` becomes `[1, 2, 3, 4, 8]`. |
+
+If every requested thread count exceeds the available cores (an impossible
+scenario on the current machine), the runner logs a warning and falls back to
+sweeping `1..N` rather than aborting.
+
+Both sentinels are also available as command-line overrides:
+
+```bash
+perl ./cpu_param_sweep.pl --config ./benchmark_config_cpu.json \
+  --taskset auto --threads auto
+
+perl ./cpu_param_sweep.pl --config ./benchmark_config_cpu.json \
+  --threads 1,2,4,maxcores
+```
+
+The resolved core count is recorded per run in the `Logical_CPUs` CSV column
+(emitted by the `cpu_count` telemetry entry) and is used by
+`cpu_profiling_analytics.R` to facet and annotate the optimization-frontier,
+register-pressure, and cache-saturation plots.
+
+The focused tuner honors the same `auto` keyword through its `CORES` and
+`THREADS` environment variables (e.g. `CORES=auto THREADS=auto
+./scripts/sweep_cpu_tuning.pl`). `run_numa_sweeps.sh` intentionally keeps
+explicit per-socket masks and is unaffected.
+
 ##### Telemetry and CSV Parsing
 
 Telemetry is described in JSON rather than embedded as benchmark-specific Perl
