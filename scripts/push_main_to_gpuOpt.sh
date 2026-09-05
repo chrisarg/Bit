@@ -53,6 +53,8 @@ EXACT_PATHS=(
   scripts/faiss_compare.pl
   scripts/benchmark_config_faiss.json
   scripts/faiss_compare_visualize.R
+  scripts/faiss_cpu_benchmark.py
+  scripts/faiss_gpu_benchmark.py
 )
 
 # Directories whose complete tracked file trees, including subdirectories,
