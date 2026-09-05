@@ -1,0 +1,55 @@
+[2026-09-05 15:07:18] [INFO] Starting Universal Benchmark Engine
+[2026-09-05 15:07:18] [INFO] Run ID: 20260905_150718_52882 | Node: chrisarg-HP-Z840-Workstation (e0:d3:62:43:18:3f) | Context: Manual
+[2026-09-05 15:07:18] [INFO] Seed: 12345 (reproducible grid order)
+[2026-09-05 15:07:18] [INFO] BUILDING: make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC=clang OPT=-O3 APPLY_LTO=1 MARCH=native LIBPOPCNT=0 CPU_TILE=32 BITVECTOR_TILE=512 BUFFER_SIZE=4096 OUTER_ROW_NUM=4 OUTER_COL_NUM=4 OUTER_VEC_BLK=4
+[2026-09-05 15:07:31] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 262144 1024 1024 2
+[2026-09-05 15:07:36] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 4
+[2026-09-05 15:07:36] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --interleave=all ../build/cpu_param_sweep 262144 1024 1024 20
+[2026-09-05 15:07:37] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 8
+[2026-09-05 15:07:38] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 2
+[2026-09-05 15:07:40] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 4
+[2026-09-05 15:07:40] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 8
+[2026-09-05 15:07:40] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 4
+[2026-09-05 15:07:41] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 16
+[2026-09-05 15:07:41] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 36
+[2026-09-05 15:07:41] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 18
+[2026-09-05 15:07:42] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 16
+[2026-09-05 15:07:42] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 2
+[2026-09-05 15:07:43] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 8
+[2026-09-05 15:07:45] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 20
+[2026-09-05 15:07:45] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 20
+[2026-09-05 15:07:45] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 262144 1024 1024 1
+[2026-09-05 15:07:54] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 36
+[2026-09-05 15:07:54] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 8
+[2026-09-05 15:07:55] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 1
+[2026-09-05 15:07:57] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 2
+[2026-09-05 15:07:58] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 2
+[2026-09-05 15:07:59] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 4
+[2026-09-05 15:08:01] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 36
+[2026-09-05 15:08:02] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 8
+[2026-09-05 15:08:02] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 1
+[2026-09-05 15:08:04] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 8
+[2026-09-05 15:08:05] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 4
+[2026-09-05 15:08:06] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 20
+[2026-09-05 15:08:06] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 262144 1024 1024 2
+[2026-09-05 15:08:11] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 1
+[2026-09-05 15:08:13] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 16
+[2026-09-05 15:08:14] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 262144 1024 1024 2
+[2026-09-05 15:08:18] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 20
+[2026-09-05 15:08:18] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 36
+[2026-09-05 15:08:19] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 36
+[2026-09-05 15:08:19] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 2
+[2026-09-05 15:08:24] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 36
+[2026-09-05 15:08:24] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 20
+[2026-09-05 15:08:24] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 16
+[2026-09-05 15:08:25] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 262144 1024 1024 18
+[2026-09-05 15:08:26] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 4
+[2026-09-05 15:08:26] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 8
+[2026-09-05 15:08:28] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --interleave=all ../build/cpu_param_sweep 262144 1024 1024 4
+[2026-09-05 15:08:30] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 2
+[2026-09-05 15:08:35] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 18
+[2026-09-05 15:08:36] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --interleave=all ../build/cpu_param_sweep 65536 1024 1024 36
+[2026-09-05 15:08:36] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 8
+[2026-09-05 15:08:36] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=spread numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 1
+[2026-09-05 15:08:38] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 65536 1024 1024 2
+[2026-09-05 15:08:40] [DEBUG] RUNNING: taskset -c 0-35 env OMP_PLACES=cores OMP_PROC_BIND=close numactl --localalloc ../build/cpu_param_sweep 262144 1024 1024 1
