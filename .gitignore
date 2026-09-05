@@ -30,6 +30,9 @@
 # ignore CSV, but not if it's in the benchmark directory (for output)
 *.csv
 !benchmark_GPU_params/**/*.csv
+# CPU sweep results: tracked so multiple machines can push results to the
+# shared benchmark_CPU_params/ directory for cross-CPU aggregation/plotting.
+!benchmark_CPU_params/**/*.csv
 
 # Custom build directories (when BUILD_DIR is specified)
 # Add specific paths here if you have common build locations
