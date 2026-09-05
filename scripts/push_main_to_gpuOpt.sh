@@ -5,15 +5,15 @@ BRANCH_SRC="main"
 BRANCH_DST="gpuOpt"
 CURRENT_BRANCH="$(git branch --show-current)"
 DRY_RUN=0
+NO_PUSH=0
 
-if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=1
-  shift
-fi
-if (( $# > 0 )); then
-  echo "Usage: $0 [--dry-run]" >&2
-  exit 2
-fi
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --no-push) NO_PUSH=1 ;;
+    *) echo "Usage: $0 [--dry-run] [--no-push]" >&2; exit 2 ;;
+  esac
+done
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -43,6 +43,16 @@ EXACT_PATHS=(
   tests/test_bit.c
   tests/test_offload.c
   scripts/generate_bug_report.sh
+  src/topk.h
+  src/topk_cpu.c
+  src/topk_gpu.c
+  src/topk_internal.h
+  benchmark/openmp_bit_faiss_bench.h
+  benchmark/openmp_bit_cpu_FAISS_comp.c
+  benchmark/openmp_bit_gpu_FAISS_comp.c
+  scripts/faiss_compare.pl
+  scripts/benchmark_config_faiss.json
+  scripts/faiss_compare_visualize.R
 )
 
 # Directories whose complete tracked file trees, including subdirectories,
@@ -166,7 +176,11 @@ if git diff --cached --quiet; then
   echo "No selected-file changes to commit."
 else
   git commit -m "Copy selected main files into gpuOpt"
-  git push origin "$BRANCH_DST"
+  if (( NO_PUSH )); then
+    echo "Committed locally on ${BRANCH_DST} (--no-push; NOT pushed to origin)."
+  else
+    git push origin "$BRANCH_DST"
+  fi
 fi
 
 git switch "$CURRENT_BRANCH"
