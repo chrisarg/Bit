@@ -74,8 +74,8 @@ every command documented below exists on every branch.
 
 | Branch | Purpose | Notes |
 | --- | --- | --- |
-| `main` | Baseline library, SIMD, CPU tuning, NUMA experiments, and shared benchmark work | Owns the CPU sweep/tuning scripts and the `main`-to-branch synchronization helpers. |
-| `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns `Makefile_bench.mak`, GPU-only and native CUDA/HIP benchmarks, GPU sweep/plot tooling and results, FAISS comparisons, and the `gpuOpt`-to-branch synchronization helpers. |
+| `main` | Baseline library, SIMD, CPU tuning, NUMA experiments, and shared benchmark work | Owns the CPU sweep/tuning scripts, the FAISS C comparators (`openmp_bit_cpu_FAISS_comp`, `openmp_bit_gpu_FAISS_comp`) built by the main `Makefile`, the FAISS comparison sweep (`faiss_compare.pl` + `faiss_compare_visualize.R`), and the `main`-to-branch synchronization helpers. |
+| `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns `Makefile_bench.mak`, the `openmp_bit_nocpu` GPU-only kernel testbed, native CUDA/HIP benchmarks, GPU sweep/plot tooling and results, the FAISS *Python* scripts, and the `gpuOpt`-to-branch synchronization helpers. |
 | `inteliGPU` | Intel oneAPI CPU build and offload validation | Build with `CC=icx GPU=INTEL`. Its `scripts/` directory retains only the shared bug-report helper after branch-specific cleanup. |
 
 Identify the checked-out branch, source revision, and working-tree state with:
@@ -816,6 +816,12 @@ benchmark, not a public runtime option. The active `gpuOpt` values are:
 - `SHARED_TILE_ILP`
 - `TRANSPOSED_TILED_GEMM`
 
+The experimental `SHARED_TILE_ILP` and `TRANSPOSED_TILED_GEMM` variants are
+available ONLY to the `openmp_bit_nocpu` testbed. The FAISS GPU comparator
+(`openmp_bit_gpu_FAISS_comp`) always uses the library's built-in kernel
+(`TEAM_PARALLEL_SIMD` or `TRANSPOSED_TEAM_PARALLEL_SIMD`, selected by
+`OPENMP_GPU_IMPL` at library build time).
+
 For example:
 
 ```bash
@@ -827,6 +833,75 @@ make -f Makefile_bench.mak openmp_bit_nocpu \
 These kernels and native CUDA/HIP paths are experimental. Build for the target
 compiler and architecture, confirm agreement with the CPU reference, and then
 measure the workload you care about.
+
+### FAISS C comparators
+
+Two thin, public-API-only C benchmarks mirror the Python FAISS scripts and are
+built by the MAIN `Makefile` (not `Makefile_bench.mak`). Both consume only the
+public `bit.h` interface and link `libbit` (which now also carries the private
+top-k selection object); there is no `GPU_COMPILE_TOPK` flag -- top-k placement
+is fixed at build time: host for the CPU executable, device for the GPU
+executable.
+
+| C executable | Python counterpart | top-k runs on |
+| --- | --- | --- |
+| `openmp_bit_cpu_FAISS_comp` | `scripts/faiss_cpu_benchmark.py` | host |
+| `openmp_bit_gpu_FAISS_comp` | `scripts/faiss_gpu_benchmark.py` | device |
+
+Build them (the GPU target requires `GPU != NONE`):
+
+```bash
+make CC=clang GPU=NVIDIA GPU_ARCH=sm_70 \
+  openmp_bit_cpu_FAISS_comp openmp_bit_gpu_FAISS_comp
+```
+
+Usage:
+
+```text
+build/openmp_bit_cpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <iterations> [threads]
+build/openmp_bit_gpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <gpu-iterations> [gpu-id]
+```
+
+### FAISS comparison sweep
+
+`scripts/faiss_compare.pl` runs a small (non-exhaustive) Cartesian comparison
+of four builds : native FAISS CPU, native FAISS GPU, and the two Bit OpenMP
+comparators. The sweep is parameterized by the schema
+`scripts/benchmark_config_faiss.json`. It harvests PER-ITERATION end-to-end
+timings (each cell runs a fixed number of iterations; this is 100 by default, but can be changed into the JSON configuration file) into a long-format CSV.
+The default run grid sweeps bitset size x top_k x database size (`num_refs` in
+{10000, 100000, 1000000}).
+The OpenMP builds are independent of any FAISS installation; only the two
+native FAISS builds need the FAISS conda environment (resolved automatically
+via `conda run -n faiss_env` when the base `python` cannot import FAISS).
+
+```bash
+# Full grid: bitset sizes 1024..65536 x top_k 64..2048 x num_refs
+# 10000..1000000, 100 iterations each.
+perl scripts/faiss_compare.pl --config scripts/benchmark_config_faiss.json
+
+# Quick smoke run / dry run.
+perl scripts/faiss_compare.pl --bitset_bits 1024 --top_k 64 --num_refs 10000,100000 --dry_run
+```
+
+Outputs (all under `benchmark_FAISS/`):
+
+- `faiss_compare_results.csv`  -- long-format per-iteration timings.
+- `faiss_compare_summary.csv`  -- per-cell mean/median/sd (written by the R step).
+- `faiss_compare_report.pdf`   -- boxplots of the per-iteration distributions.
+
+Regenerate the report with:
+
+```bash
+Rscript scripts/faiss_compare_visualize.R
+```
+
+<!-- Figure placeholders: replaced by faiss_compare_report.pdf renders. -->
+![FAISS vs Bit: per-iteration time distribution](benchmark_FAISS/faiss_compare_time_distribution.png)
+
+![FAISS vs Bit: per-iteration throughput distribution](benchmark_FAISS/faiss_compare_throughput_distribution.png)
+
+![Median per-iteration time vs bitset size](benchmark_FAISS/faiss_compare_median_trend.png)
 
 The strategy selector and these benchmark targets belong to `gpuOpt`; `main`
 and `inteliGPU` retain only the standard Makefile build surfaces.
@@ -1295,6 +1370,8 @@ The script trees are intentionally different.
 | `run_numa_sweeps.sh` | Yes | No | No | Runs four dual-socket scenarios through `sweep_cpu_tuning.pl`. |
 | `gpu_param_sweep.pl` + `plot_performance.R` | No | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
 | Tracked `benchmark_GPU_params/` results | No | Yes | No | Historical GPU sweep CSV/log results kept with their producer and plotter. |
+| `faiss_compare.pl` + `benchmark_config_faiss.json` | Yes | Yes | No | Small JSON-driven FAISS-vs-Bit comparison sweep; harvests per-iteration timings into `benchmark_FAISS/`. |
+| `faiss_compare_visualize.R` | Yes | Yes | No | R report for the FAISS comparison; boxplots of per-iteration times and a summarized CSV in `benchmark_FAISS/`. |
 | `faiss_cpu_gpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. |
 | `faiss_gpu_benchmark.py` | No | Yes | No | Similar FAISS GPU comparison without a measured CPU baseline; reports devices relative to GPU 0. |
 | `push_main_to_gpuOpt.sh`, `push_main_to_inteliGPU.sh` | Yes | No | No | Copy curated paths from `main` to the named destination branch. |

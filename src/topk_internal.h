@@ -3,7 +3,10 @@
 #include "omp.h"
 #include <stdint.h>
 
-#if GPU_COMPILE_TOPK
+/* The heap helpers must be visible to the device compilation pass whenever
+ * offloading is enabled (i.e. whenever NOGPU is not defined), because
+ * topk_gpu.c invokes them from `omp target` regions. */
+#ifndef NOGPU
 #pragma omp declare target
 #endif
 
@@ -82,6 +85,6 @@ static inline void heapify(int *dist_base, int *idx_base, int64_t n,
   }
 }
 
-#if GPU_COMPILE_TOPK
+#ifndef NOGPU
 #pragma omp end declare target
 #endif

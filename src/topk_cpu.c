@@ -5,9 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void topk_int_omp(const int *dist, int64_t N, int64_t M, int K,
-                  int *out_dist, int *out_idx, int dev_id) 
+void topk_int_omp_cpu(const int *dist, int64_t N, int64_t M, int K,
+                      int *out_dist, int *out_idx, int dev_id) 
 {
+  (void)dev_id; // host implementation: device id is ignored
     if (N <= 0 || M <= 0 || K <= 0) return;
     if (K > M) K = M;
 

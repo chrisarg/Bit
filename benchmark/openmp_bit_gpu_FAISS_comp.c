@@ -1,68 +1,33 @@
 /*
 
-OpenMP GPU-only benchmark
+OpenMP GPU-only FAISS-comparison benchmark
 Contains instrumented code to assess PCIe transfer overheads and GPU-only
-execution times for containerized intersection counts. The test creates a
-database of bitsets, performs intersection counts on the GPU, and reports
-timings and speedup factors.
+execution times for containerized Hamming-distance counts, followed by
+device-side top-k selection. The test creates a database of bitsets, performs
+XOR popcount counts on the GPU through the PUBLIC Bit library API, selects the
+top-k candidates per query on the device, and reports timings comparable to
+the FAISS GPU benchmark script (scripts/faiss_gpu_benchmark.py).
 
+This translation unit intentionally consumes ONLY the public bit.h interface:
+all GPU kernel layout/offload machinery lives inside libbit.
 */
 #define _POSIX_C_SOURCE 199309L
-#include "openmp_bit_nocpu_FAISS_comp.h"
-#include "openmp_bit_helpers.h"
-#include "openmp_bit_nocpu_FAISS_comp_GPU.h"
 
-#include "topk.h"
-#include <assert.h>
-#include <errno.h>
-#include <limits.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
+#include "openmp_bit_faiss_bench.h"
+
+#define T Bit_T
+#define T_DB Bit_DB_T
 
 #define MAX_GPU_ITERATIONS 1024
 #define MIN_SIZE 128
 
-static int parse_positive_size(const char *text, size_t *value) {
-  char *end = NULL;
-  unsigned long long parsed;
-
-  if (text == NULL || value == NULL || text[0] == '-') {
-    return 0;
-  }
-
-  errno = 0;
-  parsed = strtoull(text, &end, 10);
-  if (errno == ERANGE || end == text || *end != '\0' || parsed == 0 ||
-      parsed > SIZE_MAX) {
-    return 0;
-  }
-
-  *value = (size_t)parsed;
-  return 1;
-}
-
-int64_t timeDiff(struct timespec *timeA_p, struct timespec *timeB_p) {
-  return ((timeA_p->tv_sec - timeB_p->tv_sec) * 1000000000 + timeA_p->tv_nsec -
-          timeB_p->tv_nsec);
-}
-
-void summarize_results(const char *test, int64_t timeElapsed, int iteration,
-                       int result, float speedup) {
-  printf("Total time for %-35s: %15ld ns\t", test, timeElapsed);
-  printf("Searches per second : %0.2f\t", (float)1E9 / timeElapsed);
-  printf("GPU iteration: %3d \t", iteration);
-  printf("Result: %d\t", result);
-  printf("Speedup factor: %.2f\n", speedup);
-}
+typedef Bench_Instrumentation GPU_Instrumentation;
 
 void BitDB_diff_count_store_gpu_instrument(T_DB bit, T_DB bits, int *counts,
                                            SETOP_COUNT_OPTS opts,
                                            GPU_Instrumentation *instr) {
   clock_gettime(CLOCK_MONOTONIC, &instr->start_time);
-  _BitDB_diff_count_store_gpu(bit, bits, counts, opts, instr);
+  BitDB_diff_count_store_gpu(bit, bits, counts, opts);
   clock_gettime(CLOCK_MONOTONIC, &instr->end_time);
 }
 
@@ -73,20 +38,6 @@ int *BitDB_diff_count_gpu_instrument(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts,
   assert(counts != NULL);
   BitDB_diff_count_store_gpu_instrument(bit, bits, counts, opts, instr);
   return counts;
-}
-
-int database_match_GPU(Bit_DB_T db1, Bit_DB_T db2, SETOP_COUNT_OPTS opts) {
-  int max = 0, current = 0, *results;
-  results = BitDB_diff_count_gpu(db1, db2, opts);
-  size_t nelem = (size_t)BitDB_nelem(db2) * BitDB_nelem(db1);
-  for (size_t i = 0; i < nelem; i++) {
-    current = results[i];
-    if (current > max) {
-      max = current;
-    }
-  }
-  free(results);
-  return max;
 }
 
 FilteredResults database_match_GPU_filter_instrument(Bit_DB_T db1, Bit_DB_T db2,
@@ -100,30 +51,26 @@ FilteredResults database_match_GPU_filter_instrument(Bit_DB_T db1, Bit_DB_T db2,
   assert(top_k > 0 && top_k <= num_refs);
   assert(num_queries <= SIZE_MAX / top_k);
 
-  int *results;
   int *top_scores = malloc(num_queries * top_k * sizeof(*top_scores));
   int *top_ids = malloc(num_queries * top_k * sizeof(*top_ids));
   assert(top_scores && top_ids);
 
-  results = BitDB_diff_count_gpu_instrument(db1, db2, opts, instr);
-  // mapped device address
-  int *device_results = NULL;
+  int *results = BitDB_diff_count_gpu_instrument(db1, db2, opts, instr);
 
-#if GPU_COMPILE_TOPK
+  /* The counts buffer is resident on the device (defer_counts_transfer);
+   * obtain its device address for the device-side top-k selection. */
+  int *device_results = NULL;
 #pragma omp target data map(alloc : results[0 : nelem])                        \
     use_device_ptr(results) device(opts.device_id)
   {
     device_results = results;
   }
   assert(device_results != NULL &&
-         "Error: failed to obtain libgomp device pointer!");
-#else
-  device_results = results;
-#endif
+         "Error: failed to obtain device pointer for the counts buffer");
 
   clock_gettime(CLOCK_MONOTONIC, &instr->start_CPU_overhead);
-  topk_int_omp(device_results, num_queries, num_refs, top_k, top_scores,
-               top_ids, 0);
+  topk_int_omp_gpu(device_results, num_queries, num_refs, top_k, top_scores,
+                   top_ids, opts.device_id);
   clock_gettime(CLOCK_MONOTONIC, &instr->end_CPU_overhead);
 
   int min_score = INT_MAX;
@@ -133,9 +80,9 @@ FilteredResults database_match_GPU_filter_instrument(Bit_DB_T db1, Bit_DB_T db2,
       min_score = top_scores[candidate];
     }
   }
-#if GPU_COMPILE_TOPK
-#pragma omp target exit data map(delete : results[0 : nelem])
-#endif
+
+#pragma omp target exit data map(delete : results[0 : nelem])                  \
+    device(opts.device_id)
   free(results);
 
   FilteredResults filtered_results;
@@ -214,10 +161,9 @@ int main(int argc, char *argv[]) {
   printf("Debug mode is disabled.\n");
 #endif
 
-#ifdef OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD
+#if defined(OPENMP_GPU_IMPL_TEAM_PARALLEL_SIMD)
   printf("Using OpenMP GPU implementation: TEAM_PARALLEL_SIMD\n");
-#endif
-#ifdef OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD
+#elif defined(OPENMP_GPU_IMPL_TRANSPOSED_TEAM_PARALLEL_SIMD)
   printf("Using OpenMP GPU implementation: TRANSPOSED_TEAM_PARALLEL_SIMD\n");
 #endif
 #ifdef USE_BUILTIN_POPCOUNT
@@ -225,7 +171,7 @@ int main(int argc, char *argv[]) {
 #else
   printf("Using OpenMP GPU popcount: WWG\n");
 #endif
-  printf("CPU heap selection: top %zu candidates per query\n", top_k);
+  printf("GPU heap selection: top %zu candidates per query\n", top_k);
   printf("Starting GPU-only benchmark\n");
 
   const size_t words_per_bitset = (size + 63) / 64;
@@ -250,10 +196,10 @@ int main(int argc, char *argv[]) {
   }
 
   puts("\t\t ... first 5 queries and references");
-  for (size_t i = 0; i < 5 && i < num_of_bits; ++i) {
+  for (size_t i = 0; i < 5 && i < (size_t)num_of_bits; ++i) {
     printf("Query %zu: 0x%016llx\n", i, (unsigned long long)h_queries[i]);
   }
-  for (size_t i = 0; i < 5 && i < num_of_ref_bits; ++i) {
+  for (size_t i = 0; i < 5 && i < (size_t)num_of_ref_bits; ++i) {
     printf("Ref %zu: 0x%016llx\n", i, (unsigned long long)h_refs[i]);
   }
 
@@ -282,29 +228,20 @@ int main(int argc, char *argv[]) {
   }
 
   int64_t timings[MAX_GPU_ITERATIONS + 1];
-  int64_t PCIe_timings[MAX_GPU_ITERATIONS + 1];
   int64_t filter_timings[MAX_GPU_ITERATIONS + 1];
   int results[MAX_GPU_ITERATIONS + 1];
   int64_t end_to_end_timings[MAX_GPU_ITERATIONS + 1];
   GPU_Instrumentation instr = {0};
 
-  SETOP_COUNT_OPTS opts;
-#if GPU_COMPILE_TOPK
-  opts = (SETOP_COUNT_OPTS){.device_id = gpu_id,
-                            .upd_1st_operand = true,
-                            .upd_2nd_operand = false,
-                            .release_1st_operand = true,
-                            .defer_counts_transfer = true,
-                            .release_counts = false};
-#else
-  opts = (SETOP_COUNT_OPTS){.device_id = gpu_id,
-                            .upd_1st_operand = true,
-                            .upd_2nd_operand = false,
-                            .release_1st_operand = true,
-                            .defer_counts_transfer = false,
-                            .release_counts = true};
-  // burn-in iteration to mitigate cold-start overheads
-#endif
+  /* The GPU benchmark always pairs the device count kernel with the device
+   * top-k selection: db1 is re-uploaded each iteration, db2 stays resident,
+   * and the counts buffer remains on the device for the device top-k. */
+  SETOP_COUNT_OPTS opts = (SETOP_COUNT_OPTS){.device_id = gpu_id,
+                                             .upd_1st_operand = true,
+                                             .upd_2nd_operand = false,
+                                             .release_1st_operand = true,
+                                             .defer_counts_transfer = true,
+                                             .release_counts = false};
 
   FilteredResults filtered_results = database_match_GPU_filter_instrument(
       db1, db2, top_k, opts, &instr, false);
@@ -404,10 +341,10 @@ int main(int argc, char *argv[]) {
       "Printing filtered results and scores (five scores, first five queries)");
   for (int i = 0; i < 5 && i < num_of_bits; i++) {
     printf("|Query %d:\t|", i);
-    for (int j = 0; j < 5 && j < top_k; j++) {
+    for (int j = 0; j < 5 && j < (int)top_k; j++) {
       printf("  Score: %5d, ID: %5d |",
-             filtered_results.top_scores[i * top_k + j],
-             filtered_results.top_ids[i * top_k + j]);
+             filtered_results.top_scores[i * (int)top_k + j],
+             filtered_results.top_ids[i * (int)top_k + j]);
     }
     printf("\n");
   }
@@ -455,7 +392,6 @@ int main(int argc, char *argv[]) {
   puts("      and PCIe transfers combined, representing user-perceived "
        "performance.");
 
-// 1. Extract the method string to avoid ugly inline macros inside the printf
 #if defined(USE_BUILTIN_POPCOUNT)
   const char *method_suffix = "builtin";
 #elif defined(USE_LIBPOPCNT) && USE_LIBPOPCNT
@@ -464,7 +400,6 @@ int main(int argc, char *argv[]) {
   const char *method_suffix = "SIMDe";
 #endif
 
-  // 2. Beautifully format the OpenMP Summary output
   printf("\n"
          "================ OPENMP SUMMARY ================\n"
          "Method                     : OpenMP-Intersection-%s\n"
@@ -486,7 +421,6 @@ int main(int argc, char *argv[]) {
          results[gpu_iterations], avg_end_to_end_time, stddev_end_to_end_time,
          avg_end_to_end_gbps, stddev_end_to_end_gbps);
 
-  // 3. Beautifully format the Search Summary output
   printf("\n"
          "================ SEARCH SUMMARY ================\n"
          "Backend                    : OpenMP\n"
@@ -494,7 +428,7 @@ int main(int argc, char *argv[]) {
          "Device                     : GPU_%d\n"
          "Score Type                 : hamming_distance\n"
          "Score Order                : max\n"
-         "Selection                  : CPU_topk_heap\n"
+         "Selection                  : GPU_topk_heap\n"
          "Timing Scope               : component_sum\n"
          "Bitset Bits                : %d\n"
          "Num Queries                : %d\n"
@@ -510,6 +444,8 @@ int main(int argc, char *argv[]) {
          gpu_iterations, avg_end_to_end_time, stddev_end_to_end_time,
          avg_end_to_end_searches_per_sec, results[gpu_iterations]);
 
+  free(filtered_results.top_scores);
+  free(filtered_results.top_ids);
   free(cpu_results);
 
   return 0;

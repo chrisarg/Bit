@@ -5,11 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#ifndef NOGPU
 
 #if defined(__clang__) || defined(__INTEL_LLVM_COMPILER) || defined(__llvm__)
-void topk_int_omp(const int *dist, int64_t N, int64_t M, int K, int *out_dist,
-                  int *out_idx, int dev_id) {
+void topk_int_omp_gpu(const int *dist, int64_t N, int64_t M, int K,
+                      int *out_dist, int *out_idx, int dev_id) {
   if (N <= 0 || M <= 0 || K <= 0)
     return;
   if (K > M)
@@ -68,9 +68,9 @@ void topk_int_omp(const int *dist, int64_t N, int64_t M, int K, int *out_dist,
   }
 }
 
-#else 
-void topk_int_omp(const int *dist, int64_t N, int64_t M, int K, int *out_dist,
-                  int *out_idx, int dev_id) {
+#else
+void topk_int_omp_gpu(const int *dist, int64_t N, int64_t M, int K,
+                      int *out_dist, int *out_idx, int dev_id) {
   if (N <= 0 || M <= 0 || K <= 0)
     return;
   if (K > M)
@@ -126,3 +126,5 @@ void topk_int_omp(const int *dist, int64_t N, int64_t M, int K, int *out_dist,
   }
 }
 #endif
+
+#endif /* NOGPU */

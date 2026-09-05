@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "description": "Small FAISS comparison: native FAISS (Python) vs Bit OpenMP comparators (C). Single source of truth for scripts/faiss_compare.pl. Telemetry is disabled: only per-iteration timings are harvested.",
+
+  "telemetry": {
+    "enabled": false
+  },
+
+  "system_env": {
+    "out_dir": "benchmark_FAISS",
+    "results_csv": "faiss_compare_results.csv",
+    "python": "python",
+    "conda_env": "faiss_env",
+    "numactl_prefix": "numactl --interleave=all",
+    "threads": "auto",
+    "gpu_id": 0,
+    "num_queries": 1000,
+    "iterations": 100
+  },
+
+  "build_matrix": {
+    "faiss_cpu": {
+      "kind": "faiss",
+      "backend": "FAISS",
+      "device": "CPU",
+      "needs_gpu": false,
+      "use_numactl": true,
+      "cmd": "{python} scripts/faiss_cpu_benchmark.py {size} {num_queries} {num_refs} {top_k} {iterations}"
+    },
+    "faiss_gpu": {
+      "kind": "faiss",
+      "backend": "FAISS",
+      "device": "GPU_0",
+      "needs_gpu": true,
+      "use_numactl": false,
+      "cmd": "{python} scripts/faiss_gpu_benchmark.py {size} {num_queries} {num_refs} {top_k} {iterations} {gpu_id}"
+    },
+    "bit_cpu": {
+      "kind": "openmp",
+      "backend": "OpenMP",
+      "device": "CPU",
+      "needs_gpu": false,
+      "use_numactl": true,
+      "cmd": "build/openmp_bit_cpu_FAISS_comp {size} {num_queries} {num_refs} {top_k} {iterations} {threads}"
+    },
+    "bit_gpu": {
+      "kind": "openmp",
+      "backend": "OpenMP",
+      "device": "GPU_0",
+      "needs_gpu": true,
+      "use_numactl": false,
+      "cmd": "build/openmp_bit_gpu_FAISS_comp {size} {num_queries} {num_refs} {top_k} {iterations} {gpu_id}"
+    }
+  },
+
+  "run_matrix": {
+    "bitset_bits": [1024, 4096, 8192, 16384, 65536],
+    "top_k": [64, 128, 256, 1024, 2048],
+    "num_refs": [10000, 100000, 1000000]
+  },
+
+  "output_parser": {
+    "comment": "Per-iteration extraction. The 'openmp' regex matches the End-to-End rows printed by summarize_results ('Total time for Container - CPU|GPU - OpenMP Filter Total : <ns> ... CPU iteration: <i>'). The 'faiss' regex matches the per-iteration table rows printed by print_iteration_results ('<i> | <ns> | ...').",
+    "by_kind": {
+      "openmp": {
+        "regex": "Total\\s+time\\s+for\\s+(?<Label>Container\\s+-\\s+(?:CPU|GPU)\\s+-\\s+OpenMP\\s+Filter\\s+Total)\\s*:\\s*(?<Timing_ns>\\d+)\\s+ns.*?iteration:\\s*(?<Iteration>\\d+)",
+        "columns": ["Label", "Timing_ns", "Iteration"]
+      },
+      "faiss": {
+        "regex": "^\\s*(?<Iteration>\\d+)\\s*\\|\\s*(?<Timing_ns>\\d+)\\s*\\|\\s*(?<Searches_per_sec>[0-9.]+)\\s*\\|",
+        "columns": ["Iteration", "Timing_ns", "Searches_per_sec"]
+      }
+    }
+  }
+}
