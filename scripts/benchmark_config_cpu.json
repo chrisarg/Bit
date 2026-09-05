@@ -18,7 +18,7 @@
     "dim_right": [1024],
     "threads": [1, 2, 4, 8, 16, 18, 20, 36, 54, 72, "maxcores"],
     "omp_bind": ["close", "spread"],
-    "numa_policy": ["--interleave=all", "--localalloc"],
+    "numa_policy": ["--interleave=all"],
     "rep_id": { "repeat": 10 }
   },
   "telemetry": {
