@@ -409,7 +409,7 @@ endif
 
 CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) \
           $(OPENMP_GPU_IMPL_MACRO)  $(REPORT_CFLAGS) -I./src
-HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS)
+HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS) -I./src
 
 # Link Time Optimization (LTO) is enabled by default for supported compilers, 
 # but can be disabled by setting APPLY_LTO=0 or APPLY_LTO=no

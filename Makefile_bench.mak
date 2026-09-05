@@ -97,7 +97,7 @@ HIPCC_ARCH_FLAGS := $(foreach arch,$(AMD_ARCH_LIST),--offload-arch=$(arch))
 
 
 
-.PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu openmp_bit_nocpu_FAISS_COMP clean-bench gpu_param_sweep distclean-bench
+.PHONY: gpu_bench_csv cuda_gpu_bench hip_gpu_bench openmp_bit_nocpu openmp_bit_nocpu_FAISS_COMP openmp_bit_cpu_FAISS_comp clean-bench gpu_param_sweep distclean-bench
 
 
 gpu_bench_csv: $(GPU_BENCH_EXECS)
@@ -138,6 +138,9 @@ BENCH_OMP_NO_CPU_FAISS_COMP_OBJ := $(BUILD_DIR)/openmp_bit_nocpu_FAISS_comp.o
 BENCH_OMP_NO_CPU_BIT_OBJ := $(BUILD_DIR)/bit_nocpu_host.o
 BENCH_OMP_NO_CPU_EXEC := $(BUILD_DIR)/openmp_bit_nocpu
 BENCH_OMP_NO_CPU_FAISS_COMP_EXEC := $(BUILD_DIR)/openmp_bit_nocpu_FAISS_comp
+BENCH_OMP_CPU_FAISS_COMP_SRC := benchmark/openmp_bit_cpu_FAISS_comp.c
+BENCH_OMP_CPU_FAISS_COMP_OBJ := $(BUILD_DIR)/openmp_bit_cpu_FAISS_comp.o
+BENCH_OMP_CPU_FAISS_COMP_EXEC := $(BUILD_DIR)/openmp_bit_cpu_FAISS_comp
 BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ := $(BUILD_DIR)/gpu_layout_registry.o
 BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ := $(BUILD_DIR)/gpu_layout_fsm.o
 BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ := $(BUILD_DIR)/gpu_layout_kernels.o
@@ -166,6 +169,9 @@ else
   gpu_param_sweep:         $(BENCH_GPU_PARAM_SWEEP_EXEC)
 endif
 
+# CPU-only FAISS comparison target – always available
+openmp_bit_cpu_FAISS_comp: $(BENCH_OMP_CPU_FAISS_COMP_EXEC)
+
 ifeq ($(GPU_COMPILE_TOPK),1)
 TOPK_OBJ := $(BUILD_DIR)/topk_gpu.o
 $(BUILD_DIR)/topk_gpu.o: src/topk_gpu.c src/topk.h src/topk_internal.h   
@@ -175,6 +181,11 @@ TOPK_OBJ := $(BUILD_DIR)/topk_cpu.o
 $(BUILD_DIR)/topk_cpu.o: src/topk_cpu.c src/topk.h src/topk_internal.h
 	$(CC) $(CFLAGS) -c $< -o $@
 endif
+
+# CPU-only FAISS comparison benchmark always uses the CPU top-k implementation
+TOPK_CPU_BENCH_OBJ := $(BUILD_DIR)/topk_cpu_bench.o
+$(TOPK_CPU_BENCH_OBJ): src/topk_cpu.c src/topk.h src/topk_internal.h
+	$(HOST_COMPILE_CMD)
 
 # Warn about configuration errors and exit early if any are found
 ifneq ($(strip $(ERRORS)),)
@@ -194,6 +205,9 @@ $(BENCH_OMP_NO_CPU_OBJ): $(BENCH_OMP_NO_CPU_SRC) $(CONFIG_STAMP)
 $(BENCH_OMP_NO_CPU_FAISS_COMP_OBJ): $(BENCH_OMP_NO_CPU_FAISS_COMP_SRC) $(CONFIG_STAMP)
 	$(COMPILE_CMD)
 
+$(BENCH_OMP_CPU_FAISS_COMP_OBJ): $(BENCH_OMP_CPU_FAISS_COMP_SRC) $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
 $(BENCH_OMP_NO_CPU_BIT_OBJ): src/bit.c $(CONFIG_STAMP)
 	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -c $< -o $@
 
@@ -206,6 +220,11 @@ $(BENCH_OMP_NO_CPU_FAISS_COMP_EXEC): $(BENCH_OMP_NO_CPU_FAISS_COMP_OBJ) $(TOPK_O
 	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
 	$(BENCH_OMP_NO_CPU_FAISS_COMP_OBJ) $(TOPK_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
 	$(OMPTARGET_RPATH_FLAG) -lrt -lm
+
+$(BENCH_OMP_CPU_FAISS_COMP_EXEC): $(BENCH_OMP_CPU_FAISS_COMP_OBJ) $(TOPK_CPU_BENCH_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ \
+	$(BENCH_OMP_CPU_FAISS_COMP_OBJ) $(TOPK_CPU_BENCH_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
+	-L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
 
 # Wrapped OpenMP linker dependencies for NVCC
@@ -242,10 +261,10 @@ $(GPU_SWEEP_EXEC): $(GPU_SWEEP_OBJ) $(BENCH_OMP_NO_CPU_BIT_OBJ) $(BENCH_OMP_NO_C
 
 
 clean-bench:
-	rm -f $(BUILD_DIR)/cuda_gpu_benchmark $(BUILD_DIR)/cuda_gpu_benchmark.o $(BUILD_DIR)/hip_gpu_benchmark $(BUILD_DIR)/hip_gpu_benchmark.o $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_FAISS_COMP_OBJ)
+	rm -f $(BUILD_DIR)/cuda_gpu_benchmark $(BUILD_DIR)/cuda_gpu_benchmark.o $(BUILD_DIR)/hip_gpu_benchmark $(BUILD_DIR)/hip_gpu_benchmark.o $(BENCH_OMP_NO_CPU_OBJ) $(BENCH_OMP_NO_CPU_FAISS_COMP_OBJ) $(BENCH_OMP_CPU_FAISS_COMP_OBJ)
 	rm -f $(BENCH_OMP_NO_CPU_GPUTL_REGISTRY_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_FSM_OBJ) $(BENCH_OMP_NO_CPU_GPUTL_KERNELS_OBJ)
-	rm -f $(BENCH_OMP_NO_CPU_EXEC) $(BENCH_OMP_NO_CPU_FAISS_COMP_EXEC)
-	rm -f $(OPENMP_BIT_HELPERS_OBJ)
+	rm -f $(BENCH_OMP_NO_CPU_EXEC) $(BENCH_OMP_NO_CPU_FAISS_COMP_EXEC) $(BENCH_OMP_CPU_FAISS_COMP_EXEC)
+	rm -f $(OPENMP_BIT_HELPERS_OBJ) $(TOPK_CPU_BENCH_OBJ)
 	rm -f $(BUILD_DIR)/gpu_param_sweep $(BUILD_DIR)/gpu_param_sweep.o
 
 distclean-bench: clean-bench

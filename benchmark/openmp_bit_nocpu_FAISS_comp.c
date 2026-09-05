@@ -456,10 +456,12 @@ int main(int argc, char *argv[]) {
        "performance.");
 
 // 1. Extract the method string to avoid ugly inline macros inside the printf
-#ifdef USE_BUILTIN_POPCOUNT
+#if defined(USE_BUILTIN_POPCOUNT)
   const char *method_suffix = "builtin";
+#elif defined(USE_LIBPOPCNT) && USE_LIBPOPCNT
+  const char *method_suffix = "libpopcnt";
 #else
-  const char *method_suffix = "WWG";
+  const char *method_suffix = "SIMDe";
 #endif
 
   // 2. Beautifully format the OpenMP Summary output
