@@ -75,8 +75,11 @@ for my $k (keys %{$config{run_matrix}})   { $config{run_matrix}{$k}   = normaliz
 
 # 3b. Resolve machine logical-core count (before telemetry & grid expansion)
 sub logical_cpu_count {
-    # Prefer nproc: it honors cgroup/affinity limits on shared nodes.
-    if ( open my $ph, '-|', 'nproc' ) {
+    # Use the machine's full logical-CPU complement: `nproc --all` reports all
+    # online processors (not the cgroup/affinity-restricted subset that bare
+    # `nproc` returns). On an SMT machine this is threads, not physical cores,
+    # which is what a full-capacity benchmark sweep should reach.
+    if ( open my $ph, '-|', 'nproc --all' ) {
         my $n = <$ph>;
         close $ph;
         if ( defined $n && $n =~ /(\d+)/ && $1 > 0 ) { return $1; }
@@ -87,7 +90,7 @@ sub logical_cpu_count {
         close $fh;
         return $count if $count > 0;
     }
-    die "FATAL: Unable to determine logical CPU count (nproc and /proc/cpuinfo both failed).\n";
+    die "FATAL: Unable to determine logical CPU count (nproc --all and /proc/cpuinfo both failed).\n";
 }
 my $max_cores = logical_cpu_count();
 

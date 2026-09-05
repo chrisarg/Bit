@@ -125,7 +125,9 @@ my $seed        = $ENV{SEED}      // cfg('', 'seed');
 
 # 'auto' sentinel for CORES/THREADS: expand against usable logical CPUs (nproc).
 sub auto_cpu_count {
-    if ( open my $ph, '-|', 'nproc' ) {
+    # Full logical-CPU complement (incl. SMT threads), not the
+    # cgroup/affinity-restricted subset bare nproc returns.
+    if ( open my $ph, '-|', 'nproc --all' ) {
         my $n = <$ph>;
         close $ph;
         return $1 if defined $n && $n =~ /(\d+)/ && $1 > 0;
