@@ -19,7 +19,7 @@
     "threads": [1, 2, 4, 8, 16, 18, 20, 36, 54, 72, "maxcores"],
     "omp_bind": ["close", "spread"],
     "numa_policy": ["--interleave=all", "--localalloc"],
-    "rep_id": [1, 2, 3]
+    "rep_id": { "repeat": 10 }
   },
   "telemetry": {
     "hardware": {
@@ -55,6 +55,7 @@
     "raw_log": "{out_dir}/{base_name}_raw.log",
     "exec_context": "auto",
     "_taskset_threads_docs": "taskset + threads accept 'auto'; threads lists accept 'maxcores'. See README.md 'Broad Parameter Discovery'.",
+    "seed": 12345,
     "taskset": "auto",
     "priority": "normal",
     "build_cmd": "make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC={cc} OPT={opt_level} APPLY_LTO={lto} MARCH={march} LIBPOPCNT={libpopcnt} CPU_TILE={cpu_tile} BITVECTOR_TILE={bitvector_tile} BUFFER_SIZE={buffer_size} OUTER_ROW_NUM={outer_row_num} OUTER_COL_NUM={outer_col_num} OUTER_VEC_BLK={outer_vec_blk}",

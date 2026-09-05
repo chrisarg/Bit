@@ -19,15 +19,47 @@ use File::Path qw(make_path remove_tree);
 use File::Spec;
 use POSIX    qw(strftime);
 use IPC::Run qw(run);
+use Getopt::Long qw(GetOptionsFromArray);
+use JSON::PP     qw(decode_json);
+use List::Util   qw(shuffle);
 
 my $root = abs_path( File::Spec->catdir( File::Spec->curdir() ) );
 die "Run this script from the repository root (Makefile not found).\n"
   unless -f File::Spec->catfile( $root, 'Makefile' );
 
+# Optional JSON config (see scripts/benchmark_config_tuning.json). Environment
+# variables override config values (env wins), so existing env-only usage and
+# run_numa_sweeps.sh are unaffected when --config is omitted.
+my %config;
+{
+    my $config_file;
+    my @argv = @ARGV;
+    Getopt::Long::Configure('pass_through');
+    GetOptionsFromArray( \@argv, 'config=s' => \$config_file );
+    Getopt::Long::Configure('no_pass_through');
+    if ( defined $config_file ) {
+        open my $fh, '<', $config_file or die "Cannot open --config '$config_file': $!\n";
+        my $json_text = do { local $/; <$fh> };
+        close $fh;
+        %config = %{ decode_json($json_text) };
+    }
+}
+
+# cfg('run','cc') -> $config{run}{cc}; cfg('', 'seed') -> $config{seed}
+sub cfg {
+    my ( $block, $key ) = @_;
+    return $block eq '' ? $config{$key} : $config{$block}{$key};
+}
+
 sub csv_values {
-    my ( $name, $default ) = @_;
-    my $value  = $ENV{$name} // $default;
-    my @values = grep { length } split /\s*,\s*/, $value;
+    my ( $name, $default, $block, $key ) = @_;
+    my $value = $ENV{$name};
+    $value //= cfg( $block, $key ) if defined $block;
+    $value //= $default;
+    my @values =
+      ref($value) eq 'ARRAY'
+      ? @$value
+      : grep { length } split /\s*,\s*/, $value;
     die "$name must contain at least one comma-separated value\n"
       unless @values;
     return @values;
@@ -71,24 +103,25 @@ sub detected_arch_tag {
     return path_tag("$arch-$cpu") || 'unknown-architecture';
 }
 
-my @libpopcnt_modes = csv_values( 'LIBPOPCNT_MODES', '0' );
-my @cpu_tiles       = csv_values( 'CPU_TILES',       '4,8,16,32' );
-my @k_blocks        = csv_values( 'K_BLOCKS',        '256,512,768,1024' );
-my @shapes          = csv_values( 'SHAPES',          '1x1,2x2,2x4,4x2' );
-my @unrolls         = csv_values( 'UNROLLS',         '1,2,4' );
-my @buffer_sizes    = csv_values( 'BUFFER_SIZES',    '128,512,1024,4096' );
+my @libpopcnt_modes = csv_values( 'LIBPOPCNT_MODES', '0',                'sweep', 'libpopcnt_modes' );
+my @cpu_tiles       = csv_values( 'CPU_TILES',       '4,8,16,32',        'sweep', 'cpu_tiles' );
+my @k_blocks        = csv_values( 'K_BLOCKS',        '256,512,768,1024', 'sweep', 'k_blocks' );
+my @shapes          = csv_values( 'SHAPES',          '1x1,2x2,2x4,4x2',  'sweep', 'shapes' );
+my @unrolls         = csv_values( 'UNROLLS',         '1,2,4',            'sweep', 'unrolls' );
+my @buffer_sizes    = csv_values( 'BUFFER_SIZES',    '128,512,1024,4096','sweep', 'buffer_sizes' );
 
-my $cc          = $ENV{CC}        // 'clang';
-my $cores       = $ENV{CORES}     // '0-9';
-my $bit_length  = $ENV{BITS}      // 65536;
-my $left_count  = $ENV{LEFT}      // 1000;
-my $right_count = $ENV{RIGHT}     // 1000;
-my $threads     = $ENV{THREADS}   // 10;
-my $reps        = $ENV{REPS}      // 5;
-my $perf_reps   = $ENV{PERF_REPS} // 3;
-my $elevate     = lc( $ENV{ELEVATE}  // 'auto' );
-my $priority    = lc( $ENV{PRIORITY} // 'nice' );
-my $limit       = $ENV{MAX_CONFIGS} // 0;
+my $cc          = $ENV{CC}        // cfg('run','cc')          // 'clang';
+my $cores       = $ENV{CORES}     // cfg('run','cores')       // '0-9';
+my $bit_length  = $ENV{BITS}      // cfg('run','bits')        // 65536;
+my $left_count  = $ENV{LEFT}      // cfg('run','left')        // 1000;
+my $right_count = $ENV{RIGHT}     // cfg('run','right')       // 1000;
+my $threads     = $ENV{THREADS}   // cfg('run','threads')     // 10;
+my $reps        = $ENV{REPS}      // cfg('run','reps')        // 5;
+my $perf_reps   = $ENV{PERF_REPS} // cfg('run','perf_reps')   // 3;
+my $elevate     = lc( $ENV{ELEVATE}  // cfg('run','elevate')  // 'auto' );
+my $priority    = lc( $ENV{PRIORITY} // cfg('run','priority') // 'nice' );
+my $limit       = $ENV{MAX_CONFIGS} // cfg('run','max_configs') // 0;
+my $seed        = $ENV{SEED}      // cfg('', 'seed');
 
 # 'auto' sentinel for CORES/THREADS: expand against usable logical CPUs (nproc).
 sub auto_cpu_count {
@@ -113,21 +146,32 @@ if ( lc($threads) eq 'auto' ) {
 }
 
 my $timestamp   = strftime( '%Y%m%d-%H%M%S', localtime );
+
+# Seed the RNG before shuffling the configuration list for reproducible order.
+if ( defined $seed && $seed =~ /^\d+$/ ) {
+    srand($seed);
+}
+
 my $results_dir = $ENV{RESULTS_DIR}
+  // cfg('output','results_dir')
   // File::Spec->catdir( $root, 'tuning-results' );
-my $arch_tag = path_tag( $ENV{ARCH_TAG} // detected_arch_tag() );
+my $arch_tag_in = $ENV{ARCH_TAG} // cfg('output','arch_tag');
+# An empty string means "auto-detect".
+$arch_tag_in = detected_arch_tag() if !defined $arch_tag_in || !length $arch_tag_in;
+my $arch_tag = path_tag( $arch_tag_in );
 die "ARCH_TAG must contain at least one letter or digit\n"
   unless length $arch_tag;
 my $run_label = '';
 
-if ( defined $ENV{RUN_LABEL} ) {
-    $run_label = path_tag( $ENV{RUN_LABEL} );
+my $run_label_in = $ENV{RUN_LABEL} // cfg('output','run_label');
+if ( defined $run_label_in && length $run_label_in ) {
+    $run_label = path_tag( $run_label_in );
     die "RUN_LABEL must contain at least one letter or digit\n"
       unless length $run_label;
 }
 my $run_tag = join( '-', grep { length } $arch_tag, $run_label, $timestamp );
-my $numa_policy = $ENV{NUMA_POLICY} // 'default OS policy';
-my $numa_cmd    = $ENV{NUMA_CMD}    // '';
+my $numa_policy = $ENV{NUMA_POLICY} // cfg('output','numa_policy') // 'default OS policy';
+my $numa_cmd    = $ENV{NUMA_CMD}    // cfg('output','numa_cmd')    // '';
 
 my $out_dir = $ENV{OUT_DIR}
   // File::Spec->catdir( $results_dir, '.work', $run_tag );
@@ -509,6 +553,11 @@ sub number {
 
 my @results;
 my $index = 0;
+
+# Build the full Cartesian configuration list, then shuffle it so execution
+# order is decorrelated from time (thermal/turbo drift). Seeding (srand above,
+# from 'seed' in the config or the SEED env var) makes the order reproducible.
+my @configs;
 for my $lib (@libpopcnt_modes) {
     die "LIBPOPCNT_MODES values must be 0 or 1\n" unless $lib =~ /^[01]$/;
     my @mode_unrolls = $lib ? ('-')         : @unrolls;
@@ -522,137 +571,154 @@ for my $lib (@libpopcnt_modes) {
                   unless defined $rows && $rows > 0 && $cols > 0;
                 for my $unroll (@mode_unrolls) {
                     for my $buffer (@mode_buffers) {
-                        last if $limit && $index >= $limit;
-                        ++$index;
-                        my $tag = sprintf( '%03d-lib%d-t%s-k%s-r%sc%s-u%s-b%s',
-                            $index,  $lib, $tile, $k_block, $rows, $cols,
-                            $unroll, $buffer );
-                        print "[$index] $tag\n";
-
-                        my @make_args = (
-                            'make',                    'distclean',
-                            '&&',                      'make',
-                            'GPU=NONE',                "CC=$cc",
-                            "CPU_TILE=$tile",          "LIBPOPCNT=$lib",
-                            "BITVECTOR_TILE=$k_block", "OUTER_ROW_NUM=$rows",
-                            "OUTER_COL_NUM=$cols",     'bench_omp',
-                            'APPLY_LTO=1',             'SIMD_DIAGNOSTICS=1',
-                        );
-                        push @make_args, "OUTER_VEC_BLK=$unroll" if !$lib;
-                        push @make_args, "BUFFER_SIZE=$buffer"   if $lib;
-                        my $build_log =
-                          File::Spec->catfile( $out_dir, "$tag.build.log" );
-                        my $built =
-                          run_command( join( ' ', @make_args ), $build_log );
-
-                        my %result = (
-                            tag          => $tag,
-                            libpopcnt    => $lib,
-                            cpu_tile     => $tile,
-                            k_block      => $k_block,
-                            rows         => $rows,
-                            cols         => $cols,
-                            unroll       => $unroll,
-                            buffer_size  => $buffer,
-                            build_status => $built ? 'ok' : 'failed',
-                            run_status   => 'not-run',
-                        );
-
-                        if ( !$built ) {
-                            push @results, \%result;
-                            next;
-                        }
-
-                        my @priority_cmd;
-                        if ( $priority eq 'nice' ) {
-                            @priority_cmd = ( 'nice', '-n', '-20' );
-                        }
-                        elsif ( $priority eq 'rr' ) {
-                            die
-"PRIORITY=rr requires ELEVATE=always or passwordless sudo\n"
-                              unless $sudo;
-                            @priority_cmd = ( 'chrt', '-r', '50' );
-                        }
-
-                        my @numa_args;
-                        if ( defined $numa_cmd && $numa_cmd ne '' ) {
-                            @numa_args = split /\s+/, $numa_cmd;
-                        }
-
-                        my $benchmark = File::Spec->catfile( $root, 'build',
-                            'openmp_bit_container' );
-                        my @openmp_env;
-                        push @openmp_env, "OMP_PLACES=$ENV{OMP_PLACES}"
-                          if defined $ENV{OMP_PLACES};
-                        push @openmp_env, "OMP_PROC_BIND=$ENV{OMP_PROC_BIND}"
-                          if defined $ENV{OMP_PROC_BIND};
-
-         # INJECTING @numa_args EXCLUSIVELY BEFORE taskset FOR BENCHMARK PROCESS
-                        my @run_args = (
-                            @priority_cmd, 'env',
-                            @openmp_env,   @numa_args,
-                            'taskset',     '-c',
-                            $cores,        $benchmark,
-                            $bit_length,   $left_count,
-                            $right_count,  $threads,
-                            $reps
-                        );
-
-                        my $summary_ran = 0;
-                        for my $profile (@perf_profile_names) {
-                            my $profile_key = $profile;
-                            $profile_key =~ s/[^A-Za-z0-9]+/_/g;
-                            my $bench_log = File::Spec->catfile( $out_dir,
-                                "$tag.$profile.benchmark.log" );
-                            my $perf_log = File::Spec->catfile( $out_dir,
-                                "$tag.$profile.perf.csv" );
-
-                            my $command = join( '',
-                                $sudo,
-                                'env LC_ALL=C perf stat -x, -r ',
-                                $perf_reps,
-                                ' -e ',
-                                shell_quote( $perf_profiles{$profile} ),
-                                ' -o ',
-                                shell_quote($perf_log),
-                                ' -- ',
-                                shell_quote(@run_args) );
-
-                            my $ran = run_command( $command, $bench_log );
-                            $result{"profile_$profile_key"} =
-                              $ran ? 'ok' : 'failed';
-                            $summary_ran = $ran if $profile eq 'summary';
-
-                            if ( $profile eq 'summary' ) {
-                                my $bench = parse_benchmark($bench_log);
-                                $result{$_} = $bench->{$_} for keys %$bench;
-                            }
-                            my $perf = parse_perf($perf_log);
-                            for my $event ( keys %$perf ) {
-                                ( my $event_key = $event ) =~
-                                  s/[^A-Za-z0-9]+/_/g;
-                                $result{"perf_${profile_key}_$event_key"} =
-                                  $perf->{$event};
-                                $result{"perf_$event_key"} = $perf->{$event}
-                                  if $profile eq 'summary';
-                            }
-                        }
-                        $result{run_status} = $summary_ran ? 'ok' : 'failed';
-                        if ( defined $result{avg_ns} && $result{avg_ns} > 0 ) {
-                            $result{gqps} //= (
-                                (
-                                    $left_count *
-                                      $right_count *
-                                      int( ( $bit_length + 63 ) / 64 )
-                                ) / $result{avg_ns}
-                            );
-                        }
-                        push @results, \%result;
+                        push @configs, {
+                            lib     => $lib,
+                            tile    => $tile,
+                            k_block => $k_block,
+                            rows    => $rows,
+                            cols    => $cols,
+                            unroll  => $unroll,
+                            buffer  => $buffer,
+                        };
                     }
                 }
             }
         }
     }
+}
+@configs = shuffle(@configs);
+# Apply MAX_CONFIGS as a post-shuffle random subsample (0 = no limit).
+splice( @configs, $limit ) if $limit && $limit < @configs;
+
+for my $cfg (@configs) {
+    ++$index;
+    my ( $lib, $tile, $k_block, $rows, $cols, $unroll, $buffer ) =
+      @{$cfg}{qw(lib tile k_block rows cols unroll buffer)};
+
+    my $tag = sprintf( '%03d-lib%d-t%s-k%s-r%sc%s-u%s-b%s',
+        $index,  $lib, $tile, $k_block, $rows, $cols,
+        $unroll, $buffer );
+    print "[$index] $tag\n";
+
+    my @make_args = (
+        'make',                    'distclean',
+        '&&',                      'make',
+        'GPU=NONE',                "CC=$cc",
+        "CPU_TILE=$tile",          "LIBPOPCNT=$lib",
+        "BITVECTOR_TILE=$k_block", "OUTER_ROW_NUM=$rows",
+        "OUTER_COL_NUM=$cols",     'bench_omp',
+        'APPLY_LTO=1',             'SIMD_DIAGNOSTICS=1',
+    );
+    push @make_args, "OUTER_VEC_BLK=$unroll" if !$lib;
+    push @make_args, "BUFFER_SIZE=$buffer"   if $lib;
+    my $build_log =
+      File::Spec->catfile( $out_dir, "$tag.build.log" );
+    my $built =
+      run_command( join( ' ', @make_args ), $build_log );
+
+    my %result = (
+        tag          => $tag,
+        libpopcnt    => $lib,
+        cpu_tile     => $tile,
+        k_block      => $k_block,
+        rows         => $rows,
+        cols         => $cols,
+        unroll       => $unroll,
+        buffer_size  => $buffer,
+        build_status => $built ? 'ok' : 'failed',
+        run_status   => 'not-run',
+    );
+
+    if ( !$built ) {
+        push @results, \%result;
+        next;
+    }
+
+    my @priority_cmd;
+    if ( $priority eq 'nice' ) {
+        @priority_cmd = ( 'nice', '-n', '-20' );
+    }
+    elsif ( $priority eq 'rr' ) {
+        die
+"PRIORITY=rr requires ELEVATE=always or passwordless sudo\n"
+          unless $sudo;
+        @priority_cmd = ( 'chrt', '-r', '50' );
+    }
+
+    my @numa_args;
+    if ( defined $numa_cmd && $numa_cmd ne '' ) {
+        @numa_args = split /\s+/, $numa_cmd;
+    }
+
+    my $benchmark = File::Spec->catfile( $root, 'build',
+        'openmp_bit_container' );
+    my @openmp_env;
+    push @openmp_env, "OMP_PLACES=$ENV{OMP_PLACES}"
+      if defined $ENV{OMP_PLACES};
+    push @openmp_env, "OMP_PROC_BIND=$ENV{OMP_PROC_BIND}"
+      if defined $ENV{OMP_PROC_BIND};
+
+     # INJECTING @numa_args EXCLUSIVELY BEFORE taskset FOR BENCHMARK PROCESS
+    my @run_args = (
+        @priority_cmd, 'env',
+        @openmp_env,   @numa_args,
+        'taskset',     '-c',
+        $cores,        $benchmark,
+        $bit_length,   $left_count,
+        $right_count,  $threads,
+        $reps
+    );
+
+    my $summary_ran = 0;
+    for my $profile (@perf_profile_names) {
+        my $profile_key = $profile;
+        $profile_key =~ s/[^A-Za-z0-9]+/_/g;
+        my $bench_log = File::Spec->catfile( $out_dir,
+            "$tag.$profile.benchmark.log" );
+        my $perf_log = File::Spec->catfile( $out_dir,
+            "$tag.$profile.perf.csv" );
+
+        my $command = join( '',
+            $sudo,
+            'env LC_ALL=C perf stat -x, -r ',
+            $perf_reps,
+            ' -e ',
+            shell_quote( $perf_profiles{$profile} ),
+            ' -o ',
+            shell_quote($perf_log),
+            ' -- ',
+            shell_quote(@run_args) );
+
+        my $ran = run_command( $command, $bench_log );
+        $result{"profile_$profile_key"} =
+          $ran ? 'ok' : 'failed';
+        $summary_ran = $ran if $profile eq 'summary';
+
+        if ( $profile eq 'summary' ) {
+            my $bench = parse_benchmark($bench_log);
+            $result{$_} = $bench->{$_} for keys %$bench;
+        }
+        my $perf = parse_perf($perf_log);
+        for my $event ( keys %$perf ) {
+            ( my $event_key = $event ) =~
+              s/[^A-Za-z0-9]+/_/g;
+            $result{"perf_${profile_key}_$event_key"} =
+              $perf->{$event};
+            $result{"perf_$event_key"} = $perf->{$event}
+              if $profile eq 'summary';
+        }
+    }
+    $result{run_status} = $summary_ran ? 'ok' : 'failed';
+    if ( defined $result{avg_ns} && $result{avg_ns} > 0 ) {
+        $result{gqps} //= (
+            (
+                $left_count *
+                  $right_count *
+                  int( ( $bit_length + 63 ) / 64 )
+            ) / $result{avg_ns}
+        );
+    }
+    push @results, \%result;
 }
 
 my @columns =
@@ -690,6 +756,8 @@ print {$report} "- Priority: `$priority`; elevated execution: ",
 print {$report}
 "- Benchmark: `openmp_bit_container $bit_length $left_count $right_count $threads $reps`\n";
 print {$report} "- Perf repetitions per configuration: $perf_reps\n";
+print {$report} "- Config order seed: `", ( defined $seed ? $seed : 'none (random per run)' ),
+  "` (configuration order is shuffled; set seed to reproduce)\n";
 print {$report} "- Perf profiles: `", join( ', ', @perf_profile_names ), "`\n";
 
 for my $profile (@perf_profile_names) {

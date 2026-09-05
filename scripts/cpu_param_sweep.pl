@@ -55,8 +55,23 @@ sub normalize_array {
     return [] unless defined $val;
     return ref($val) eq 'ARRAY' ? $val : [ split(/\s*,\s*/, $val) ];
 }
-for my $k (keys %{$config{build_matrix}}) { $config{build_matrix}{$k} = normalize_array($config{build_matrix}{$k}); }
-for my $k (keys %{$config{run_matrix}})   { $config{run_matrix}{$k}   = normalize_array($config{run_matrix}{$k}); }
+
+# Expand repetition/range objects into value lists. Runs BEFORE thread/taskset
+# sentinel resolution; a {"repeat":N} or {"range":"a-b"} object is the only
+# hashref form and never collides with the 'auto'/'maxcores' string sentinels.
+sub expand_matrix_value {
+    my ($val) = @_;
+    return $val unless ref($val) eq 'HASH';
+    if ( defined $val->{repeat} && $val->{repeat} =~ /^\d+$/ && $val->{repeat} > 0 ) {
+        return [ 1 .. $val->{repeat} ];
+    }
+    if ( defined $val->{range} && $val->{range} =~ /^(\d+)-(\d+)$/ ) {
+        return [ $1 .. $2 ];
+    }
+    return $val;
+}
+for my $k (keys %{$config{build_matrix}}) { $config{build_matrix}{$k} = normalize_array(expand_matrix_value($config{build_matrix}{$k})); }
+for my $k (keys %{$config{run_matrix}})   { $config{run_matrix}{$k}   = normalize_array(expand_matrix_value($config{run_matrix}{$k})); }
 
 # 3b. Resolve machine logical-core count (before telemetry & grid expansion)
 sub logical_cpu_count {
@@ -180,6 +195,14 @@ Log::Log4perl->easy_init(
 INFO("Starting Universal Benchmark Engine");
 INFO("Run ID: $run_id | Node: $hostname ($mac_address) | Context: $exec_context");
 
+# Seed the RNG before any shuffle so grid order is reproducible when configured.
+if ( defined $config{system_env}{seed} && $config{system_env}{seed} =~ /^\d+$/ ) {
+    srand( $config{system_env}{seed} );
+    INFO("Seed: $config{system_env}{seed} (reproducible grid order)");
+} else {
+    INFO("Seed: none (grid order randomized per run)");
+}
+
 my @b_keys = sort keys %{$config{build_matrix}};
 my @r_keys = sort keys %{$config{run_matrix}};
 my @cap_cols = @{ $config{system_env}{output_parser}{columns} };
@@ -200,6 +223,7 @@ NestedLoops( \@build_arrays, sub { my %c; @c{@b_keys} = @_; push @build_grid, \%
 my @run_arrays = map { $config{run_matrix}{$_} } @r_keys;
 my @run_grid;
 NestedLoops( \@run_arrays, sub { my %c; @c{@r_keys} = @_; push @run_grid, \%c; } );
+@run_grid = shuffle(@run_grid);
 
 # --- Execution Engine ---
 for my $b_config (@build_grid) {
