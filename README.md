@@ -1370,8 +1370,8 @@ The script trees are intentionally different.
 | `run_numa_sweeps.sh` | Yes | No | No | Runs four dual-socket scenarios through `sweep_cpu_tuning.pl`. |
 | `gpu_param_sweep.pl` + `plot_performance.R` | No | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
 | Tracked `benchmark_GPU_params/` results | No | Yes | No | Historical GPU sweep CSV/log results kept with their producer and plotter. |
-| `faiss_compare.pl` + `benchmark_config_faiss.json` | Yes | Yes | No | Small JSON-driven FAISS-vs-Bit comparison sweep; harvests per-iteration timings into `benchmark_FAISS/`. |
-| `faiss_compare_visualize.R` | Yes | Yes | No | R report for the FAISS comparison; boxplots of per-iteration times and a summarized CSV in `benchmark_FAISS/`. |
+| `faiss_compare.pl` + `benchmark_config_faiss.json` | Yes | Yes | Yes | Small JSON-driven FAISS-vs-Bit comparison sweep; harvests per-iteration timings into `benchmark_FAISS/`. |
+| `faiss_compare_visualize.R` | Yes | Yes | Yes | R report for the FAISS comparison; boxplots of per-iteration times and a summarized CSV in `benchmark_FAISS/`. |
 | `faiss_cpu_gpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. |
 | `faiss_gpu_benchmark.py` | No | Yes | No | Similar FAISS GPU comparison without a measured CPU baseline; reports devices relative to GPU 0. |
 | `push_main_to_gpuOpt.sh`, `push_main_to_inteliGPU.sh` | Yes | No | No | Copy curated paths from `main` to the named destination branch. |
@@ -1425,7 +1425,9 @@ committing, or pushing:
 All four helpers require a clean source worktree and both local branches. They
 fetch and fast-forward the destination, copy the paths selected by that helper
 with `git restore`, create a commit when content changed, push the destination,
-and return to the starting branch. For one invocation, the selected source
+and return to the starting branch. Pass `--no-push` to commit the sync on the
+destination branch WITHOUT pushing to origin (you then review and push
+manually). For one invocation, the selected source
 paths are authoritative: corresponding destination edits are replaced rather
 than merged, while files outside the selected set remain untouched.
 
