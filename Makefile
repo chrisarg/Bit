@@ -344,6 +344,15 @@ endif
 ifeq ($(IS_CLEAN_GOAL),)
   $(info Utilizing OpenMP GPU Strategy: $(OPENMP_GPU_IMPL))
 endif
+# The GPU FAISS comparator requires functional offloading
+ifeq ($(filter NONE,$(GPU_LIST)),NONE)
+  ifneq ($(filter openmp_bit_gpu_FAISS_comp,$(MAKECMDGOALS)),)
+    $(eval $(call APPEND_ERROR,Execution Halted: \
+      openmp_bit_gpu_FAISS_comp requires functional offloading; \
+      specify NVIDIA or AMD in your GPU target list))
+  endif
+endif
+
 # Warn about configuration errors and exit early if any are found
 ifneq ($(strip $(ERRORS)),)
   FORMATTED_ERRORS := $(subst |,$(newline) -> ,$(ERRORS))
@@ -409,7 +418,7 @@ endif
 
 CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) \
           $(OPENMP_GPU_IMPL_MACRO)  $(REPORT_CFLAGS) -I./src
-HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS)
+HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS) -I./src
 
 # Link Time Optimization (LTO) is enabled by default for supported compilers, 
 # but can be disabled by setting APPLY_LTO=0 or APPLY_LTO=no
@@ -525,6 +534,7 @@ BUILD_RPATH_FLAG := -Wl,-rpath,$(CURDIR)/$(BUILD_DIR)
 OMPTARGET_RPATH_FLAG :=
 
 .PHONY: FORCE all clean distclean test test_offload bench bench_omp bug_report
+.PHONY: openmp_bit_cpu_FAISS_comp openmp_bit_gpu_FAISS_comp
 CONFIG_STAMP := $(BUILD_DIR)/.config.stamp
 .INTERMEDIATE: $(CONFIG_STAMP)
 $(CONFIG_STAMP): FORCE
@@ -539,8 +549,8 @@ $(CONFIG_STAMP): FORCE
 	then rm -f $(CONFIG_STAMP).tmp; else mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP); fi
 
 SRC := src/bit.c src/bit_gpu.c
-OBJ_CORE := $(BUILD_DIR)/bit.o $(BUILD_DIR)/bit_gpu.o
-OBJ_GPU := $(BUILD_DIR)/bit.o $(BUILD_DIR)/bit_gpu.o $(BUILD_DIR)/gpu_layout_registry.o $(BUILD_DIR)/gpu_layout_fsm.o $(BUILD_DIR)/gpu_layout_kernels.o
+OBJ_CORE := $(BUILD_DIR)/bit.o $(BUILD_DIR)/bit_gpu.o $(BUILD_DIR)/topk_cpu.o
+OBJ_GPU := $(BUILD_DIR)/bit.o $(BUILD_DIR)/bit_gpu.o $(BUILD_DIR)/gpu_layout_registry.o $(BUILD_DIR)/gpu_layout_fsm.o $(BUILD_DIR)/gpu_layout_kernels.o $(BUILD_DIR)/topk_cpu.o $(BUILD_DIR)/topk_gpu.o
 ifeq ($(filter NONE,$(GPU_LIST)),NONE)
   OBJ := $(OBJ_CORE)
 else
@@ -571,6 +581,18 @@ OPENMP_BIT_HELPERS_OBJ := $(BUILD_DIR)/openmp_bit_helpers.o
 BENCH_SWEEP_SRC  := benchmark/cpu_param_sweep.c
 BENCH_SWEEP_OBJ  := $(BUILD_DIR)/cpu_param_sweep.o
 BENCH_SWEEP_EXEC := $(BUILD_DIR)/cpu_param_sweep
+
+# FAISS-comparison benchmarks: thin public-API comparators of the Python
+# scripts scripts/faiss_cpu_benchmark.py and scripts/faiss_gpu_benchmark.py.
+# Both link against libbit (which now carries the topk selection objects);
+# the CPU executable always runs top-k on the host and the GPU executable
+# always runs it on the device -- there is no user-selectable topk flag.
+BENCH_CPU_FAISS_SRC  := benchmark/openmp_bit_cpu_FAISS_comp.c
+BENCH_CPU_FAISS_OBJ  := $(BUILD_DIR)/openmp_bit_cpu_FAISS_comp.o
+BENCH_CPU_FAISS_EXEC := $(BUILD_DIR)/openmp_bit_cpu_FAISS_comp
+BENCH_GPU_FAISS_SRC  := benchmark/openmp_bit_gpu_FAISS_comp.c
+BENCH_GPU_FAISS_OBJ  := $(BUILD_DIR)/openmp_bit_gpu_FAISS_comp.o
+BENCH_GPU_FAISS_EXEC := $(BUILD_DIR)/openmp_bit_gpu_FAISS_comp
 
 
 # use libpopcnt integration by default, but allow user to disable it 
@@ -605,6 +627,12 @@ $(BUILD_DIR)/bit.o: src/bit.c src/bit_internal.h $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
 $(BUILD_DIR)/bit_gpu.o: src/bit_gpu.c src/bit_internal.h $(CONFIG_STAMP)
+	$(COMPILE_CMD)
+
+$(BUILD_DIR)/topk_cpu.o: src/topk_cpu.c src/topk.h src/topk_internal.h $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
+$(BUILD_DIR)/topk_gpu.o: src/topk_gpu.c src/topk.h src/topk_internal.h $(CONFIG_STAMP)
 	$(COMPILE_CMD)
 
 $(BUILD_DIR)/gpu_layout_registry.o:     \
@@ -693,6 +721,32 @@ $(BENCH_SWEEP_OBJ): $(BENCH_SWEEP_SRC) $(CONFIG_STAMP)
 $(BENCH_SWEEP_EXEC): $(BENCH_SWEEP_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
 	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_SWEEP_OBJ) \
 	$(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
+
+# CPU FAISS comparator: host-only compilation and host top-k (from libbit).
+# Available for every GPU configuration, including GPU=NONE.
+openmp_bit_cpu_FAISS_comp: $(BENCH_CPU_FAISS_EXEC)
+
+$(BENCH_CPU_FAISS_OBJ): $(BENCH_CPU_FAISS_SRC) benchmark/openmp_bit_faiss_bench.h $(CONFIG_STAMP)
+	$(HOST_COMPILE_CMD)
+
+$(BENCH_CPU_FAISS_EXEC): $(BENCH_CPU_FAISS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ \
+	$(BENCH_CPU_FAISS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
+	-L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
+
+# GPU FAISS comparator: offload compilation and device top-k (from libbit).
+# Requires GPU != NONE (guarded above).
+ifeq ($(filter NONE,$(GPU_LIST)),)
+openmp_bit_gpu_FAISS_comp: $(BENCH_GPU_FAISS_EXEC)
+
+$(BENCH_GPU_FAISS_OBJ): $(BENCH_GPU_FAISS_SRC) benchmark/openmp_bit_faiss_bench.h $(CONFIG_STAMP)
+	$(COMPILE_CMD)
+
+$(BENCH_GPU_FAISS_EXEC): $(BENCH_GPU_FAISS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
+	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
+	$(BENCH_GPU_FAISS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
+	-L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lrt -lm
+endif
 
 bug_report:
 	@BUG_GPU_ARCH_TAG := $(subst $(space),-,$(strip $(NVIDIA_ARCH_LIST)        \
