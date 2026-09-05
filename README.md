@@ -74,9 +74,17 @@ every command documented below exists on every branch.
 
 | Branch | Purpose | Notes |
 | --- | --- | --- |
-| `main` | Baseline library, SIMD, CPU tuning, NUMA experiments, and shared benchmark work | Owns the CPU sweep/tuning scripts, the FAISS C comparators (`openmp_bit_cpu_FAISS_comp`, `openmp_bit_gpu_FAISS_comp`) built by the main `Makefile`, the FAISS comparison sweep (`faiss_compare.pl` + `faiss_compare_visualize.R`), and the `main`-to-branch synchronization helpers. |
-| `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns `Makefile_bench.mak`, the `openmp_bit_nocpu` GPU-only kernel testbed, native CUDA/HIP benchmarks, GPU sweep/plot tooling and results, the FAISS *Python* scripts, and the `gpuOpt`-to-branch synchronization helpers. |
-| `inteliGPU` | Intel oneAPI CPU build and offload validation | Build with `CC=icx GPU=INTEL`. Its `scripts/` directory retains only the shared bug-report helper after branch-specific cleanup. |
+| `main` | Baseline library, SIMD, CPU tuning, NUMA experiments, and shared benchmark work | Owns the CPU sweep/tuning scripts and the `main`-to-branch synchronization helpers. The FAISS benchmark suite is cross-branch shared (see below). |
+| `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns `Makefile_bench.mak`, the `openmp_bit_nocpu` GPU-only kernel testbed, native CUDA/HIP benchmarks, GPU sweep/plot tooling and results, and the `gpuOpt`-to-branch synchronization helpers. The FAISS benchmark suite is cross-branch shared (see below). |
+| `inteliGPU` | Intel oneAPI CPU build and offload validation | Build with `CC=icx GPU=INTEL`. Its `scripts/` directory retains the shared bug-report helper and the shared FAISS benchmark suite. |
+
+The **FAISS benchmark suite** -- the C comparators (`openmp_bit_cpu_FAISS_comp`,
+`openmp_bit_gpu_FAISS_comp`), the Python FAISS scripts (`faiss_cpu_benchmark.py`,
+`faiss_gpu_benchmark.py`), and the comparison sweep (`faiss_compare.pl` +
+`benchmark_config_faiss.json` + `faiss_compare_visualize.R`) -- is
+**shared/synced across all three branches**, not owned by any one. It can be
+built, run, and edited on any branch, and edits propagate to the others through
+the branch-synchronization helpers. |
 
 Identify the checked-out branch, source revision, and working-tree state with:
 
@@ -1370,10 +1378,11 @@ The script trees are intentionally different.
 | `run_numa_sweeps.sh` | Yes | No | No | Runs four dual-socket scenarios through `sweep_cpu_tuning.pl`. |
 | `gpu_param_sweep.pl` + `plot_performance.R` | No | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
 | Tracked `benchmark_GPU_params/` results | No | Yes | No | Historical GPU sweep CSV/log results kept with their producer and plotter. |
-| `faiss_compare.pl` + `benchmark_config_faiss.json` | Yes | Yes | Yes | Small JSON-driven FAISS-vs-Bit comparison sweep; harvests per-iteration timings into `benchmark_FAISS/`. |
-| `faiss_compare_visualize.R` | Yes | Yes | Yes | R report for the FAISS comparison; boxplots of per-iteration times and a summarized CSV in `benchmark_FAISS/`. |
-| `faiss_cpu_gpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. |
-| `faiss_gpu_benchmark.py` | No | Yes | No | Similar FAISS GPU comparison without a measured CPU baseline; reports devices relative to GPU 0. |
+| `faiss_compare.pl` + `benchmark_config_faiss.json` | Yes | Yes | Yes | Small JSON-driven FAISS-vs-Bit comparison sweep; harvests per-iteration timings into `benchmark_FAISS/`. Shared across branches. |
+| `faiss_compare_visualize.R` | Yes | Yes | Yes | R report for the FAISS comparison; boxplots of per-iteration times and a summarized CSV in `benchmark_FAISS/`. Shared across branches. |
+| `faiss_cpu_benchmark.py` | Yes | Yes | Yes | Native FAISS `IndexBinaryFlat` CPU baseline; one of the two sweep FAISS arms. Shared across branches. |
+| `faiss_gpu_benchmark.py` | Yes | Yes | Yes | Native FAISS GPU comparison (no CPU baseline); the other sweep FAISS arm. Shared across branches. |
+| `faiss_cpu_gpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. NOT used by the sweep; gpuOpt-only. |
 | `push_main_to_gpuOpt.sh`, `push_main_to_inteliGPU.sh` | Yes | No | No | Copy curated paths from `main` to the named destination branch. |
 | `push_gpuOpt_to_main.sh`, `push_gpuOpt_to_inteliGPU.sh` | No | Yes | No | Mirror the same selective-copy workflow with `gpuOpt` as the source branch. |
 
@@ -1498,21 +1507,15 @@ fallback when a specific target or compiler path does not use a native popcount
 instruction.
 
 For GPU work, WWG is the default code path unless
-`USE_BUILTIN_POPCOUNT=1` is selected at build time. Modern compiler/target
-combinations may recognize either form efficiently, but generated instructions
-and performance must be measured for the selected compiler, architecture, data
-layout, and memory-transfer pattern. The GPU-only benchmark exists to make that
-comparison explicit.
-
-There is a useful compiler lesson hiding here: source spelling is not the same
-thing as generated machine code. In a project investigation using Clang's
+`USE_BUILTIN_POPCOUNT=1` is selected at build time. There is a useful compiler lesson hiding here: during development I found that Clang's (and gcc's)
 NVIDIA target, the hand-written WWG expression and `__builtin_popcountll`
 produced byte-identical device PTX containing `popc.b64`. LLVM recognized the
 classic SWAR pattern and canonicalized it to the hardware operation. That is a
 specific observation, not a promise about every compiler, optimization level,
 or AMD/NVIDIA target, but it explains why toggling `USE_BUILTIN_POPCOUNT` need
 not change performance. Inspect generated code and benchmark the intended
-binary before assigning speed to the source-level choice.
+binary before assigning speed to the source-level choice.The GPU-only benchmark exists to quantify if setting `USE_BUILTIN_POPCOUNT` changes performance.
+
 
 ### Why Containers and OpenMP
 
@@ -1568,16 +1571,14 @@ organization. Its contiguous storage lets the implementation tile the two
 outer container dimensions and block the inner bit-vector reduction. The
 `CPU_TILE`, `BITVECTOR_TILE`, outer-row/column shape, unroll, and scratch-buffer
 settings are experiments in cache use, register pressure, and memory traffic;
-they are tuning controls, not universal constants.
+these should be thought as tuning controls for a specific CPU architecture, not universal constants.
 
 The internal `_Pragma` helpers serve the same purpose on the code-organization
 side. They let one family of loops express CPU worksharing, SIMD reduction, GPU
 teams, and mapping choices without maintaining several nearly identical
-kernels. This is one of the places where the C preprocessor is earning its keep,
-but those helpers remain private implementation machinery rather than an API
-applications should depend on.
+kernels. This is one of the places where the C preprocessor is earning its keep, but those helpers remain private implementation machinery rather than an API applications should depend on.
 
-On a single socket, the relevant limits are often cache capacity and memory
+On a single socket CPU, the relevant limits are often cache capacity and memory
 bandwidth. On a multi-socket host, page placement and thread binding matter as
 well; the `main`-only NUMA sweep documents one way to make those variables
 measurable. On a GPU, transfer volume, residency, layout conversion, and launch
@@ -1618,7 +1619,7 @@ Bit is particularly useful for dense set and membership workloads such as:
 - High-performance set operations and all-pairs intersection-count searches.
 
 For genuinely sparse domains, a compressed representation such as a roaring
-bitmap can be a better fit than this uncompressed library.
+bitmap can be a better fit than this uncompressed library. I have not attempted to figure out how big the capacity should be before a compressed respresentation wins out in performance. 
 
 ## Roadmap
 
