@@ -1042,6 +1042,26 @@ from the library's public execution path.
 
 ## Automation Scripts
 
+### Artifact Output Locations (working-directory behavior)
+
+All benchmark producers anchor their output to the **repository root**, not the
+directory you invoke them from. You can run any of them from any working
+directory and the artifacts always land in the same place:
+
+| Producer | Artifacts land in | Mechanism |
+| --- | --- | --- |
+| `scripts/faiss_compare.pl` | `<repo-root>/benchmark_FAISS/` | Detects the repo root from the script's own path and `chdir`s into it. |
+| `scripts/faiss_compare_visualize.R` | reads/writes `<repo-root>/benchmark_FAISS/` | Resolves the root via `this.path::this.dir()`. |
+| `scripts/cpu_param_sweep.pl` | `<repo-root>/benchmark_CPU_params/` (or `<repo-root>/<out_dir>` if `--out_dir` is overridden) | Detects the repo root from the script's own path and `chdir`s into it; a relative `--config` is resolved against the original working directory first. |
+| `scripts/cpu_profiling_analytics.R` | reads `<repo-root>/benchmark_CPU_params/` | Searches a short list of candidate locations, preferring the repo root. |
+| `scripts/sweep_cpu_tuning.pl` | `<repo-root>/tuning-results/` | Requires CWD = repo root (aborts otherwise). |
+| `scripts/run_numa_sweeps.sh` | `<repo-root>/tuning-results/` (via the tuner) | Resolves the root from `BASH_SOURCE` and `cd`s into it. |
+
+The relative `out_dir` in `benchmark_config_cpu.json` (default
+`benchmark_CPU_params`) and the `benchmark_FAISS` output directory are therefore
+always interpreted relative to the repository root. To redirect a run elsewhere,
+pass an absolute `--out_dir` to `cpu_param_sweep.pl`.
+
 ### CPU Sweep Workflow (`main`)
 
 The `main` CPU tools are complementary stages of investigation, not
@@ -1070,11 +1090,19 @@ invokes. It requires `--config` and uses
 `scripts/benchmark_config_cpu.json` for build matrices, runtime matrices,
 telemetry, commands, and output parsing.
 
-The checked-in configuration uses paths relative to the `scripts/` directory,
-so run it from there:
+The script is **working-directory agnostic**: it locates the repository root
+from its own path and `chdir`s there, so it can be invoked from any directory
+and always builds/runs against `<repo-root>` and writes under
+`<repo-root>/benchmark_CPU_params/`. Both of these invocations are equivalent:
 
 ```bash
 git switch main
+
+# From the repository root.
+perl scripts/cpu_param_sweep.pl --config scripts/benchmark_config_cpu.json
+
+# Or from the scripts/ directory (a relative --config is resolved against the
+# directory you invoke it from).
 cd scripts
 perl ./cpu_param_sweep.pl --config ./benchmark_config_cpu.json
 ```
