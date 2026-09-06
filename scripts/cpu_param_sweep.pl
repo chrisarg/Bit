@@ -36,7 +36,10 @@ my %cli_opts;
 my @getopt_spec;
 for my $matrix (qw(build_matrix run_matrix system_env)) {
     next unless exists $config{$matrix};
-    for my $key (keys %{ $config{$matrix} }) { push @getopt_spec, "$key=s"; }
+    for my $key (keys %{ $config{$matrix} }) {
+        next if $key =~ /^_/;    # underscore-prefixed keys are inert doc/metadata, not CLI options
+        push @getopt_spec, "$key=s";
+    }
 }
 
 GetOptions(\%cli_opts, @getopt_spec) or die "Error parsing CLI arguments.\n";
@@ -52,8 +55,79 @@ sub normalize_array {
     return [] unless defined $val;
     return ref($val) eq 'ARRAY' ? $val : [ split(/\s*,\s*/, $val) ];
 }
-for my $k (keys %{$config{build_matrix}}) { $config{build_matrix}{$k} = normalize_array($config{build_matrix}{$k}); }
-for my $k (keys %{$config{run_matrix}})   { $config{run_matrix}{$k}   = normalize_array($config{run_matrix}{$k}); }
+
+# Expand repetition/range objects into value lists. Runs BEFORE thread/taskset
+# sentinel resolution; a {"repeat":N} or {"range":"a-b"} object is the only
+# hashref form and never collides with the 'auto'/'maxcores' string sentinels.
+sub expand_matrix_value {
+    my ($val) = @_;
+    return $val unless ref($val) eq 'HASH';
+    if ( defined $val->{repeat} && $val->{repeat} =~ /^\d+$/ && $val->{repeat} > 0 ) {
+        return [ 1 .. $val->{repeat} ];
+    }
+    if ( defined $val->{range} && $val->{range} =~ /^(\d+)-(\d+)$/ ) {
+        return [ $1 .. $2 ];
+    }
+    return $val;
+}
+for my $k (keys %{$config{build_matrix}}) { $config{build_matrix}{$k} = normalize_array(expand_matrix_value($config{build_matrix}{$k})); }
+for my $k (keys %{$config{run_matrix}})   { $config{run_matrix}{$k}   = normalize_array(expand_matrix_value($config{run_matrix}{$k})); }
+
+# 3b. Resolve machine logical-core count (before telemetry & grid expansion)
+sub logical_cpu_count {
+    # Use the machine's full logical-CPU complement: `nproc --all` reports all
+    # online processors (not the cgroup/affinity-restricted subset that bare
+    # `nproc` returns). On an SMT machine this is threads, not physical cores,
+    # which is what a full-capacity benchmark sweep should reach.
+    if ( open my $ph, '-|', 'nproc --all' ) {
+        my $n = <$ph>;
+        close $ph;
+        if ( defined $n && $n =~ /(\d+)/ && $1 > 0 ) { return $1; }
+    }
+    # Fallback: count processor entries in /proc/cpuinfo.
+    if ( open my $fh, '<', '/proc/cpuinfo' ) {
+        my $count = grep { /^processor\b/ } <$fh>;
+        close $fh;
+        return $count if $count > 0;
+    }
+    die "FATAL: Unable to determine logical CPU count (nproc --all and /proc/cpuinfo both failed).\n";
+}
+my $max_cores = logical_cpu_count();
+
+# 3c. Resolve thread-count sentinels against the machine's core count.
+#   ["auto"]              -> 1..N
+#   list with "maxcores"  -> numerics capped at <= N (sentinel dropped), order preserved, deduped
+#   empty after filtering -> WARN and fall back to 1..N (never die)
+sub resolve_threads {
+    my ( $list, $max ) = @_;
+    return $list unless ref($list) eq 'ARRAY' && @$list;
+
+    if ( @$list == 1 && lc($list->[0]) eq 'auto' ) {
+        return [ 1 .. $max ];
+    }
+    if ( grep { lc($_) eq 'maxcores' } @$list ) {
+        my @nums = grep { /^\d+$/ } @$list;
+        my ( %seen, @kept );
+        for my $v (@nums) {
+            next if $v > $max || $seen{$v}++;
+            push @kept, $v;
+        }
+        if ( !@kept ) {
+            WARN("Requested thread list exceeds available cores ($max); falling back to 1..$max");
+            return [ 1 .. $max ];
+        }
+        return \@kept;
+    }
+    return $list;
+}
+$config{run_matrix}{threads} = resolve_threads( $config{run_matrix}{threads}, $max_cores );
+
+# 3d. taskset sentinel: "auto" -> full mask 0-(N-1); anything else passes through verbatim.
+sub resolve_taskset {
+    my ( $val, $max ) = @_;
+    return $val unless defined $val && lc($val) eq 'auto';
+    return '0-' . ( $max - 1 );
+}
 
 # 4. Node & Instance Identification
 my $hostname = hostname();
@@ -124,6 +198,14 @@ Log::Log4perl->easy_init(
 INFO("Starting Universal Benchmark Engine");
 INFO("Run ID: $run_id | Node: $hostname ($mac_address) | Context: $exec_context");
 
+# Seed the RNG before any shuffle so grid order is reproducible when configured.
+if ( defined $config{system_env}{seed} && $config{system_env}{seed} =~ /^\d+$/ ) {
+    srand( $config{system_env}{seed} );
+    INFO("Seed: $config{system_env}{seed} (reproducible grid order)");
+} else {
+    INFO("Seed: none (grid order randomized per run)");
+}
+
 my @b_keys = sort keys %{$config{build_matrix}};
 my @r_keys = sort keys %{$config{run_matrix}};
 my @cap_cols = @{ $config{system_env}{output_parser}{columns} };
@@ -144,6 +226,7 @@ NestedLoops( \@build_arrays, sub { my %c; @c{@b_keys} = @_; push @build_grid, \%
 my @run_arrays = map { $config{run_matrix}{$_} } @r_keys;
 my @run_grid;
 NestedLoops( \@run_arrays, sub { my %c; @c{@r_keys} = @_; push @run_grid, \%c; } );
+@run_grid = shuffle(@run_grid);
 
 # --- Execution Engine ---
 for my $b_config (@build_grid) {
@@ -198,7 +281,7 @@ sub run_benchmark_instance {
 
     if ( $ctx->{priority} eq 'nice' ) { unshift @run_args, 'nice', '-n', '-20'; } 
     elsif ( $ctx->{priority} eq 'rr' ) { unshift @run_args, 'chrt', '-r', '50'; }
-    if ( $ctx->{taskset} ) { unshift @run_args, 'taskset', '-c', $ctx->{taskset}; }
+    if ( $ctx->{taskset} ) { unshift @run_args, 'taskset', '-c', resolve_taskset( $ctx->{taskset}, $max_cores ); }
 
     DEBUG("RUNNING: " . join(' ', @run_args));
 
