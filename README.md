@@ -883,7 +883,54 @@ The OpenMP builds are independent of any FAISS installation; only the two
 native FAISS builds need the FAISS conda environment (resolved automatically
 via `conda run -n faiss_env` when the base `python` cannot import FAISS).
 
+#### Reproducible up-front build
+
+Before the grid runs, `faiss_compare.pl` performs a single `make -B` that pins
+`libbit` and the comparators to a known configuration, so each result set is
+reproducible and self-describing. This is driven by the `build` block of
+`scripts/benchmark_config_faiss.json`:
+
+- `gpu` is **required**. Set it to `"NONE"` for a CPU-only comparison, or to a
+  target such as `"NVIDIA"`, `"AMD"`, or `"INTEL"` to also build the GPU
+  comparator. The value is passed verbatim to `make GPU=...`.
+- `gpu_arch` is **optional**; leave it blank to let the Makefile auto-detect
+  the architecture (`nvidia-smi` / `rocmsmi`).
+- The remaining keys (`cc`, `cpu_tile`, `bitvector_tile`, `buffer_size`,
+  `outer_row_num`, `outer_col_num`, `outer_vec_blk`, `libpopcnt`, `apply_lto`,
+  `use_builtin_popcount`) map to the host-build Make variables. **Blank or
+  empty values are omitted** so the Makefile defaults take over; set a value to
+  pin it (e.g. `"libpopcnt": "1"`).
+
+Only the comparators relevant to the target are built:
+`openmp_bit_cpu_FAISS_comp` always, plus `openmp_bit_gpu_FAISS_comp` when
+`gpu != "NONE"`. When `gpu == "NONE"`, the GPU builds (`bit_gpu`, `faiss_gpu`)
+are dropped from the run even if stale binaries exist. The build aborts the
+whole comparison on failure, printing the tail of the build output.
+
+The effective configuration actually passed to `make` (only the non-omitted
+variables) is recorded in `benchmark_FAISS/build_config.txt` alongside the
+results, so the exact build behind any CSV can be reproduced.
+
+For a GPU comparison, set `gpu` (and optionally pin the popcount path and
+compiler); everything left blank uses the Makefile defaults:
+
+```json
+"build": {
+  "gpu": "NVIDIA",
+  "gpu_arch": "",
+  "libpopcnt": "1",
+  "cc": "clang"
+}
+```
+
+This runs `make -B openmp_bit_cpu_FAISS_comp openmp_bit_gpu_FAISS_comp
+GPU=NVIDIA LIBPOPCNT=1 CC=clang` (GPU architecture auto-detected) and enables
+the `bit_gpu` and `faiss_gpu` builds. A failed build (for example, an
+unsupported `cc`) stops the sweep before any benchmark runs.
+
 ```bash
+# Run from ANY directory -- the script auto-detects the repo root, builds the
+# comparators itself (make -B), and writes results under <repo-root>/benchmark_FAISS/.
 # Full grid: bitset sizes 1024..65536 x top_k 64..2048 x num_refs
 # 10000..1000000, 100 iterations each.
 perl scripts/faiss_compare.pl --config scripts/benchmark_config_faiss.json
@@ -892,7 +939,17 @@ perl scripts/faiss_compare.pl --config scripts/benchmark_config_faiss.json
 perl scripts/faiss_compare.pl --bitset_bits 1024 --top_k 64 --num_refs 10000,100000 --dry_run
 ```
 
-Outputs (all under `benchmark_FAISS/`):
+The script is **working-directory agnostic**: it locates the repository root
+from its own path, `chdir`s there, builds the comparators with
+`make -C <root> -B ...`, and runs each target. Results are always written to
+`<repo-root>/benchmark_FAISS/` (alongside `benchmark_CPU_params/` and
+`benchmark_GPU_params/`), regardless of the directory you invoke it from. GPU
+visibility for the GPU builds is derived from `build.gpu`
+(`NVIDIA`->`CUDA_VISIBLE_DEVICES`, `AMD`->`ROCR_VISIBLE_DEVICES`, `INTEL`->none);
+set `system_env.gpu_visible_env` in the JSON (e.g. `"CUDA_VISIBLE_DEVICES=1"`)
+to override. The host comparator (`bit_cpu`) runs with no GPU-visibility prefix.
+
+Outputs (all under `<repo-root>/benchmark_FAISS/`):
 
 - `faiss_compare_results.csv`  -- long-format per-iteration timings.
 - `faiss_compare_summary.csv`  -- per-cell mean/median/sd (written by the R step).
@@ -911,8 +968,11 @@ Rscript scripts/faiss_compare_visualize.R
 
 ![Median per-iteration time vs bitset size](benchmark_FAISS/faiss_compare_median_trend.png)
 
-The strategy selector and these benchmark targets belong to `gpuOpt`; `main`
-and `inteliGPU` retain only the standard Makefile build surfaces.
+The `openmp_bit_nocpu` strategy selector and the experimental `Makefile_bench.mak`
+targets belong to `gpuOpt`. The FAISS comparators
+(`openmp_bit_cpu_FAISS_comp`, `openmp_bit_gpu_FAISS_comp`) are part of the
+cross-branch shared FAISS suite and are built by the standard `Makefile` on all
+branches (see [FAISS C comparators](#faiss-c-comparators)).
 
 #### Interpreting `openmp_bit_nocpu` Output
 

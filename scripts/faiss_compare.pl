@@ -29,6 +29,20 @@ use IPC::Run ();
 use Algorithm::Loops qw(NestedLoops);
 use File::Path qw(make_path);
 use Time::HiRes qw(gettimeofday tv_interval);
+use FindBin ();
+use File::Spec ();
+use Cwd qw(abs_path);
+
+# ---------------------------------------------------------------------------
+# Repo-root anchoring: this script builds (make -B) and runs the comparators
+# using repo-root-relative paths (build/..., scripts/...). Detect the repo root
+# from the script's own location and chdir into it so the sweep can be invoked
+# from ANY working directory. The results always land in <root>/benchmark_FAISS.
+# ---------------------------------------------------------------------------
+my $orig_cwd  = abs_path(File::Spec->curdir());
+my $repo_root = abs_path(File::Spec->catdir($FindBin::Bin, '..'));
+die "ERROR: cannot locate repository root (no Makefile above $FindBin::Bin).\n"
+  unless -f File::Spec->catfile($repo_root, 'Makefile');
 
 # ---------------------------------------------------------------------------
 # Pass 1: intercept and strip the configuration flag, then decode the JSON.
@@ -36,6 +50,16 @@ use Time::HiRes qw(gettimeofday tv_interval);
 Getopt::Long::Configure("pass_through");
 my $config_file = "scripts/benchmark_config_faiss.json";
 Getopt::Long::GetOptions("config=s" => \$config_file);
+
+# Resolve a user-supplied RELATIVE --config against the ORIGINAL cwd (before the
+# chdir below). The default (scripts/...) is root-relative and resolved after chdir.
+if ( !File::Spec->file_name_is_absolute($config_file)
+     && $config_file !~ m{^scripts/} ) {
+  $config_file = File::Spec->catfile($orig_cwd, $config_file);
+}
+
+chdir($repo_root)
+  or die "ERROR: cannot chdir to repo root '$repo_root': $!\n";
 
 open my $cfh, '<', $config_file
   or die "ERROR: cannot open config '$config_file': $!\n";
@@ -46,6 +70,12 @@ my $sys          = $config->{system_env}    // {};
 my $build_matrix = $config->{build_matrix}  // {};
 my $run_matrix   = $config->{run_matrix}    // {};
 my $parsers      = $config->{output_parser}{by_kind} // {};
+my $build_cfg    = $config->{build}         // {};
+
+# 'build.gpu' is required: it selects the offload target for the up-front build
+# ('NONE' = CPU-only comparison; the GPU comparator/benchmarks are then dropped).
+die "ERROR: config 'build.gpu' is required (set to 'NONE' for CPU-only).\n"
+  unless defined $build_cfg->{gpu} && length $build_cfg->{gpu};
 
 # ---------------------------------------------------------------------------
 # Pass 2: dynamically bind the remaining CLI arguments from the JSON schema.
@@ -153,7 +183,98 @@ if ( !$gpu_ok ) {
      . "GPU builds (faiss_gpu, bit_gpu) will be skipped\n";
 }
 
-# The Bit executables must already be built (the engine never builds).
+# ---------------------------------------------------------------------------
+# Up-front build: pin libbit and the comparators to a known, config-driven
+# configuration. Runs ONCE before the grid; aborts the whole comparison on
+# failure. Blank/empty config values are omitted so Makefile defaults apply.
+# ---------------------------------------------------------------------------
+sub run_build_step {
+  my ($build_cfg) = @_;
+
+  my $gpu = $build_cfg->{gpu};
+  my $gpu_none = ( $gpu =~ /^none$/i ) ? 1 : 0;
+
+  # Map lowercase config keys -> Make variables (host-build tunables).
+  my %var_map = (
+    cc                  => 'CC',
+    cpu_tile            => 'CPU_TILE',
+    bitvector_tile      => 'BITVECTOR_TILE',
+    buffer_size         => 'BUFFER_SIZE',
+    outer_row_num       => 'OUTER_ROW_NUM',
+    outer_col_num       => 'OUTER_COL_NUM',
+    outer_vec_blk       => 'OUTER_VEC_BLK',
+    libpopcnt           => 'LIBPOPCNT',
+    apply_lto           => 'APPLY_LTO',
+    use_builtin_popcount => 'USE_BUILTIN_POPCOUNT',
+  );
+
+  # Blank-omit: only forward values that are defined and non-empty.
+  my @make_vars = ( "GPU=$gpu" );
+  my @effective = ( "GPU=$gpu" );
+  if ( defined $build_cfg->{gpu_arch} && length $build_cfg->{gpu_arch} ) {
+    push @make_vars, "GPU_ARCH=$build_cfg->{gpu_arch}";
+    push @effective, "GPU_ARCH=$build_cfg->{gpu_arch}";
+  }
+  for my $key ( sort keys %var_map ) {
+    my $val = $build_cfg->{$key};
+    next unless defined $val;
+    if ( ref($val) eq 'ARRAY' ) { next unless @$val; $val = join( ',', @$val ); }
+    $val = trim_ws($val);
+    next unless length $val;
+    push @make_vars, "$var_map{$key}=$val";
+    push @effective, "$var_map{$key}=$val";
+  }
+
+  my @targets = ('openmp_bit_cpu_FAISS_comp');
+  push @targets, 'openmp_bit_gpu_FAISS_comp' if !$gpu_none;
+
+  # -C anchors the build at the detected repo root so it is correct from any CWD.
+  my @cmd = ( 'make', '-C', $repo_root, '-B', @targets, @make_vars );
+  print "[build] ", join( ' ', @cmd ), "\n";
+  return ( $gpu_none, \@effective ) if $cli{dry_run};
+
+  my $build_out = '';
+  # IPC::Run::run returns FALSE (does not die) on non-zero exit; capture that.
+  my $ok = eval { IPC::Run::run( \@cmd, '>', \$build_out, '2>&1' ) };
+  $ok = 0 if $@;    # IPC exception
+  if ( !$ok ) {
+    my @tail = split /\n/, $build_out;
+    my $start = @tail > 40 ? $#tail - 39 : 0;
+    die "ERROR: build failed (make exited non-zero). Last output:\n"
+      . join( "\n", @tail[ $start .. $#tail ] ) . "\n";
+  }
+
+  # Guarantee the build actually produced the comparators (fail loudly if not).
+  for my $t (@targets) {
+    my $exe = File::Spec->catfile( $repo_root, 'build', $t );
+    die "ERROR: build completed but '$exe' is missing/not executable.\n"
+      unless -x $exe;
+  }
+  return ( $gpu_none, \@effective );
+}
+
+sub trim_ws { my ($s) = @_; $s //= ''; $s =~ s/^\s+|\s+$//g; return $s; }
+
+# Vendor-derived GPU visibility variable. NOT hardcoded to CUDA: NVIDIA uses
+# CUDA_VISIBLE_DEVICES, AMD uses ROCR_VISIBLE_DEVICES, Intel uses none (the
+# comparator selects via device id). An optional system_env.gpu_visible_env
+# overrides the derived value ("VAR=0" form) for exotic setups.
+my %gpu_env_var = ( NVIDIA => 'CUDA_VISIBLE_DEVICES', AMD => 'ROCR_VISIBLE_DEVICES' );
+sub gpu_visibility_prefix {
+  my ($gpu) = @_;
+  my $ov = $sys->{gpu_visible_env} // '';
+  return trim_ws($ov) if length trim_ws($ov);          # explicit override wins
+  return '' if $gpu =~ /^none$/i;                       # CPU-only: no GPU to pin
+  my $var = $gpu_env_var{ uc $gpu } // '';              # INTEL/unknown -> none
+  return '' unless length $var;
+  return "$var=$sys->{gpu_id}";
+}
+my $gpu_vis = gpu_visibility_prefix( $build_cfg->{gpu} );
+
+# The Bit executables are built by run_build_step() above; here we only verify
+# presence and drop builds that cannot run. With gpu == NONE the GPU builds are
+# dropped from the run matrix even if stale binaries are present.
+my ( $gpu_none, $effective_build ) = run_build_step($build_cfg);
 my %build_enabled;
 for my $build ( sort keys %{$build_matrix} ) {
   my $spec = $build_matrix->{$build};
@@ -164,8 +285,16 @@ for my $build ( sort keys %{$build_matrix} ) {
   if ( $spec->{needs_gpu} && !$gpu_ok ) {
     $enabled = 0;
   }
+  if ( $gpu_none && $spec->{needs_gpu} ) {
+    warn "NOTE: build.gpu=NONE; dropping GPU build '$build' from the run\n";
+    $enabled = 0;
+  }
   if ( $spec->{kind} eq 'openmp' ) {
-    my ($exe) = shellwords( $spec->{cmd} );
+    # Skip any leading VAR=value env prefixes to reach the actual executable.
+    my @toks = shellwords( $spec->{cmd} );
+    shift @toks while @toks && $toks[0] =~ /^[A-Za-z_][A-Za-z0-9_]*=/;
+    my $exe = $toks[0] // '';
+    $exe = File::Spec->catfile( $repo_root, $exe ) unless File::Spec->file_name_is_absolute($exe);
     if ( !-x $exe ) {
       warn "WARNING: '$exe' not found or not executable; build '$build' skipped\n";
       $enabled = 0;
@@ -182,6 +311,19 @@ die "ERROR: no builds are runnable; nothing to do\n" unless @builds;
 my $out_dir     = $sys->{out_dir};
 my $results_csv = "$out_dir/$sys->{results_csv}";
 make_path($out_dir) if !$cli{dry_run};
+
+# Self-describing sidecar: record the EFFECTIVE build configuration actually
+# passed to make (only the non-omitted tunables), so each result set is
+# reproducible without inspecting the JSON defaults.
+if ( !$cli{dry_run} ) {
+  if ( open my $bc, '>', "$out_dir/build_config.txt" ) {
+    print {$bc} "# Effective build configuration (passed to 'make -B')\n";
+    print {$bc} "$_\n" for @{$effective_build};
+    close $bc;
+  } else {
+    warn "WARNING: cannot write '$out_dir/build_config.txt': $!\n";
+  }
+}
 
 my @csv_header = qw(Backend Build Device Bitset_Bits Top_K Num_Queries Num_Refs
                     Threads Iteration Timing_ns);
@@ -256,15 +398,31 @@ while ( my @point = $grid_iter->() ) {
     if ( $spec->{use_numactl} && length $numactl ) {
       $cmd = "$numactl $cmd";
     }
+    # Vendor-derived GPU visibility (NVIDIA=CUDA_VISIBLE_DEVICES, AMD=
+    # ROCR_VISIBLE_DEVICES). Applied only to GPU-requiring builds; bit_cpu (host)
+    # is intentionally left untouched.
+    if ( $spec->{needs_gpu} && length $gpu_vis ) {
+      $cmd = "$gpu_vis $cmd";
+    }
 
     print "[$build | bits=$cell{bitset_bits} k=$cell{top_k}] $cmd\n";
     next if $cli{dry_run};
 
     my @argv = shellwords($cmd);
+    # IPC::Run execs argv[0] directly (no shell), so a leading VAR=val prefix is
+    # NOT interpreted as an environment assignment -- it would be exec'd as the
+    # program. Strip leading VAR=val tokens and apply them as env overrides.
+    my %env_override;
+    while ( @argv && $argv[0] =~ /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/ ) {
+      $env_override{$1} = $2;
+      shift @argv;
+    }
     my ( $stdout, $stderr );
-    my $ok = eval {
-      IPC::Run::run( \@argv, '>', \$stdout, '2>', \$stderr );
-      1;
+    my $ok = do {
+      local @ENV{ keys %env_override } = values %env_override;
+      my $r = eval { IPC::Run::run( \@argv, '>', \$stdout, '2>', \$stderr ) };
+      $r = 0 if $@;    # IPC exception
+      $r;
     };
     if ( !$ok ) {
       warn "WARNING: command failed for $build "

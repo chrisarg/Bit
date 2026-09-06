@@ -1,9 +1,25 @@
 {
   "schema_version": "1.0",
-  "description": "Small FAISS comparison: native FAISS (Python) vs Bit OpenMP comparators (C). Single source of truth for scripts/faiss_compare.pl. Telemetry is disabled: only per-iteration timings are harvested.",
+  "description": "Small FAISS comparison: native FAISS (Python) vs Bit OpenMP comparators (C). Single source of truth for scripts/faiss_compare.pl. Telemetry is disabled: only per-iteration timings are harvested. The script auto-detects the repo root (run it from anywhere) and builds the Bit comparators via 'make -C <root> -B'. GPU visibility for the GPU builds is derived from build.gpu (NVIDIA->CUDA_VISIBLE_DEVICES, AMD->ROCR_VISIBLE_DEVICES, INTEL->none); set system_env.gpu_visible_env (e.g. 'CUDA_VISIBLE_DEVICES=1') to override.",
 
   "telemetry": {
     "enabled": false
+  },
+
+  "build": {
+    "_docs": "One up-front 'make -B' before the grid. Blank/empty values are OMITTED so Makefile defaults apply. 'gpu' is REQUIRED (use 'NONE' for CPU-only). 'gpu_arch' blank = auto-detect. The GPU comparator (openmp_bit_gpu_FAISS_comp) is only built when gpu != NONE; when gpu == NONE the GPU benchmarks are dropped from the run.",
+    "gpu": "NVIDIA",
+    "gpu_arch": "sm_70",
+    "cc": "clang",
+    "cpu_tile": "",
+    "bitvector_tile": "",
+    "buffer_size": "",
+    "outer_row_num": "",
+    "outer_col_num": "",
+    "outer_vec_blk": "",
+    "libpopcnt": "0",
+    "apply_lto": "1",
+    "use_builtin_popcount": ""
   },
 
   "system_env": {
@@ -14,6 +30,7 @@
     "numactl_prefix": "numactl --interleave=all",
     "threads": "auto",
     "gpu_id": 0,
+    "gpu_visible_env": "",
     "num_queries": 1000,
     "iterations": 100
   },
@@ -56,7 +73,7 @@
   "run_matrix": {
     "bitset_bits": [1024, 4096, 8192, 16384, 65536],
     "top_k": [64, 128, 256, 1024, 2048],
-    "num_refs": [10000, 100000, 1000000]
+    "num_refs": [10000, 100000]
   },
 
   "output_parser": {
