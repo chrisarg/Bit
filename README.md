@@ -1045,6 +1045,85 @@ perl ./cpu_param_sweep.pl \
 The JSON uses underscore-style option names, such as `out_dir`, because those
 are the configuration keys consumed by `GetOptions`.
 
+##### Affinity and Thread Scaling
+
+`taskset` (a `system_env` scalar) and `threads` (a `run_matrix` list) accept
+machine-portable sentinel values so a single configuration works across hosts
+with different core counts. The resolved logical-core count is the value
+reported by `nproc` (which honors cgroup/affinity limits on shared nodes),
+falling back to counting `processor` entries in `/proc/cpuinfo`.
+
+`taskset` controls the CPU mask passed to `taskset -c`:
+
+| Value | Behavior |
+| --- | --- |
+| explicit cpulist (`0-9`, `0,2,4`, `0-15:2`) | Passed verbatim to `taskset -c`. |
+| `auto` | Expands to `0-(N-1)`, pinning to all N usable logical CPUs. |
+
+`threads` controls the OpenMP thread-count sweep:
+
+| Value | Behavior |
+| --- | --- |
+| explicit list (`[1, 2, 4, 8]`) | Swept as-is. |
+| `["auto"]` | Expands to `1..N` (every logical core). |
+| list containing `"maxcores"` | The sentinel is dropped and numeric entries are capped at `<= N`, preserving order and removing duplicates. On an 8-core machine, `[1, 2, 3, 4, "maxcores", 16, 18]` becomes `[1, 2, 3, 4]`, and `[1, 2, 3, 4, 8, 16, 18, 72, "maxcores"]` becomes `[1, 2, 3, 4, 8]`. |
+
+If every requested thread count exceeds the available cores (an impossible
+scenario on the current machine), the runner logs a warning and falls back to
+sweeping `1..N` rather than aborting.
+
+Both sentinels are also available as command-line overrides:
+
+```bash
+perl ./cpu_param_sweep.pl --config ./benchmark_config_cpu.json \
+  --taskset auto --threads auto
+
+perl ./cpu_param_sweep.pl --config ./benchmark_config_cpu.json \
+  --threads 1,2,4,maxcores
+```
+
+The resolved core count is recorded per run in the `Logical_CPUs` CSV column
+(emitted by the `cpu_count` telemetry entry) and is used by
+`cpu_profiling_analytics.R` to facet and annotate the optimization-frontier,
+register-pressure, and cache-saturation plots.
+
+The focused tuner honors the same `auto` keyword through its `CORES` and
+`THREADS` environment variables (e.g. `CORES=auto THREADS=auto
+./scripts/sweep_cpu_tuning.pl`). `run_numa_sweeps.sh` intentionally keeps
+explicit per-socket masks and is unaffected.
+
+##### Repetition Ranges and Reproducible Randomization
+
+Repetition-style matrix keys such as `rep_id` can be written as a single
+object instead of an explicit list. The object expands before grid generation:
+
+| Value | Behavior |
+| --- | --- |
+| `{ "repeat": 10 }` | Expands to `1..10` (run each configuration ten times). |
+| `{ "range": "3-6" }` | Expands to `3,4,5,6`. |
+| explicit list (`[1, 2, 3]`) or scalar | Used as-is (backward compatible). |
+
+`rep_id` is not interpolated into any command; it only multiplies executions
+and labels CSV rows for repetition aggregation.
+
+Both the build grid and the run grid are **shuffled** so execution order is
+decorrelated from time (thermal/turbo drift and background load), which makes
+the measured timings more statistically reliable. Set `seed` in `system_env`
+(or pass `--seed N`) to make the shuffled order reproducible across
+invocations; omit it for a fresh random order each run. The active seed is
+logged at startup.
+
+```json
+"system_env": { "seed": 12345, ... }
+```
+
+```bash
+perl ./cpu_param_sweep.pl --config ./benchmark_config_cpu.json --seed 12345
+```
+
+The FAISS benchmark suite is excluded from this scheme; its seeds are
+hardwired in the comparator source.
+
 ##### Telemetry and CSV Parsing
 
 Telemetry is described in JSON rather than embedded as benchmark-specific Perl
@@ -1144,6 +1223,55 @@ git switch main
 LIBPOPCNT_MODES=0,1 ELEVATE=always \
   perl ./scripts/sweep_cpu_tuning.pl
 ```
+
+##### Configuration File and Reproducible Order
+
+In addition to environment variables, `sweep_cpu_tuning.pl` accepts an
+optional JSON config via `--config`. The checked-in
+`scripts/benchmark_config_tuning.json` documents the full schema. Environment
+variables **override** config values (env wins), so the env-only invocations
+above and `run_numa_sweeps.sh` keep working unchanged.
+
+```bash
+perl ./scripts/sweep_cpu_tuning.pl --config ./scripts/benchmark_config_tuning.json
+```
+
+Config keys are grouped into three blocks; each maps to the corresponding
+environment variable:
+
+| Config key | Env override | Meaning |
+| --- | --- | --- |
+| `seed` | `SEED` | Integer seed for the configuration-order shuffle. |
+| `sweep.libpopcnt_modes` | `LIBPOPCNT_MODES` | Comma-separated `0`/`1` algorithm modes. |
+| `sweep.cpu_tiles` | `CPU_TILES` | Comma-separated `CPU_TILE` values. |
+| `sweep.k_blocks` | `K_BLOCKS` | Comma-separated `BITVECTOR_TILE` values. |
+| `sweep.shapes` | `SHAPES` | Comma-separated `ROWSxCOLS` shapes. |
+| `sweep.unrolls` | `UNROLLS` | Comma-separated `OUTER_VEC_BLK` values. |
+| `sweep.buffer_sizes` | `BUFFER_SIZES` | Comma-separated `BUFFER_SIZE` values. |
+| `run.cc` | `CC` | Compiler. |
+| `run.cores` | `CORES` | CPU affinity mask (`auto` = all usable cores). |
+| `run.bits` | `BITS` | Bitset length. |
+| `run.left` / `run.right` | `LEFT` / `RIGHT` | Operand counts. |
+| `run.threads` | `THREADS` | OpenMP thread count (`auto` = usable cores). |
+| `run.reps` / `run.perf_reps` | `REPS` / `PERF_REPS` | Benchmark / `perf stat` repetitions. |
+| `run.elevate` / `run.priority` | `ELEVATE` / `PRIORITY` | Privilege escalation and scheduling. |
+| `run.max_configs` | `MAX_CONFIGS` | Cap on configurations executed (0 = all). |
+| `output.results_dir` | `RESULTS_DIR` | Root of tuning results. |
+| `output.arch_tag` | `ARCH_TAG` | Architecture label (empty = auto-detect). |
+| `output.run_label` | `RUN_LABEL` | Optional run label. |
+| `output.numa_policy` / `output.numa_cmd` | `NUMA_POLICY` / `NUMA_CMD` | NUMA policy label and command. |
+
+`PERF_PROFILES` and `PERF_EVENTS` are deliberately **environment-only** and have
+no config-file keys. The per-architecture PMU event tables they select or
+override are hardware-mapping logic, not experiment design, so they stay in the
+script; set them via the environment (see the Performance Profiles section
+below).
+
+The configuration list is **shuffled** before execution so run order is
+decorrelated from time (thermal/turbo drift). Set `seed` (or `SEED`) to make
+the shuffled order reproducible; omit it for a fresh order each run. The seed
+is recorded in the generated report. When `MAX_CONFIGS` is set, it now selects
+a *random* subset of the shuffled configurations rather than the first N.
 
 To evaluate both algorithms, every default tuning parameter, and all 15
 diagnostic profiles on one socket, run this from the repository root:
