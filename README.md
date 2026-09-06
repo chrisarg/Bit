@@ -1261,6 +1261,12 @@ environment variable:
 | `output.run_label` | `RUN_LABEL` | Optional run label. |
 | `output.numa_policy` / `output.numa_cmd` | `NUMA_POLICY` / `NUMA_CMD` | NUMA policy label and command. |
 
+`PERF_PROFILES` and `PERF_EVENTS` are deliberately **environment-only** and have
+no config-file keys. The per-architecture PMU event tables they select or
+override are hardware-mapping logic, not experiment design, so they stay in the
+script; set them via the environment (see the Performance Profiles section
+below).
+
 The configuration list is **shuffled** before execution so run order is
 decorrelated from time (thermal/turbo drift). Set `seed` (or `SEED`) to make
 the shuffled order reproducible; omit it for a fresh order each run. The seed
