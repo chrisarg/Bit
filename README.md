@@ -866,9 +866,31 @@ make CC=clang GPU=NVIDIA GPU_ARCH=sm_70 \
 Usage:
 
 ```text
-build/openmp_bit_cpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <iterations> [threads]
-build/openmp_bit_gpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <gpu-iterations> [gpu-id]
+build/openmp_bit_cpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <iterations> [threads] [--no-verify]
+build/openmp_bit_gpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <gpu-iterations> [gpu-id] [--no-verify]
 ```
+
+#### Timing scope and the `--no-verify` flag
+
+The reported per-iteration end-to-end time (`... OpenMP Filter Total` and the
+`SEARCH SUMMARY` `E2E Avg Time (ns)`) is a **single wall-clock span** around the
+whole search call -- the count operation plus the top-k selection plus result
+handling -- matching the Python scripts' `time.perf_counter_ns()` bracket around
+`index.search()`. The scalar best-score reduction over the returned top-k scores
+is computed *outside* that span (untimed), exactly as the Python scripts compute
+`distances.min()` after their timed call. The comparators also print the two
+component spans separately (`GPU/CPU Algorithm Timing` = count call only;
+`Filter Timings` = top-k only) for diagnosis, but the sweep harvests the
+end-to-end `Filter Total` line.
+
+Both comparators compute an independent CPU all-pairs reference and cross-check
+the device/library results against it (the `agreements`/`disagreements` lines).
+That reference uses a host OpenMP `parallel for` and intentionally saturates all
+cores during the setup phase. Pass `--no-verify` to skip the reference
+computation and the cross-check: the benchmark then presents like the Python
+FAISS GPU script, with the host mostly idle and no independent reference. The
+flag is opt-in; the default behavior (verify on) and the sweep
+(`scripts/faiss_compare.pl`) are unchanged.
 
 ### FAISS comparison sweep
 
@@ -929,6 +951,8 @@ the `bit_gpu` and `faiss_gpu` builds. A failed build (for example, an
 unsupported `cc`) stops the sweep before any benchmark runs.
 
 ```bash
+# Run from ANY directory -- the script auto-detects the repo root, builds the
+# comparators itself (make -B), and writes results under <repo-root>/benchmark_FAISS/.
 # Full grid: bitset sizes 1024..65536 x top_k 64..2048 x num_refs
 # 10000..1000000, 100 iterations each.
 perl scripts/faiss_compare.pl --config scripts/benchmark_config_faiss.json
@@ -937,7 +961,17 @@ perl scripts/faiss_compare.pl --config scripts/benchmark_config_faiss.json
 perl scripts/faiss_compare.pl --bitset_bits 1024 --top_k 64 --num_refs 10000,100000 --dry_run
 ```
 
-Outputs (all under `benchmark_FAISS/`):
+The script is **working-directory agnostic**: it locates the repository root
+from its own path, `chdir`s there, builds the comparators with
+`make -C <root> -B ...`, and runs each target. Results are always written to
+`<repo-root>/benchmark_FAISS/` (alongside `benchmark_CPU_params/` and
+`benchmark_GPU_params/`), regardless of the directory you invoke it from. GPU
+visibility for the GPU builds is derived from `build.gpu`
+(`NVIDIA`->`CUDA_VISIBLE_DEVICES`, `AMD`->`ROCR_VISIBLE_DEVICES`, `INTEL`->none);
+set `system_env.gpu_visible_env` in the JSON (e.g. `"CUDA_VISIBLE_DEVICES=1"`)
+to override. The host comparator (`bit_cpu`) runs with no GPU-visibility prefix.
+
+Outputs (all under `<repo-root>/benchmark_FAISS/`):
 
 - `faiss_compare_results.csv`  -- long-format per-iteration timings.
 - `faiss_compare_summary.csv`  -- per-cell mean/median/sd (written by the R step).
@@ -956,8 +990,11 @@ Rscript scripts/faiss_compare_visualize.R
 
 ![Median per-iteration time vs bitset size](benchmark_FAISS/faiss_compare_median_trend.png)
 
-The strategy selector and these benchmark targets belong to `gpuOpt`; `main`
-and `inteliGPU` retain only the standard Makefile build surfaces.
+The `openmp_bit_nocpu` strategy selector and the experimental `Makefile_bench.mak`
+targets belong to `gpuOpt`. The FAISS comparators
+(`openmp_bit_cpu_FAISS_comp`, `openmp_bit_gpu_FAISS_comp`) are part of the
+cross-branch shared FAISS suite and are built by the standard `Makefile` on all
+branches (see [FAISS C comparators](#faiss-c-comparators)).
 
 #### Interpreting `openmp_bit_nocpu` Output
 
@@ -1005,6 +1042,26 @@ from the library's public execution path.
 
 ## Automation Scripts
 
+### Artifact Output Locations (working-directory behavior)
+
+All benchmark producers anchor their output to the **repository root**, not the
+directory you invoke them from. You can run any of them from any working
+directory and the artifacts always land in the same place:
+
+| Producer | Artifacts land in | Mechanism |
+| --- | --- | --- |
+| `scripts/faiss_compare.pl` | `<repo-root>/benchmark_FAISS/` | Detects the repo root from the script's own path and `chdir`s into it. |
+| `scripts/faiss_compare_visualize.R` | reads/writes `<repo-root>/benchmark_FAISS/` | Resolves the root via `this.path::this.dir()`. |
+| `scripts/cpu_param_sweep.pl` | `<repo-root>/benchmark_CPU_params/` (or `<repo-root>/<out_dir>` if `--out_dir` is overridden) | Detects the repo root from the script's own path and `chdir`s into it; a relative `--config` is resolved against the original working directory first. |
+| `scripts/cpu_profiling_analytics.R` | reads `<repo-root>/benchmark_CPU_params/` | Searches a short list of candidate locations, preferring the repo root. |
+| `scripts/sweep_cpu_tuning.pl` | `<repo-root>/tuning-results/` | Requires CWD = repo root (aborts otherwise). |
+| `scripts/run_numa_sweeps.sh` | `<repo-root>/tuning-results/` (via the tuner) | Resolves the root from `BASH_SOURCE` and `cd`s into it. |
+
+The relative `out_dir` in `benchmark_config_cpu.json` (default
+`benchmark_CPU_params`) and the `benchmark_FAISS` output directory are therefore
+always interpreted relative to the repository root. To redirect a run elsewhere,
+pass an absolute `--out_dir` to `cpu_param_sweep.pl`.
+
 ### CPU Sweep Workflow (`main`)
 
 The `main` CPU tools are complementary stages of investigation, not
@@ -1033,11 +1090,19 @@ invokes. It requires `--config` and uses
 `scripts/benchmark_config_cpu.json` for build matrices, runtime matrices,
 telemetry, commands, and output parsing.
 
-The checked-in configuration uses paths relative to the `scripts/` directory,
-so run it from there:
+The script is **working-directory agnostic**: it locates the repository root
+from its own path and `chdir`s there, so it can be invoked from any directory
+and always builds/runs against `<repo-root>` and writes under
+`<repo-root>/benchmark_CPU_params/`. Both of these invocations are equivalent:
 
 ```bash
 git switch main
+
+# From the repository root.
+perl scripts/cpu_param_sweep.pl --config scripts/benchmark_config_cpu.json
+
+# Or from the scripts/ directory (a relative --config is resolved against the
+# directory you invoke it from).
 cd scripts
 perl ./cpu_param_sweep.pl --config ./benchmark_config_cpu.json
 ```

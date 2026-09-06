@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "description": "Small FAISS comparison: native FAISS (Python) vs Bit OpenMP comparators (C). Single source of truth for scripts/faiss_compare.pl. Telemetry is disabled: only per-iteration timings are harvested.",
+  "description": "Small FAISS comparison: native FAISS (Python) vs Bit OpenMP comparators (C). Single source of truth for scripts/faiss_compare.pl. Telemetry is disabled: only per-iteration timings are harvested. The script auto-detects the repo root (run it from anywhere) and builds the Bit comparators via 'make -C <root> -B'. GPU visibility for the GPU builds is derived from build.gpu (NVIDIA->CUDA_VISIBLE_DEVICES, AMD->ROCR_VISIBLE_DEVICES, INTEL->none); set system_env.gpu_visible_env (e.g. 'CUDA_VISIBLE_DEVICES=1') to override.",
 
   "telemetry": {
     "enabled": false
@@ -30,6 +30,7 @@
     "numactl_prefix": "numactl --interleave=all",
     "threads": "auto",
     "gpu_id": 0,
+    "gpu_visible_env": "",
     "num_queries": 1000,
     "iterations": 100
   },

@@ -58,8 +58,8 @@
     "seed": 12345,
     "taskset": "auto",
     "priority": "normal",
-    "build_cmd": "make -C ../ -f Makefile -B build/cpu_param_sweep GPU=NONE CC={cc} OPT={opt_level} APPLY_LTO={lto} MARCH={march} LIBPOPCNT={libpopcnt} CPU_TILE={cpu_tile} BITVECTOR_TILE={bitvector_tile} BUFFER_SIZE={buffer_size} OUTER_ROW_NUM={outer_row_num} OUTER_COL_NUM={outer_col_num} OUTER_VEC_BLK={outer_vec_blk}",
-    "run_cmd": "env OMP_PLACES=cores OMP_PROC_BIND={omp_bind} numactl {numa_policy} ../build/cpu_param_sweep {num_bits} {dim_left} {dim_right} {threads}",
+    "build_cmd": "make -C . -f Makefile -B build/cpu_param_sweep GPU=NONE CC={cc} OPT={opt_level} APPLY_LTO={lto} MARCH={march} LIBPOPCNT={libpopcnt} CPU_TILE={cpu_tile} BITVECTOR_TILE={bitvector_tile} BUFFER_SIZE={buffer_size} OUTER_ROW_NUM={outer_row_num} OUTER_COL_NUM={outer_col_num} OUTER_VEC_BLK={outer_vec_blk}",
+    "run_cmd": "env OMP_PLACES=cores OMP_PROC_BIND={omp_bind} numactl {numa_policy} build/cpu_param_sweep {num_bits} {dim_left} {dim_right} {threads}",
     "pre_run_cmd": "",
     "output_parser": {
       "regex": "(?i)Total\\s+time\\s+for\\s+(?<Benchmark_Type>Container\\s+-\\s+)?Multi-threaded\\s+-\\s+OpenMP:\\s+(?<Timing_ns>\\d+)\\s+ns.*?Number\\s+of\\s+threads:\\s+(?<Threads>\\d+)",

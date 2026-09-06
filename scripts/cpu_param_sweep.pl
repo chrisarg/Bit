@@ -10,9 +10,22 @@ use Getopt::Long     qw(GetOptionsFromArray GetOptions);
 use POSIX            qw(strftime);
 use Sys::Hostname    qw(hostname);
 use FindBin;
+use Cwd              qw(abs_path);
 use IPC::Run         qw(run);
 use Log::Log4perl    qw(:easy);
 use JSON::PP         qw(decode_json);
+
+# ---------------------------------------------------------------------------
+# Repo-root anchoring (mirrors scripts/faiss_compare.pl): the sweep writes its
+# CSV/log artifacts to the configuration's RELATIVE out_dir (default
+# benchmark_CPU_params), which we anchor at the detected repository root so the
+# results always land in <root>/benchmark_CPU_params regardless of the working
+# directory the script is invoked from.
+# ---------------------------------------------------------------------------
+my $orig_cwd  = abs_path(File::Spec->curdir());
+my $repo_root = abs_path(File::Spec->catdir($FindBin::Bin, '..'));
+die "ERROR: cannot locate repository root (no Makefile above $FindBin::Bin).\n"
+  unless -f File::Spec->catfile($repo_root, 'Makefile');
 
 # 1. Intercept Config File
 my $config_file;
@@ -20,6 +33,20 @@ Getopt::Long::Configure("pass_through");
 GetOptions('config=s' => \$config_file);
 Getopt::Long::Configure("no_pass_through");
 die "FATAL: --config <file.json> is strictly required.\n" unless $config_file;
+
+# Resolve a user-supplied RELATIVE --config against the ORIGINAL cwd (before the
+# chdir below), so a config path given relative to the caller's directory keeps
+# working. A path already prefixed with scripts/ is root-relative and is left
+# alone (resolved after chdir). Both documented invocations keep working:
+#   cd scripts && perl ./cpu_param_sweep.pl --config ./benchmark_config_cpu.json
+#   perl scripts/cpu_param_sweep.pl --config scripts/benchmark_config_cpu.json
+if ( !File::Spec->file_name_is_absolute($config_file)
+     && $config_file !~ m{^scripts/} ) {
+  $config_file = File::Spec->catfile($orig_cwd, $config_file);
+}
+
+chdir($repo_root)
+  or die "ERROR: cannot chdir to repo root '$repo_root': $!\n";
 
 # 2. Load JSON Schema
 my %config;
