@@ -929,6 +929,8 @@ the `bit_gpu` and `faiss_gpu` builds. A failed build (for example, an
 unsupported `cc`) stops the sweep before any benchmark runs.
 
 ```bash
+# Run from ANY directory -- the script auto-detects the repo root, builds the
+# comparators itself (make -B), and writes results under <repo-root>/benchmark_FAISS/.
 # Full grid: bitset sizes 1024..65536 x top_k 64..2048 x num_refs
 # 10000..1000000, 100 iterations each.
 perl scripts/faiss_compare.pl --config scripts/benchmark_config_faiss.json
@@ -937,7 +939,17 @@ perl scripts/faiss_compare.pl --config scripts/benchmark_config_faiss.json
 perl scripts/faiss_compare.pl --bitset_bits 1024 --top_k 64 --num_refs 10000,100000 --dry_run
 ```
 
-Outputs (all under `benchmark_FAISS/`):
+The script is **working-directory agnostic**: it locates the repository root
+from its own path, `chdir`s there, builds the comparators with
+`make -C <root> -B ...`, and runs each target. Results are always written to
+`<repo-root>/benchmark_FAISS/` (alongside `benchmark_CPU_params/` and
+`benchmark_GPU_params/`), regardless of the directory you invoke it from. GPU
+visibility for the GPU builds is derived from `build.gpu`
+(`NVIDIA`->`CUDA_VISIBLE_DEVICES`, `AMD`->`ROCR_VISIBLE_DEVICES`, `INTEL`->none);
+set `system_env.gpu_visible_env` in the JSON (e.g. `"CUDA_VISIBLE_DEVICES=1"`)
+to override. The host comparator (`bit_cpu`) runs with no GPU-visibility prefix.
+
+Outputs (all under `<repo-root>/benchmark_FAISS/`):
 
 - `faiss_compare_results.csv`  -- long-format per-iteration timings.
 - `faiss_compare_summary.csv`  -- per-cell mean/median/sd (written by the R step).
@@ -956,8 +968,11 @@ Rscript scripts/faiss_compare_visualize.R
 
 ![Median per-iteration time vs bitset size](benchmark_FAISS/faiss_compare_median_trend.png)
 
-The strategy selector and these benchmark targets belong to `gpuOpt`; `main`
-and `inteliGPU` retain only the standard Makefile build surfaces.
+The `openmp_bit_nocpu` strategy selector and the experimental `Makefile_bench.mak`
+targets belong to `gpuOpt`. The FAISS comparators
+(`openmp_bit_cpu_FAISS_comp`, `openmp_bit_gpu_FAISS_comp`) are part of the
+cross-branch shared FAISS suite and are built by the standard `Makefile` on all
+branches (see [FAISS C comparators](#faiss-c-comparators)).
 
 #### Interpreting `openmp_bit_nocpu` Output
 
