@@ -5,21 +5,21 @@
     "lto": ["1"],
     "march": ["native"],
     "libpopcnt": [0, 1],
-    "cpu_tile": [16, 32],
-    "bitvector_tile": [512, 1024],
-    "buffer_size": [256, 512, 1024, 2048, 4096],
-    "outer_row_num": [2, 4],
-    "outer_col_num": [2, 4],
-    "outer_vec_blk": [2, 4]
+    "cpu_tile": [32],
+    "bitvector_tile": [1024],
+    "buffer_size": [4096],
+    "outer_row_num": [1, 2, 4],
+    "outer_col_num": [1, 2, 4],
+    "outer_vec_blk": [1, 2, 4]
   },
   "run_matrix": {
     "num_bits": [65536, 262144],
     "dim_left": [1024],
     "dim_right": [1024],
-    "threads": [1, 2, 4, 8, 16, 18, 20, 36, 54, 72, "maxcores"],
+    "threads": [1, 2, 4, 8, 10, 16, 18, 20, 36, 54, 72, "maxcores"],
     "omp_bind": ["close", "spread"],
     "numa_policy": ["--interleave=all"],
-    "rep_id": { "repeat": 10 }
+    "rep_id": { "repeat": 3 }
   },
   "telemetry": {
     "hardware": {

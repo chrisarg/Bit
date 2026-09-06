@@ -2,10 +2,10 @@
   "_docs": "Configuration for scripts/sweep_cpu_tuning.pl. Environment variables override these values (env wins). See README.md 'Focused Kernel Profiling & Tuning'. seed drives the random config order for reproducibility.",
   "seed": 12345,
   "sweep": {
-    "libpopcnt_modes": "0",
+    "libpopcnt_modes": "0,1",
     "cpu_tiles": "4,8,16,32",
     "k_blocks": "256,512,768,1024",
-    "shapes": "1x1,2x2,2x4,4x2",
+    "shapes": "1x1,1x2,2x1,1x4,4x1,2x2,2x4,4x2,4x4",
     "unrolls": "1,2,4",
     "buffer_sizes": "128,512,1024,4096"
   },
