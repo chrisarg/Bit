@@ -35,12 +35,17 @@
 /* Shared, trimmed instrumentation: identical shape for the CPU and the GPU
  * benchmarks. start_time/end_time bracket the setop count kernel (host or
  * device); start_CPU_overhead/end_CPU_overhead bracket the host-side or
- * device-side top-k selection. */
+ * device-side top-k selection. start_e2e/end_e2e bracket the WHOLE
+ * per-iteration search (count + device-pointer resolution + top-k + result
+ * reduction) as a single wall-clock span, matching the Python
+ * perf_counter_ns() bracket around index.search(). */
 typedef struct {
   struct timespec start_time;
   struct timespec end_time;
   struct timespec start_CPU_overhead;
   struct timespec end_CPU_overhead;
+  struct timespec start_e2e;
+  struct timespec end_e2e;
 } Bench_Instrumentation;
 
 typedef struct FilteredResults {

@@ -55,6 +55,8 @@ FilteredResults database_match_GPU_filter_instrument(Bit_DB_T db1, Bit_DB_T db2,
   int *top_ids = malloc(num_queries * top_k * sizeof(*top_ids));
   assert(top_scores && top_ids);
 
+  clock_gettime(CLOCK_MONOTONIC, &instr->start_e2e);
+
   int *results = BitDB_diff_count_gpu_instrument(db1, db2, opts, instr);
 
   /* The counts buffer is resident on the device (defer_counts_transfer);
@@ -73,8 +75,17 @@ FilteredResults database_match_GPU_filter_instrument(Bit_DB_T db1, Bit_DB_T db2,
                    top_ids, opts.device_id);
   clock_gettime(CLOCK_MONOTONIC, &instr->end_CPU_overhead);
 
+  /* End the e2e span here so it matches the Python perf_counter_ns() bracket
+   * around index.search() exactly (count + device top-k + result handling). */
+  clock_gettime(CLOCK_MONOTONIC, &instr->end_e2e);
+
+  /* Best-score reduction is computed AFTER the e2e span (untimed), mirroring
+   * the Python scripts, which compute distances.min() outside the timed call.
+   * A plain serial loop is used (no host OpenMP fork-join) so the GPU
+   * benchmark does not periodically saturate all host cores between device
+   * iterations; the pass is O(num_queries * top_k) and cheaper than the
+   * parallel-region dispatch it would otherwise pay. */
   int min_score = INT_MAX;
-#pragma omp parallel for reduction(min : min_score)
   for (size_t candidate = 0; candidate < num_queries * top_k; ++candidate) {
     if (top_scores[candidate] < min_score) {
       min_score = top_scores[candidate];
@@ -101,16 +112,26 @@ FilteredResults database_match_GPU_filter_instrument(Bit_DB_T db1, Bit_DB_T db2,
 }
 
 int main(int argc, char *argv[]) {
+  int verify = 1;
+  /* Optional trailing --no-verify flag: skip the CPU reference computation and
+   * the correctness cross-check. This removes the dominant host-side OpenMP
+   * workload (the all-pairs CPU reference) so the benchmark presents like the
+   * Python FAISS GPU script (host mostly idle, no independent reference). */
+  if (argc > 1 && strcmp(argv[argc - 1], "--no-verify") == 0) {
+    verify = 0;
+    --argc;
+  }
   if (argc != 6 && argc != 7) {
     fprintf(stderr,
             "Usage: %s <size> <number of bitsets> <number of reference "
-            "bitsets> <top-k> <gpu iterations> [<gpu_id>]\n",
+            "bitsets> <top-k> <gpu iterations> [<gpu_id>] [--no-verify]\n",
             argv[0]);
     fprintf(stderr, "Example: %s 1024 1000 1000000 256 10 0\n", argv[0]);
     fprintf(stderr,
             "This will create 1000 bitsets of size 1024 and run 10 GPU-only "
             "containerized intersection-count iterations on GPU 0 and provide "
-            "the top 256 results.\n");
+            "the top 256 results. Pass --no-verify to skip the CPU reference "
+            "computation and the GPU-vs-CPU correctness cross-check.\n");
     return EXIT_FAILURE;
   }
 
@@ -172,7 +193,8 @@ int main(int argc, char *argv[]) {
   printf("Using OpenMP GPU popcount: WWG\n");
 #endif
   printf("GPU heap selection: top %zu candidates per query\n", top_k);
-  printf("Starting GPU-only benchmark\n");
+  printf("Starting GPU-only benchmark%s\n",
+         verify ? "" : " (CPU reference verification disabled)");
 
   const size_t words_per_bitset = (size + 63) / 64;
   size_t queries_words = words_per_bitset * (size_t)num_of_bits;
@@ -181,8 +203,12 @@ int main(int argc, char *argv[]) {
 
   uint64_t *h_queries = malloc(queries_words * sizeof(uint64_t));
   uint64_t *h_refs = malloc(refs_words * sizeof(uint64_t));
-  uint32_t *cpu_results = malloc(results_words * sizeof(uint32_t));
-  assert(h_queries && h_refs && cpu_results);
+  assert(h_queries && h_refs);
+  uint32_t *cpu_results = NULL;
+  if (verify) {
+    cpu_results = malloc(results_words * sizeof(uint32_t));
+    assert(cpu_results);
+  }
 
   puts("Generating random bitsets...");
   uint64_t seed = 0xDEADBEEF;
@@ -203,9 +229,13 @@ int main(int argc, char *argv[]) {
     printf("Ref %zu: 0x%016llx\n", i, (unsigned long long)h_refs[i]);
   }
 
-  puts("Computing CPU reference results...");
-  compute_cpu_popcount_xor_reference(h_queries, h_refs, size, num_of_bits,
-                                     num_of_ref_bits, cpu_results);
+  if (verify) {
+    puts("Computing CPU reference results...");
+    compute_cpu_popcount_xor_reference(h_queries, h_refs, size, num_of_bits,
+                                       num_of_ref_bits, cpu_results);
+  } else {
+    puts("Skipping CPU reference results (--no-verify).");
+  }
 
   puts("Loading random bitvectors into Bitsets...");
   Bit_T *bits = malloc(num_of_bits * sizeof(Bit_T));
@@ -253,27 +283,29 @@ int main(int argc, char *argv[]) {
     timings[i] = timeDiff(&instr.end_time, &instr.start_time);
     filter_timings[i] =
         timeDiff(&instr.end_CPU_overhead, &instr.start_CPU_overhead);
-    end_to_end_timings[i] = timings[i] + filter_timings[i];
+    end_to_end_timings[i] = timeDiff(&instr.end_e2e, &instr.start_e2e);
     results[i] = filtered_results.max;
   }
 
   size_t agreements = 0;
   size_t disagreements = 0;
   uint32_t verify_max = 0;
-  int *gpu_counts = BitDB_diff_count_gpu_instrument(
-      db1, db2,
-      (SETOP_COUNT_OPTS){.device_id = gpu_id,
-                         .upd_1st_operand = false,
-                         .upd_2nd_operand = false,
-                         .release_1st_operand = true,
-                         .release_2nd_operand = true,
-                         .defer_counts_transfer = false,
-                         .release_counts = false},
-      &instr);
-  compare_gpu_to_cpu_results(gpu_counts, cpu_results, num_of_bits,
-                             num_of_ref_bits, &agreements, &disagreements,
-                             &verify_max);
-  free(gpu_counts);
+  if (verify) {
+    int *gpu_counts = BitDB_diff_count_gpu_instrument(
+        db1, db2,
+        (SETOP_COUNT_OPTS){.device_id = gpu_id,
+                           .upd_1st_operand = false,
+                           .upd_2nd_operand = false,
+                           .release_1st_operand = true,
+                           .release_2nd_operand = true,
+                           .defer_counts_transfer = false,
+                           .release_counts = false},
+        &instr);
+    compare_gpu_to_cpu_results(gpu_counts, cpu_results, num_of_bits,
+                               num_of_ref_bits, &agreements, &disagreements,
+                               &verify_max);
+    free(gpu_counts);
+  }
 
   // scaling factors for averaging across iterations
   double avg_algorithm_time = 0.0;
@@ -315,7 +347,7 @@ int main(int argc, char *argv[]) {
                       results[i], (float)filter_timings[1] / filter_timings[i]);
   }
 
-  puts("End-to-End GPU + Filter Timings (Component Sum):");
+  puts("End-to-End GPU + Filter Timings (Search Call):");
   for (int i = 1; i <= gpu_iterations; i++) {
     summarize_results("Container - GPU - OpenMP Filter Total",
                       end_to_end_timings[i], i, results[i],
@@ -331,10 +363,14 @@ int main(int argc, char *argv[]) {
          db2_bytes_resident / (1024 * 1024 * 1024));
   printf("  Total per-iteration:      %.6lf GB\n", payload_per_iteration);
 
-  printf("  agreements: %zu\n", agreements);
-  printf("  disagreements: %zu\n", disagreements);
-  if (disagreements > 0) {
-    printf("  WARNING: GPU results disagree with CPU reference\n");
+  if (verify) {
+    printf("  agreements: %zu\n", agreements);
+    printf("  disagreements: %zu\n", disagreements);
+    if (disagreements > 0) {
+      printf("  WARNING: GPU results disagree with CPU reference\n");
+    }
+  } else {
+    puts("  agreements/disagreements: skipped (--no-verify)");
   }
 
   puts(
@@ -429,7 +465,7 @@ int main(int argc, char *argv[]) {
          "Score Type                 : hamming_distance\n"
          "Score Order                : max\n"
          "Selection                  : GPU_topk_heap\n"
-         "Timing Scope               : component_sum\n"
+         "Timing Scope               : end_to_end_search_call\n"
          "Bitset Bits                : %d\n"
          "Num Queries                : %d\n"
          "Num Refs                   : %d\n"
