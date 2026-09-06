@@ -866,9 +866,31 @@ make CC=clang GPU=NVIDIA GPU_ARCH=sm_70 \
 Usage:
 
 ```text
-build/openmp_bit_cpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <iterations> [threads]
-build/openmp_bit_gpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <gpu-iterations> [gpu-id]
+build/openmp_bit_cpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <iterations> [threads] [--no-verify]
+build/openmp_bit_gpu_FAISS_comp <size> <num-bitsets> <num-ref-bitsets> <top-k> <gpu-iterations> [gpu-id] [--no-verify]
 ```
+
+#### Timing scope and the `--no-verify` flag
+
+The reported per-iteration end-to-end time (`... OpenMP Filter Total` and the
+`SEARCH SUMMARY` `E2E Avg Time (ns)`) is a **single wall-clock span** around the
+whole search call -- the count operation plus the top-k selection plus result
+handling -- matching the Python scripts' `time.perf_counter_ns()` bracket around
+`index.search()`. The scalar best-score reduction over the returned top-k scores
+is computed *outside* that span (untimed), exactly as the Python scripts compute
+`distances.min()` after their timed call. The comparators also print the two
+component spans separately (`GPU/CPU Algorithm Timing` = count call only;
+`Filter Timings` = top-k only) for diagnosis, but the sweep harvests the
+end-to-end `Filter Total` line.
+
+Both comparators compute an independent CPU all-pairs reference and cross-check
+the device/library results against it (the `agreements`/`disagreements` lines).
+That reference uses a host OpenMP `parallel for` and intentionally saturates all
+cores during the setup phase. Pass `--no-verify` to skip the reference
+computation and the cross-check: the benchmark then presents like the Python
+FAISS GPU script, with the host mostly idle and no independent reference. The
+flag is opt-in; the default behavior (verify on) and the sweep
+(`scripts/faiss_compare.pl`) are unchanged.
 
 ### FAISS comparison sweep
 
