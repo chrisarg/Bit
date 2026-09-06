@@ -883,6 +883,51 @@ The OpenMP builds are independent of any FAISS installation; only the two
 native FAISS builds need the FAISS conda environment (resolved automatically
 via `conda run -n faiss_env` when the base `python` cannot import FAISS).
 
+#### Reproducible up-front build
+
+Before the grid runs, `faiss_compare.pl` performs a single `make -B` that pins
+`libbit` and the comparators to a known configuration, so each result set is
+reproducible and self-describing. This is driven by the `build` block of
+`scripts/benchmark_config_faiss.json`:
+
+- `gpu` is **required**. Set it to `"NONE"` for a CPU-only comparison, or to a
+  target such as `"NVIDIA"`, `"AMD"`, or `"INTEL"` to also build the GPU
+  comparator. The value is passed verbatim to `make GPU=...`.
+- `gpu_arch` is **optional**; leave it blank to let the Makefile auto-detect
+  the architecture (`nvidia-smi` / `rocmsmi`).
+- The remaining keys (`cc`, `cpu_tile`, `bitvector_tile`, `buffer_size`,
+  `outer_row_num`, `outer_col_num`, `outer_vec_blk`, `libpopcnt`, `apply_lto`,
+  `use_builtin_popcount`) map to the host-build Make variables. **Blank or
+  empty values are omitted** so the Makefile defaults take over; set a value to
+  pin it (e.g. `"libpopcnt": "1"`).
+
+Only the comparators relevant to the target are built:
+`openmp_bit_cpu_FAISS_comp` always, plus `openmp_bit_gpu_FAISS_comp` when
+`gpu != "NONE"`. When `gpu == "NONE"`, the GPU builds (`bit_gpu`, `faiss_gpu`)
+are dropped from the run even if stale binaries exist. The build aborts the
+whole comparison on failure, printing the tail of the build output.
+
+The effective configuration actually passed to `make` (only the non-omitted
+variables) is recorded in `benchmark_FAISS/build_config.txt` alongside the
+results, so the exact build behind any CSV can be reproduced.
+
+For a GPU comparison, set `gpu` (and optionally pin the popcount path and
+compiler); everything left blank uses the Makefile defaults:
+
+```json
+"build": {
+  "gpu": "NVIDIA",
+  "gpu_arch": "",
+  "libpopcnt": "1",
+  "cc": "clang"
+}
+```
+
+This runs `make -B openmp_bit_cpu_FAISS_comp openmp_bit_gpu_FAISS_comp
+GPU=NVIDIA LIBPOPCNT=1 CC=clang` (GPU architecture auto-detected) and enables
+the `bit_gpu` and `faiss_gpu` builds. A failed build (for example, an
+unsupported `cc`) stops the sweep before any benchmark runs.
+
 ```bash
 # Full grid: bitset sizes 1024..65536 x top_k 64..2048 x num_refs
 # 10000..1000000, 100 iterations each.

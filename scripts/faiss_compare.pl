@@ -46,6 +46,12 @@ my $sys          = $config->{system_env}    // {};
 my $build_matrix = $config->{build_matrix}  // {};
 my $run_matrix   = $config->{run_matrix}    // {};
 my $parsers      = $config->{output_parser}{by_kind} // {};
+my $build_cfg    = $config->{build}         // {};
+
+# 'build.gpu' is required: it selects the offload target for the up-front build
+# ('NONE' = CPU-only comparison; the GPU comparator/benchmarks are then dropped).
+die "ERROR: config 'build.gpu' is required (set to 'NONE' for CPU-only).\n"
+  unless defined $build_cfg->{gpu} && length $build_cfg->{gpu};
 
 # ---------------------------------------------------------------------------
 # Pass 2: dynamically bind the remaining CLI arguments from the JSON schema.
@@ -153,7 +159,74 @@ if ( !$gpu_ok ) {
      . "GPU builds (faiss_gpu, bit_gpu) will be skipped\n";
 }
 
-# The Bit executables must already be built (the engine never builds).
+# ---------------------------------------------------------------------------
+# Up-front build: pin libbit and the comparators to a known, config-driven
+# configuration. Runs ONCE before the grid; aborts the whole comparison on
+# failure. Blank/empty config values are omitted so Makefile defaults apply.
+# ---------------------------------------------------------------------------
+sub run_build_step {
+  my ($build_cfg) = @_;
+
+  my $gpu = $build_cfg->{gpu};
+  my $gpu_none = ( $gpu =~ /^none$/i ) ? 1 : 0;
+
+  # Map lowercase config keys -> Make variables (host-build tunables).
+  my %var_map = (
+    cc                  => 'CC',
+    cpu_tile            => 'CPU_TILE',
+    bitvector_tile      => 'BITVECTOR_TILE',
+    buffer_size         => 'BUFFER_SIZE',
+    outer_row_num       => 'OUTER_ROW_NUM',
+    outer_col_num       => 'OUTER_COL_NUM',
+    outer_vec_blk       => 'OUTER_VEC_BLK',
+    libpopcnt           => 'LIBPOPCNT',
+    apply_lto           => 'APPLY_LTO',
+    use_builtin_popcount => 'USE_BUILTIN_POPCOUNT',
+  );
+
+  # Blank-omit: only forward values that are defined and non-empty.
+  my @make_vars = ( "GPU=$gpu" );
+  my @effective = ( "GPU=$gpu" );
+  if ( defined $build_cfg->{gpu_arch} && length $build_cfg->{gpu_arch} ) {
+    push @make_vars, "GPU_ARCH=$build_cfg->{gpu_arch}";
+    push @effective, "GPU_ARCH=$build_cfg->{gpu_arch}";
+  }
+  for my $key ( sort keys %var_map ) {
+    my $val = $build_cfg->{$key};
+    next unless defined $val;
+    if ( ref($val) eq 'ARRAY' ) { next unless @$val; $val = join( ',', @$val ); }
+    $val = trim_ws($val);
+    next unless length $val;
+    push @make_vars, "$var_map{$key}=$val";
+    push @effective, "$var_map{$key}=$val";
+  }
+
+  my @targets = ('openmp_bit_cpu_FAISS_comp');
+  push @targets, 'openmp_bit_gpu_FAISS_comp' if !$gpu_none;
+
+  my @cmd = ( 'make', '-B', @targets, @make_vars );
+  print "[build] ", join( ' ', @cmd ), "\n";
+  return ( $gpu_none, \@effective ) if $cli{dry_run};
+
+  my $build_out = '';
+  # IPC::Run::run returns FALSE (does not die) on non-zero exit; capture that.
+  my $ok = eval { IPC::Run::run( \@cmd, '>', \$build_out, '2>&1' ) };
+  $ok = 0 if $@;    # IPC exception
+  if ( !$ok ) {
+    my @tail = split /\n/, $build_out;
+    my $start = @tail > 40 ? $#tail - 39 : 0;
+    die "ERROR: build failed (make exited non-zero). Last output:\n"
+      . join( "\n", @tail[ $start .. $#tail ] ) . "\n";
+  }
+  return ( $gpu_none, \@effective );
+}
+
+sub trim_ws { my ($s) = @_; $s //= ''; $s =~ s/^\s+|\s+$//g; return $s; }
+
+# The Bit executables are built by run_build_step() above; here we only verify
+# presence and drop builds that cannot run. With gpu == NONE the GPU builds are
+# dropped from the run matrix even if stale binaries are present.
+my ( $gpu_none, $effective_build ) = run_build_step($build_cfg);
 my %build_enabled;
 for my $build ( sort keys %{$build_matrix} ) {
   my $spec = $build_matrix->{$build};
@@ -162,6 +235,10 @@ for my $build ( sort keys %{$build_matrix} ) {
     $enabled = 0;
   }
   if ( $spec->{needs_gpu} && !$gpu_ok ) {
+    $enabled = 0;
+  }
+  if ( $gpu_none && $spec->{needs_gpu} ) {
+    warn "NOTE: build.gpu=NONE; dropping GPU build '$build' from the run\n";
     $enabled = 0;
   }
   if ( $spec->{kind} eq 'openmp' ) {
@@ -182,6 +259,19 @@ die "ERROR: no builds are runnable; nothing to do\n" unless @builds;
 my $out_dir     = $sys->{out_dir};
 my $results_csv = "$out_dir/$sys->{results_csv}";
 make_path($out_dir) if !$cli{dry_run};
+
+# Self-describing sidecar: record the EFFECTIVE build configuration actually
+# passed to make (only the non-omitted tunables), so each result set is
+# reproducible without inspecting the JSON defaults.
+if ( !$cli{dry_run} ) {
+  if ( open my $bc, '>', "$out_dir/build_config.txt" ) {
+    print {$bc} "# Effective build configuration (passed to 'make -B')\n";
+    print {$bc} "$_\n" for @{$effective_build};
+    close $bc;
+  } else {
+    warn "WARNING: cannot write '$out_dir/build_config.txt': $!\n";
+  }
+}
 
 my @csv_header = qw(Backend Build Device Bitset_Bits Top_K Num_Queries Num_Refs
                     Threads Iteration Timing_ns);
@@ -262,10 +352,9 @@ while ( my @point = $grid_iter->() ) {
 
     my @argv = shellwords($cmd);
     my ( $stdout, $stderr );
-    my $ok = eval {
-      IPC::Run::run( \@argv, '>', \$stdout, '2>', \$stderr );
-      1;
-    };
+    # IPC::Run::run returns FALSE (does not die) on non-zero exit; capture that.
+    my $ok = eval { IPC::Run::run( \@argv, '>', \$stdout, '2>', \$stderr ) };
+    $ok = 0 if $@;    # IPC exception
     if ( !$ok ) {
       warn "WARNING: command failed for $build "
          . "(bits=$cell{bitset_bits} k=$cell{top_k}): $stderr\n";
