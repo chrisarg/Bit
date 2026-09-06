@@ -79,7 +79,7 @@
 /* --- Default popcount buffer sizing --- */
 #ifndef SETOP_BUFFER_SIZE
 #ifndef BUFFER_SIZE
-#define SETOP_BUFFER_SIZE 512
+#define SETOP_BUFFER_SIZE 4096
 #else
 #define SETOP_BUFFER_SIZE BUFFER_SIZE
 #endif
