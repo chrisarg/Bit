@@ -442,7 +442,7 @@ both operands as NULL is invalid. This convention follows those adopted by Hanso
 
 #### Packed Container API
 
-The packed container API consists of library functions and a smaller set of macros. The macros are very helpful for meta-programming with the C preprocessor, 
+The packed container API consists of library functions and a smaller set of macros. The macros are very helpful for meta-programming with the C preprocessor.  
 | Family | Functions | Contract |
 | --- | --- | --- |
 | Lifecycle and storage | `BitDB_new`, `BitDB_load`, `BitDB_free` | Create or borrow storage for a fixed number of equal-length bitsets. |
@@ -452,7 +452,8 @@ The packed container API consists of library functions and a smaller set of macr
 | Clearing | `BitDB_clear_at`, `BitDB_clear` | Clear one element or the complete packed container. |
 | Allocating all-pairs counts | `BitDB_{inter,union,diff,minus}_count_{cpu,gpu}` | Allocate and return an `int` matrix; the caller uses `free`. |
 | Caller-owned all-pairs counts | `BitDB_{inter,union,diff,minus}_count_store_{cpu,gpu}` | Write into a caller-provided `int` matrix. |
-| Target convenience macros | `BitDB_{inter,union,diff,minus}_count(..., cpu\|gpu)` | Select the corresponding direct CPU or GPU function in C source. |
+| **Target convenience macros** | `BitDB_{inter,union,diff,minus}_count(..., cpu\|gpu)` | Select the corresponding direct CPU or GPU function in C source. |
+| **Target convenience macros** | `BitDB_{inter,union,diff,minus}_count_store(..., cpu\|gpu)` | Select the corresponding direct CPU or GPU function in C source. |
 | Build diagnostics | `print_Bit_configuration` | Print the compiled tile, buffer, popcount, and OpenMP configuration. |
 
 Container binary operations require two non-NULL containers (also denoted as right and left in the documentation) whose bitsets have
@@ -460,19 +461,20 @@ the same length. If the left and right containers hold $N$ and $M$ bitsets,
 the result contains $N \times M$ integers in row-major order. `diff` and
 `minus` retain the XOR and left AND-NOT meanings shown above.
 
-The header also defines target-selecting `_store_` macros using the same order
-as the direct functions:
+The header also defines target-selecting `_count` `_count_store` macros using the same order of arguments as the direct functions, except the last:
 
 ```c
+BitDB_inter_count(left, right, results, options, cpu);
 BitDB_inter_count_store(left, right, results, options, cpu);
 ```
 
-The final token may be `cpu` or `gpu`. Direct `_store_cpu` and `_store_gpu`
-functions remain useful for foreign-function interfaces and callers that cannot
+The final token may be `cpu` or `gpu`. Direct `_store_cpu` and `_store_gpu` functions remain useful for foreign-function interfaces and callers that cannot
 use C preprocessor macros.
 
 #### Ownership and Validation
 
+`Bit` was written with the explicit intention to facilitate flexible storage ownership: there are functions in the API that own bitsets and containers, and others that use
+externally allocated buffers for the countainers. 
 | Value | Owner and release rule |
 | --- | --- |
 | `Bit_new` / `BitDB_new` result | Library owns storage. `Bit_free` / `BitDB_free` releases it, sets the handle to NULL, and returns NULL. |
