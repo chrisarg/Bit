@@ -1059,7 +1059,7 @@ directory and the artifacts always land in the same place:
 | `scripts/cpu_param_sweep.pl` | `<repo-root>/benchmark_CPU_params/` (or `<repo-root>/<out_dir>` if `--out_dir` is overridden) | Detects the repo root from the script's own path and `chdir`s into it; a relative `--config` is resolved against the original working directory first. |
 | `scripts/cpu_profiling_analytics.R` | reads `<repo-root>/benchmark_CPU_params/` | Searches a short list of candidate locations, preferring the repo root. |
 | `scripts/sweep_cpu_tuning.pl` | `<repo-root>/tuning-results/` | Requires CWD = repo root (aborts otherwise). |
-| `scripts/run_numa_sweeps.sh` | `<repo-root>/tuning-results/` (via the tuner) | Resolves the root from `BASH_SOURCE` and `cd`s into it. |
+| `scripts/run_numa_sweeps.sh` | `<repo-root>/tuning-results/` (one run tag per experiment) + `tuning-results/numa-compare-<timestamp>.md` | Resolves the root from `BASH_SOURCE` and `cd`s into it; four experiments plus a cross-experiment table. |
 
 The relative `out_dir` in `benchmark_config_cpu.json` (default
 `benchmark_CPU_params`) and the `benchmark_FAISS` output directory are therefore
@@ -1203,8 +1203,12 @@ register-pressure, and cache-saturation plots.
 
 The focused tuner honors the same `auto` keyword through its `CORES` and
 `THREADS` environment variables (e.g. `CORES=auto THREADS=auto
-./scripts/sweep_cpu_tuning.pl`). `run_numa_sweeps.sh` intentionally keeps
-explicit per-socket masks and is unaffected.
+./scripts/sweep_cpu_tuning.pl`). Note the scope differs deliberately: the
+tuner's `auto` expands via `nproc --all` (the full logical-CPU complement,
+SMT siblings included, ignoring any affinity already in force) because it
+profiles whole-machine behavior, whereas `cpu_param_sweep.pl`'s `auto` uses
+the cgroup/affinity-aware `nproc`. `run_numa_sweeps.sh` is unaffected: it
+derives per-socket physical-core lists from the discovered topology instead.
 
 ##### Repetition Ranges and Reproducible Randomization
 
@@ -1363,10 +1367,10 @@ environment variable:
 | `sweep.unrolls` | `UNROLLS` | Comma-separated `OUTER_VEC_BLK` values. |
 | `sweep.buffer_sizes` | `BUFFER_SIZES` | Comma-separated `BUFFER_SIZE` values. |
 | `run.cc` | `CC` | Compiler. |
-| `run.cores` | `CORES` | CPU affinity mask (`auto` = all usable cores). |
+| `run.cores` | `CORES` | CPU affinity mask (`auto` = every logical CPU from `nproc --all`, SMT siblings included, ignoring any current affinity restriction). |
 | `run.bits` | `BITS` | Bitset length. |
 | `run.left` / `run.right` | `LEFT` / `RIGHT` | Operand counts. |
-| `run.threads` | `THREADS` | OpenMP thread count (`auto` = usable cores). |
+| `run.threads` | `THREADS` | OpenMP thread count (`auto` = the `nproc --all` logical count, same as `CORES`). |
 | `run.reps` / `run.perf_reps` | `REPS` / `PERF_REPS` | Benchmark / `perf stat` repetitions. |
 | `run.elevate` / `run.priority` | `ELEVATE` / `PRIORITY` | Privilege escalation and scheduling. |
 | `run.max_configs` | `MAX_CONFIGS` | Cap on configurations executed (0 = all). |
@@ -1427,6 +1431,76 @@ MAX_CONFIGS=2 REPS=1 PERF_REPS=1 PERF_PROFILES=summary ELEVATE=always \
 timed call per benchmark process, and `PERF_REPS=1` runs each profile once. For
 this toolchain and permission check, `PERF_PROFILES=summary` keeps profiling to
 the smallest general-purpose event set.
+
+##### Sizing the Sweep for Your Host
+
+The two host-shape controls are `CORES` (the `taskset` CPU mask the benchmark
+may use) and `THREADS` (the OpenMP worker count passed to the benchmark). For
+the full tuning picture, sweep both libpopcnt modes and the complete profile
+set. The invocations below are copy-paste complete; run the `MAX_CONFIGS=2`
+smoke test above first on any new machine.
+
+| Host | Topology | `CORES` | `THREADS` | Entry point |
+| --- | --- | --- | --- | --- |
+| Dual Xeon E5-2697 v4 | 2 x 18 cores/36 threads (36 cores / 72 logical) | `0-35` | `36` | `run_numa_sweeps.sh` (auto-discovery), or the manual dual call below |
+| i7-11700 | 8 cores / 16 threads, 1 socket | `0-15` | `16` | direct tuner call |
+| i9-7900X | 10 cores / 20 threads, 1 socket | `0-19` | `20` | direct tuner call |
+
+Dual-socket Xeon E5-2697 v4 (preferred: the auto-discovering wrapper, which
+also produces the cross-experiment comparison table):
+
+```bash
+git switch main
+bash ./scripts/run_numa_sweeps.sh            # add --dry-run to preview first
+```
+
+or the equivalent single manual call (spread threads, interleaved memory):
+
+```bash
+git switch main
+LIBPOPCNT_MODES=0,1 \
+CORES=0-35 THREADS=36 \
+OMP_PLACES=cores OMP_PROC_BIND=spread \
+NUMA_CMD="numactl --interleave=0,1" NUMA_POLICY="interleave=0,1" \
+REPS=5 PERF_REPS=3 RUN_LABEL=2socket-e5-2697v4 \
+PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
+ELEVATE=always \
+./scripts/sweep_cpu_tuning.pl
+```
+
+i7-11700 (single socket, 8 cores / 16 threads). Use all logical CPUs:
+
+```bash
+git switch main
+LIBPOPCNT_MODES=0,1 \
+CORES=0-15 THREADS=16 \
+REPS=5 PERF_REPS=3 RUN_LABEL=i7-11700 \
+PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
+ELEVATE=always \
+./scripts/sweep_cpu_tuning.pl
+```
+
+To restrict to physical cores only on that part, use `CORES=0-7 THREADS=8`
+(and `OMP_PLACES=cores OMP_PROC_BIND=close`) instead.
+
+i9-7900X (single socket, 10 cores / 20 threads):
+
+```bash
+git switch main
+LIBPOPCNT_MODES=0,1 \
+CORES=0-19 THREADS=20 \
+REPS=5 PERF_REPS=3 RUN_LABEL=i9-7900x \
+PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
+ELEVATE=always \
+./scripts/sweep_cpu_tuning.pl
+```
+
+On these single-socket hosts there is no NUMA placement question, so no
+`NUMA_CMD` is set; the tuner's default OS policy applies. The equivalent
+`CORES=auto THREADS=auto` forms also work, but note that the tuner's `auto`
+expands to the full logical-CPU count from `nproc --all` (SMT siblings
+included, and ignoring any affinity restriction already in force) -- see the
+`auto` note in the variable table below.
 
 All sweep variables are environment variables. Comma-separated values define a
 matrix; a single value fixes that dimension.
@@ -1527,51 +1601,92 @@ its shared input containers before OpenMP workers begin, ordinary Linux
 first-touch placement can put many pages on one node and make work on the other
 socket remote-memory heavy.
 
-The checked-in script maps that method to a dual-socket Xeon E5-2697 v4 example
-with 18 physical cores per socket. It locates the repository root itself and
-may be started from another directory:
+The script is **generic**: it auto-discovers the socket/CPU topology from
+`lscpu` and runs on any dual-socket host, not just one machine. It locates the
+repository root itself and may be started from another directory:
 
 ```bash
 git switch main
 bash ./scripts/run_numa_sweeps.sh
 ```
 
-It requires `numactl`. The Xeon example runs these four comparable sweeps:
+It requires `numactl` and `lscpu`. On any dual-socket host it runs these four
+comparable sweeps, deriving the CPU lists and worker counts from the discovered
+physical cores (one OpenMP thread per physical core):
 
-1. `socket0-local`: CPUs `0-17`, 18 threads, and allocation bound to NUMA node 0.
-2. `socket1-local`: CPUs `18-35`, 18 threads, and allocation bound to NUMA node 1.
-3. `dual-first-touch-spread`: CPUs `0-35`, 36 threads, spread OpenMP binding, and default Linux first-touch placement.
-4. `dual-interleave`: CPUs `0-35`, 36 threads, spread OpenMP binding, and memory interleaved across nodes 0 and 1.
+1. `socket0-local`: the first socket's physical cores, allocation bound to its NUMA node.
+2. `socket1-local`: the second socket's physical cores, allocation local to that node.
+3. `dual-first-touch-spread`: all discovered physical cores, spread OpenMP binding, and default Linux first-touch placement.
+4. `dual-interleave`: all discovered physical cores, spread OpenMP binding, and memory interleaved across both NUMA nodes.
 
 The single-socket runs provide local-memory baselines. Comparing the two
 dual-socket runs helps distinguish an asymmetric first-touch placement effect
 from the effect of explicit interleaving. Interleaving balances allocation; it
 does not make every access local.
 
-Before applying the method to another dual-socket machine, inspect its topology
-and adapt the script's CPU lists, thread counts, NUMA-node IDs, and `ARCH_TAG`:
+Preview the four resolved experiments (CPU lists, thread counts, NUMA commands,
+and the `ARCH_TAG`) without building anything:
 
 ```bash
-numactl --hardware
-lscpu -e=CPU,NODE,SOCKET,CORE
+bash ./scripts/run_numa_sweeps.sh --dry-run
 ```
 
-| Adaptation point | Checked-in Xeon E5-2697 v4 example | Select for another host |
-| --- | --- | --- |
-| First socket CPU list | `0-17` | CPUs belonging to one socket and its chosen physical-core policy. |
-| Second socket CPU list | `18-35` | CPUs belonging to the other socket. |
-| Socket-local worker count | `18` | A count no greater than the selected socket's CPU capacity. |
-| Dual-socket worker count | `36` | A count no greater than the combined selected capacity. |
-| NUMA node IDs | `0`, `1` | The nodes backing the selected socket CPU lists. |
-| Artifact architecture tag | `x86-64-intel-xeon-e5-2697-v4` | A stable description of the tested CPU/topology. |
+On a host with a single socket the script exits with a clear message pointing
+you to `sweep_cpu_tuning.pl` directly, rather than running a degraded
+experiment.
 
-The current wrapper does not discover topology or expose these values as
-overrides, so manual adaptation is required. A future portable revision should
-provide explicit CPU-list, NUMA-node, worker-count, and tag overrides; validate
-nonempty/nonoverlapping online CPU lists and valid NUMA nodes before a run; and
-offer a dry-run mode that prints all four resolved experiments. It should keep
-the four experiment meanings stable while recording the resolved topology in
-the output labels.
+##### Overriding discovery
+
+Every value the script discovers can be overridden. Flags win over discovery;
+the environment variables documented for `sweep_cpu_tuning.pl`
+(`LIBPOPCNT_MODES`, `REPS`, `PERF_REPS`, `PERF_PROFILES`, `ELEVATE`,
+`MAX_CONFIGS`, `CC`, `SEED`, `RESULTS_DIR`, `OUT_DIR`) pass straight through.
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--socket0-cpus LIST` | first socket's physical cores | CPU list for the `socket0-local` run. |
+| `--socket1-cpus LIST` | second socket's physical cores | CPU list for the `socket1-local` run. |
+| `--dual-cpus LIST` | union of the two socket lists | CPU list for the two dual-socket runs. |
+| `--socket0-threads N` | size of the socket0 list | OpenMP workers for `socket0-local`. |
+| `--socket1-threads N` | size of the socket1 list | OpenMP workers for `socket1-local`. |
+| `--dual-threads N` | size of the dual list | OpenMP workers for the dual runs. |
+| `--nodes N0,N1` | first NUMA node seen on each socket | NUMA node IDs; override on sub-NUMA/cluster-on-die hosts where a socket maps to more than one node. |
+| `--arch-tag TAG` | auto-detected | `ARCH_TAG` passed to the tuner; set it to keep labels comparable with earlier runs. |
+| `--smt` | off | Use every logical CPU (SMT siblings included) instead of one thread per physical core. |
+| `--dry-run` | off | Print the four resolved experiments and exit without building. |
+| `-h`, `--help` | — | Print the option summary. |
+
+Before building, the script validates that the CPU lists are nonempty and
+non-overlapping, that the CPUs are online, that the NUMA nodes exist, and that
+no thread count exceeds its CPU list size, and it reports the first problem it
+finds.
+
+For example, on the reference dual Xeon E5-2697 v4 (18 physical cores per
+socket, 36 logical CPUs total, no SMT), `--dry-run` resolves to CPU lists
+`0-17` / `18-35` / `0-35`, worker counts `18` / `18` / `36`, and NUMA nodes
+`0,1` -- the historical hand-written mapping. On a 2x18-core host with SMT
+enabled (72 logical CPUs), the default physical-core policy resolves to the
+same `18/18/36` worker counts, while `--smt` produces `36/36/72`.
+
+##### Where the results go
+
+All four experiments write under `<repo-root>/tuning-results/` (see
+[Artifact Output Locations](#artifact-output-locations-working-directory-behavior)).
+Each experiment produces its own run tag, and the wrapper then writes a
+single cross-experiment table comparing the best configuration of each:
+
+| File (per run) | Contents |
+| --- | --- |
+| `tuning-results/summary-<arch>-<label>-<timestamp>.csv` | Raw per-configuration rows (all knobs + every perf counter). |
+| `tuning-results/llm-summary-<arch>-<label>-<timestamp>.md` | Ranked per-experiment table (avg ns, Gqword-pairs/s, IPC, cache/branch miss). |
+| `tuning-results/.work/<arch>-<label>-<timestamp>/` | Per-configuration build, benchmark, and perf logs. |
+| `tuning-results/numa-compare-<timestamp>.md` | Cross-experiment table: experiment x best config x avg ns x Gqword-pairs/s. |
+
+The `numa-compare-*.md` table is the headline read for the dual-socket
+question: it shows whether the interleaved run beats default first-touch and
+how each compares with the socket-local baselines, in one place. There is no
+separate R visualization for this schema; the ranked Markdown tables are the
+presentation layer.
 
 The runner forwards `OMP_PLACES`, `OMP_PROC_BIND`, `NUMA_CMD`, and the named
 NUMA policy to the tuning script. `perf` access is governed by the host's
