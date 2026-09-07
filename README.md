@@ -1555,7 +1555,19 @@ REPS=5 PERF_REPS=3 RUN_LABEL=2socket-e5-2697v4 \
 PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
 ELEVATE=always \
 ./scripts/sweep_cpu_tuning.pl
+
+# Dual socket, all cores and logical processors, explicit memory interleave (2x18 core, 72 threads)
+git switch main
+LIBPOPCNT_MODES=0,1 \
+CORES=0-71 THREADS=72 \
+OMP_PLACES=cores OMP_PROC_BIND=spread \
+NUMA_CMD="numactl --interleave=0,1" NUMA_POLICY="interleave=0,1" \
+REPS=5 PERF_REPS=3 RUN_LABEL=2socket-e5-2697v4-smt \
+PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
+ELEVATE=always \
+./scripts/sweep_cpu_tuning.pl
 ```
+
 
 The minimal and explicit forms measure the same thing; the explicit ones only
 add a fixed `CORES`/`THREADS`, a `RUN_LABEL`, and the spelled-out
