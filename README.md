@@ -2036,17 +2036,6 @@ measurable. On a GPU, transfer volume, residency, layout conversion, and launch
 overhead can dominate a small or poorly shaped workload even when the inner
 kernel is fast.
 
-[^wwg-history]: Maurice V. Wilkes, David J. Wheeler, and Stanley Gill describe
-  the Gillies-Miller method for sideways addition in *The Preparation of
-  Programs for an Electronic Digital Computer*, 2nd ed., pp. 191-193 (1957).
-  Wojciech Mula, Nathan Kurz, and Daniel Lemire later used the name
-  “Wilkes-Wheeler-Gill” in “Faster Population Counts Using AVX2
-  Instructions,” *The Computer Journal* 61(1), 2018.
-
-[^snapshot]: All statements marked with this footnote reflect the state of the
-  codebase, benchmarks, and external ecosystem as of the dates indicated in
-  the surrounding text (September 2026 unless otherwise noted). They are
-  time-stamped observations, not permanent claims.
 
 ## Dependencies, Inspiration, and Applications
 
@@ -2167,3 +2156,16 @@ execution engines from target schemas), code validation, security reviews, and
 scientific evaluations were performed directly by the author. The author
 maintains responsibility for the accuracy, licensing, and integrity of all
 submitted code and materials.
+
+
+[^wwg-history]: Maurice V. Wilkes, David J. Wheeler, and Stanley Gill describe
+  the Gillies-Miller method for sideways addition in *The Preparation of
+  Programs for an Electronic Digital Computer*, 2nd ed., pp. 191-193 (1957).
+  Wojciech Mula, Nathan Kurz, and Daniel Lemire later used the name
+  “Wilkes-Wheeler-Gill” in “Faster Population Counts Using AVX2
+  Instructions,” *The Computer Journal* 61(1), 2018.
+
+[^snapshot]: All statements marked with this footnote reflect the state of the
+  codebase, benchmarks, and external ecosystem as of the dates indicated in
+  the surrounding text (September 2026 unless otherwise noted). They are
+  time-stamped observations, not permanent claims.
