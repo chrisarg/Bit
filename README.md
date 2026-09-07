@@ -44,7 +44,7 @@ small bitset library at heart, but it now has two useful levels of abstraction: 
 
 The production work I had in mind involves dense, fixed-capacity bitsets and workloads where bitwise set operations, population counts (counting the bits equal to one in a byte) predictable memory access patterns for performance in both CPU and GPUs. Specific implementation features that facilitate these use cases are: 
 
-- **Population counting:** Counting the number of one's in a container is the basis of similarity measures (such as the Hamming distance). At the time of this writing, there are numerous ways to do this calculation, some of which are better geared to specific forms of hardware than others. A scalar population count is part of my CPU and nearly all GPUs, but hardware instructions are limited to Arm or AVX512 capable CPUs. If one were to execute massive database searches that are based e.g. on Hamming distances, memory access patterns may favor implementations that are based on SIMD extensions as compilers may not always be able to auto-vectorize. `Bit` attempts to squeeze the maximum of performance in a portable manner by 1)  bundling [libpopcnt](https://github.com/kimwalisch/libpopcnt) that can use CPU-specific population-count implementations (hardware instructions such as `VPOPCNTDQ` in AVX512 platforms or algorithms such as the Harley Searle) when enabled 2) vectorized population ops (such as bitwise AND/XOR/OR) with counts (setops) through the [SIMDe](https://github.com/simd-everywhere/simde) vectorized loads, stores and portable intrinsics for counts in vectors and 3) a portable Wilkes-Wheeler-Gill (WWG) / sideways-addition path. Retaining 
+- **Population counting:** Counting the number of one's in a container is the basis of similarity measures (such as the Hamming distance).[^snapshot] There are numerous ways to do this calculation, some of which are better geared to specific forms of hardware than others. A scalar population count is part of my CPU and nearly all GPUs, but hardware instructions are limited to Arm or AVX512 capable CPUs. If one were to execute massive database searches that are based e.g. on Hamming distances, memory access patterns may favor implementations that are based on SIMD extensions as compilers may not always be able to auto-vectorize. `Bit` attempts to squeeze the maximum of performance in a portable manner by 1)  bundling [libpopcnt](https://github.com/kimwalisch/libpopcnt) that can use CPU-specific population-count implementations (hardware instructions such as `VPOPCNTDQ` in AVX512 platforms or algorithms such as the Harley Searle) when enabled 2) vectorized population ops (such as bitwise AND/XOR/OR) with counts (setops) through the [SIMDe](https://github.com/simd-everywhere/simde) vectorized loads, stores and portable intrinsics for counts in vectors and 3) a portable Wilkes-Wheeler-Gill (WWG) / sideways-addition path. Retaining 
 - **Fused Set operations with counts:** Union, intersection, symmetric difference, and set
   difference are available for individual bitsets and packed containers. The library also provides fused setop count operations in which the bitwise Boolean algebra is followed by a population count without forming the full intermediate result of the bitwise operation before counting the bits. The fused setop/count operations (or fused logical cardinality operations if you want to be more formal) are accelerated to various degrees by the underlying pop count implementation for a given hardware architecture, so having multiple ways to skin the popcount cat provides an easy way to optimize Bit for your own hardware using the build system.
 - **External storage:** Bitsets and containers can borrow caller-owned buffers  when their storage is allocated with the size and padding required by the
@@ -148,7 +148,7 @@ This will execute a number of tests to ensure that the library builds and comput
 
 The standard `Makefile` builds the library and ordinary benchmarks on `main`
 and the specialized branches. The following table summarizes the various targets that one can build using a range of compilers and GPU offload configuration flags. The rightmost column below is `gpuOpt`-only: its
-GPU-only and native targets require `make -f Makefile_bench.mak`. Those targets are useful in ongoing work to optimize the OpenMP implementations against native CUDA and HIP builds. The CUDA/HIP targets are all AI assisted and at the time of this writing (September 2026)  they are mess of slopware due to the AI's hallucinating and me failing to control them through rigorous prompting. 
+GPU-only and native targets require `make -f Makefile_bench.mak`. Those targets are useful in ongoing work to optimize the OpenMP implementations against native CUDA and HIP builds. The CUDA/HIP targets are all AI assisted[^snapshot] and they are mess of slopware due to the AI's hallucinating and me failing to control them through rigorous prompting. 
 
 | Compiler (`CC=`) | GPU target (`GPU=`) | Standard targets | Standard OpenMP/offload checks | `gpuOpt` benchmark targets |
 | --- | --- | --- | --- | --- |
@@ -185,7 +185,7 @@ These are Make variables, not runtime environment variables and are listed alpha
 
 There are additional optimization flags for CPU and GPU that are detailed in the benchmark sections. Those are intended for extreme adaptation to a given environment; for the most part you can forget about them as I strived to find reasonable defaults that work in the average case. However you should feel free to experiment with those, and the sweeping scripts will give you a tool to do so semi-automatically
 
-_Important GPU Note_: At the time of this writing (September 2026), the major GPU optimization is the use of the algorithm for performing the setop_count operations. The two GPU algorithms packaged with the algorithm in the `main` branch are controlled via the `OPENMP_GPU_IMPL` flag. These two choices do not have tuning parameters, but others in the experimental `gpuOpt` branch do. As noted below if you do not specify `OPENMP_GPU_IMPL`, an appropriate value is selected for you based on the compiler you use to build the library.
+_Important GPU Note_:[^snapshot] The major GPU optimization is the use of the algorithm for performing the setop_count operations. The two GPU algorithms packaged with the algorithm in the `main` branch are controlled via the `OPENMP_GPU_IMPL` flag. These two choices do not have tuning parameters, but others in the experimental `gpuOpt` branch do. As noted below if you do not specify `OPENMP_GPU_IMPL`, an appropriate value is selected for you based on the compiler you use to build the library.
 
 
 ### Offload Builds
@@ -1517,9 +1517,15 @@ git switch main
 LIBPOPCNT_MODES=0,1 CORES=auto THREADS=auto ELEVATE=always \
   ./scripts/sweep_cpu_tuning.pl
 
-# Minimal dual-socket: the wrapper already passes all 15 profiles.
+# Minimal dual-socket: pin to one socket's physical cores, all 15 profiles.
+# This is one direct tuner run -- the same scope as one wrapper experiment.
+# (2x18-core Xeon E5-2697 v4: socket 0 = CPUs 0-17, 18 physical cores.)
 git switch main
-bash ./scripts/run_numa_sweeps.sh            # add --dry-run to preview first
+LIBPOPCNT_MODES=0,1 CORES=0-17 THREADS=18 ELEVATE=always \
+  ./scripts/sweep_cpu_tuning.pl
+
+# To run the full four-experiment NUMA comparison (not a single run), use
+# the wrapper: bash ./scripts/run_numa_sweeps.sh
 ```
 
 To attempt only the profiles that actually resolve on the host, add
@@ -1553,9 +1559,9 @@ ELEVATE=always \
 
 The minimal and explicit forms measure the same thing; the explicit ones only
 add a fixed `CORES`/`THREADS`, a `RUN_LABEL`, and the spelled-out
-`PERF_PROFILES` list (which equals the default). On dual-socket hosts both
-forms pin one worker per physical core (36 threads on the 72-logical Xeon);
-see [Why SMT is off by default](#why-smt-is-off-by-default).
+`PERF_PROFILES` list (which equals the default). On dual-socket hosts the
+minimal form uses one worker per physical core (matching the wrapper's
+default policy); see [Why SMT is off by default](#why-smt-is-off-by-default).
 
 All sweep variables are environment variables. Comma-separated values define a
 matrix; a single value fixes that dimension.
@@ -1896,7 +1902,7 @@ destination branch's README with the source branch version.
 
 The separate [benchmarking-bits](https://github.com/chrisarg/benchmarking-bits)
 repository contains comparative C and Perl bitset/bitmap benchmarks. It is a
-research companion rather than a dependency of this library. At the time of this writing (August 2026) this repository reflects the performance of an earlier version of `Bit` (the first release version).
+research companion rather than a dependency of this library.[^snapshot] This repository reflects the performance of an earlier version of `Bit` (the first release version).
 
 ## Constraints and Current Status
 
@@ -2037,6 +2043,11 @@ kernel is fast.
   “Wilkes-Wheeler-Gill” in “Faster Population Counts Using AVX2
   Instructions,” *The Computer Journal* 61(1), 2018.
 
+[^snapshot]: All statements marked with this footnote reflect the state of the
+  codebase, benchmarks, and external ecosystem as of the dates indicated in
+  the surrounding text (September 2026 unless otherwise noted). They are
+  time-stamped observations, not permanent claims.
+
 ## Dependencies, Inspiration, and Applications
 
 This project incorporates or integrates the following open-source libraries:
@@ -2102,37 +2113,36 @@ the Bit T by David Hanson.
 GitHub Copilot and Google Gemini assisted with generating and refactoring
 Makefile content, exploring test ideas for the OpenMP implementations, drafting
 and refactoring templated C work used for the CUDA and HIP implementations, and
-maintaining this README as the source evolved.
+maintaining this README as the source evolved since the last quarter of 2025.
 
-During development of the benchmarking framework and associated automation,
+As focus shifted towards benchmarking and associated automation in 2026
 generative AI assisted with script refactoring, Perl automation boilerplate,
-JSON configuration schemas, R authoring, OpenMP macro work, and documentation.
+JSON configuration schemas, R authoring, OpenMP macro work inside the `gpuOpt` branch
+
 The following model-specific roles are author-confirmed and are described as
 regular contributions, not as a complete per-file provenance record:
 
 - Google Gemini 3.1: Perl automation, R authoring, and OpenMP macro work.
 - Claude Sonnet 5 and Claude Sonnet 4.6: Makefile work.
+- Kimi K.3: the main model used since the summer of 2026.
 
-GitHub Copilot is retained here as a development platform attribution. This
-document does not infer its underlying model routing, per-turn model selection,
-or relative model frequency from repository contents.
 
 ### Attribution Evidence and Limits
 
 The repository does not use watermark analysis to identify authorship or assign
-source code to a particular AI model. There is no universal source-code
-watermark detector, and any provider-specific verification must use that
-provider's supported process. Editing, formatting, copying, transformation, and
+source code to a particular AI model.[^snapshot] While I wish there was such a framework, there is no universal source-code
+watermark detector, and any verification must use that
+provider's supported process (which I am not sure how to access) and take my word for attribution. I encourage anyone who has the technical expertise to carry out this detailed attribution to do so, because I will learn something new myself. However, editing, formatting, copying, transformation, and
 mixed human/AI work can make retrospective attribution incomplete or invalid.
 
 Writing style, comments, formatting, compiled artifacts, commit wording, and
 Git history are not sufficient evidence of a particular model's involvement.
-Model-level claims in this disclosure are maintained from author-confirmed
-records rather than inferred from source code.
+Model-level claims in this disclosure thus depend on my memory and frankly honesty to disclose. 
+The following sections comprise some of my thoughts on how to prospectively collect and document AI assisted contributions and frankly I wish I had thought about those earlier.
 
-### Recovering History From Other Machines
+#### Recovering Chat History From Many Machines
 
-For work completed on other user-owned computers, collect first-party records
+For AI assisted work completed on multiple computers, collect first-party records
 instead of attempting retrospective source attribution:
 
 1. On each VS Code installation signed into the same account, enable
