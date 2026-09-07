@@ -129,7 +129,7 @@ The major compatibility requirement is the use of a compiler that supports an Op
 - `nvcc` for the experimental CUDA benchmark and `hipcc` for the experimental
   HIP benchmark.
 
-To get you started, just clone and build the default CPU configuration:
+To get you started, just clone and build the default CPU configuration without specifying any target:
 
 ```bash
 git clone https://github.com/chrisarg/Bit.git
@@ -144,79 +144,30 @@ The `test` target builds `build/test_bit` but does not execute it. Build and run
 make test 
 ./build/test_bit
 ```
-This will execute a number of tests to ensure that the library builds and computes correctly.
+This will execute a number of tests to ensure that the library builds and computes correctly. `make disclean` or `make clean` wipes out the slate clean. 
 
-#### Compiler and GPU Target Matrix
+### Compiler and GPU Target Matrix
 
 The standard `Makefile` builds the library and ordinary benchmarks on `main`
-and the specialized branches. The following table summarizes the various targets that one can build using a range of compilers. The rightmost column below is `gpuOpt`-only: its
+and the specialized branches. The following table summarizes the various targets that one can build using a range of compilers and GPU offload configuration flags. The rightmost column below is `gpuOpt`-only: its
 GPU-only and native targets require `make -f Makefile_bench.mak`. Those targets are useful in ongoing work to optimize the OpenMP implementations against native CUDA and HIP builds. The CUDA/HIP targets are all AI assisted and at the time of this writing (September 2026)  they are mess of slopware due to the AI's hallucinating and me failing to control them through rigorous prompting. 
 
-| Compiler (`CC=`) | GPU target (`GPU=`) | Standard targets | Standard OpenMP/offload checks | `gpuOpt` experimental benchmark targets |
+| Compiler (`CC=`) | GPU target (`GPU=`) | Standard targets | Standard OpenMP/offload checks | `gpuOpt` benchmark targets |
 | --- | --- | --- | --- | --- |
 | `gcc` or `clang` | `NONE` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload` builds but detects host fallback; `bench_omp` is CPU-only | none |
-| `gcc` or `clang` | `NVIDIA` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `cuda_gpu_bench`, `gpu_bench_csv` |
-| `gcc` or `clang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `hip_gpu_bench`, `gpu_bench_csv` |
-| `gcc` or `clang` | `NVIDIA,AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, CUDA, HIP, and CSV runner targets |
-| `amdclang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, HIP, and CSV runner targets |
-| `icx` | `INTEL` | library, tests, benchmarks, bug reports | experimental `test_offload` and `bench_omp` | experimental `openmp_bit_nocpu`; no native CUDA/HIP backend |
+| `gcc` or `clang` | `NVIDIA` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `cuda_gpu_bench`, `gpu_bench_csv` |
+| `gcc` or `clang` | `AMD` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `hip_gpu_bench`, `gpu_bench_csv` |
+| `amdclang` | `AMD` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `hip_gpu_bench`, `gpu_bench_csv` |
+| `icx` | `INTEL` | library, `test`, `bench`, `bench_omp`, `bug_report` |  `test_offload` and `bench_omp` |  |
+| `icx` | `NONE` | library, `test`, `bench`, `bench_omp`, `bug_report` |  `test_offload` and `bench_omp` |  |
 
-The Makefile rejects `CC=amdclang` with a GPU target other than `AMD`,
-`CC=icx` with a GPU target other than `INTEL`, and combinations such as
-`GPU=NONE,NVIDIA`.
-
-Native CUDA and HIP benchmarks deliberately compile their device source with
-`nvcc` and `hipcc`, respectively, rather than the value passed through `CC`.
-They still use `GPU=NVIDIA` or `GPU=AMD` as build guards.
-
-On `gpuOpt`, `openmp_bit_nocpu` is blocked when `GPU=NONE`. Its Makefile guard
+Important things to remember: 
+- The Makefile rejects `CC=amdclang` with a GPU target other than `AMD`,
+`CC=icx` with a GPU target other than `INTEL` (or `NONE`). Combinations such as `GPU=NONE,NVIDIA` will also be rejected
+- Native CUDA and HIP benchmarks deliberately compile their device source with `nvcc` and `hipcc`, respectively, rather than the value passed through `CC` but still use `GPU=NVIDIA` or `GPU=AMD` as build guards. To use these targets you will need to have a functional CUDA/HIP installation and you may want to specify the location in the Makefile_bench.mak makefile if things do not work. 
+- On `gpuOpt`, `openmp_bit_nocpu` is blocked when `GPU=NONE`. Its Makefile guard
 tests whether a non-`NONE` target was selected; validate the experimental Intel
 path with `test_offload` on the target machine.
-
-### Offload Builds
-
-The primary GPU selection is `GPU=`. NVIDIA architectures use `sm_` or
-`compute_` prefixes; AMD architectures use `gfx` prefixes. The current
-Makefile has no equivalent `GPU_ARCH` selector for Intel targets.
-
-```bash
-# NVIDIA OpenMP offload. Omit GPU_ARCH only when nvidia-smi can detect a target.
-make CC=clang GPU=NVIDIA GPU_ARCH=sm_70
-
-# AMD OpenMP offload.
-make CC=clang GPU=AMD GPU_ARCH=gfx90a
-
-# Experimental Intel OpenMP offload.
-make CC=icx GPU=INTEL
-```
-
-`GPU=INTEL` requires `CC=icx`; `CC=amdclang` requires `GPU=AMD`; and `GPU=NONE`
-cannot be combined with an active offload target.
-
-Validate an offload configuration with `test_offload`. Setting
-`OMP_TARGET_OFFLOAD=MANDATORY` prevents an accidental host fallback from being
-reported as a successful device test.
-
-```bash
-make test_offload CC=clang GPU=NVIDIA GPU_ARCH=sm_70
-OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
-
-make test_offload CC=clang GPU=AMD GPU_ARCH=gfx90a
-OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
-
-make test_offload CC=icx GPU=INTEL
-OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
-```
-
-The Intel builds are intended to build for integrated Intel GPUs and should be
-at best considered experimental. Building for Arc Battlemage has not been tested (but feel free to do a PR!)
-
-When building for an offload target, the `OPENMP_GPU_IMPL` is a compile-time choice. The active `main` values are:
-
-- `TEAM_PARALLEL_SIMD`
-- `TRANSPOSED_TEAM_PARALLEL_SIMD`
-
-If you do not specify the parameter, the build system will use `TEAM_PARALLEL_SIMD` for the gcc and `TRANSPOSED_TEAM_PARALLEL_SIMD` LLVM compilers since these are the paths that lead to optimal code generation for each compiler after benchmarking. 
 
 ### Build Configuration
 
@@ -234,16 +185,40 @@ These are Make variables, not runtime environment variables and are listed alpha
 | `SIMD_DIAGNOSTICS` | `0` | Enables SIMD configuration diagnostics. |
 | `USE_BUILTIN_POPCOUNT` | `0` | Enables GPU Hardware accelerated popcounts; the default is the WWG algorithm, but both gcc and the LLVM compilers recognize the pattern and replace the function with the hardware version. |
 
-There are additional optimization flags for CPU and GPU that are detailed in the benchmark sections. 
-At the time of this writing (August 2026), the major GPU optimization is the use of the algorithm for performing the setop_count operations. The two algorithms packaged with the algorithm do not have tuning parameters, but others in the experimental `gpuOpt` branch do. Passing one of those will not nuke your building, but it will not really do anything.
+There are additional optimization flags for CPU and GPU that are detailed in the benchmark sections. Those are intended for extreme adaptation to a given environment; for the most part you can forget about them as I strived to find reasonable defaults that work in the average case. However you should feel free to experiment with those, and the sweeping scripts will give you a tool to do so semi-automatically
+
+_Important GPU Note_: At the time of this writing (September 2026), the major GPU optimization is the use of the algorithm for performing the setop_count operations. The two GPU algorithms packaged with the algorithm in the `main` branch are controlled via the `OPENMP_GPU_IMPL` flag. These two choices do not have tuning parameters, but others in the experimental `gpuOpt` branch do. As noted below if you do not specify `OPENMP_GPU_IMPL`, an appropriate value is selected for you based on the compiler you use to build the library.
 
 
+### Offload Builds
+
+The primary GPU selection is `GPU=` and the values that are currently supported are `NONE` (no offload) `AMD`, `NVIDIA` or `INTEL` (those are case insensitive). When building for a particular architecture, one needs optionally to specify the architecture using the `GPU_ARCH` configuration flag. As a reminder,  NVIDIA architectures use `sm_` or
+`compute_` prefixes; AMD architectures use `gfx` prefixes. The current Makefile has no equivalent `GPU_ARCH` selector for Intel targets (perhaps I can get an Arc Battlemage for Christmas?).
+There is some support for automatic detection of the architecture in use through tools such as nvidia-smi, but this will likely fail if you have more than one architectures in your system, so it is best to specify manually. 
+
+Examples of building the library with offload support: 
+
+```bash
+# NVIDIA OpenMP offload. Omit GPU_ARCH only when nvidia-smi can detect a target.
+make CC=clang GPU=NVIDIA GPU_ARCH=sm_70
+
+# AMD OpenMP offload.
+make CC=clang GPU=AMD GPU_ARCH=gfx90a
+
+# Experimental Intel OpenMP offload.
+make CC=icx GPU=INTEL
+```
+
+When building for an offload target, the `OPENMP_GPU_IMPL` is a compile-time choice. The active `main` values are:
+
+- `TEAM_PARALLEL_SIMD`
+- `TRANSPOSED_TEAM_PARALLEL_SIMD`
+
+If you do not specify the parameter, the build system will use `TEAM_PARALLEL_SIMD` for the gcc and `TRANSPOSED_TEAM_PARALLEL_SIMD` LLVM compilers since these are the paths that lead to optimal code generation for each compiler after benchmarking. For the mast part you can forget about this choice unless you are into extreme benchmarking. If you are curious to see how these work, run the benchmarks built and run the `bench_omp` target with both choices for both `clang` and `gcc`. 
 
 ### GPU Troubleshooting and Validation
 
-GPU offload is opt-in, and OpenMP can fall back to the host when an image,
-plugin, driver, or device is unavailable. Verify the target with
-`test_offload` before moving on to the library's container kernels.
+During development of the library, I found that it is too easy for novices like me to build artefacts that do not offload. The hard lesson learned: GPU offload is opt-in, and OpenMP can fall back to the host when an image, plugin, driver, or device is unavailable Therefore I included the target `test_offload` that can validate offloat configurations.  Setting `OMP_TARGET_OFFLOAD=MANDATORY` prevents an accidental host fallback from being.
 
 ```text
 build/test_offload <problem_size> [device_id] [benchmark_iterations]
@@ -271,15 +246,27 @@ whether each probed target region ran on the host or a device. If no devices are
 reported or a target region runs on the initial device, rebuild for the intended
 architecture, verify the selected runtime plugin, and rerun with diagnostics.
 
+You can build and run the offload diagnostic with all supported compilers as:
+
+```bash
+make test_offload CC=clang GPU=NVIDIA GPU_ARCH=sm_70
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
+
+make test_offload CC=clang GPU=AMD GPU_ARCH=gfx90a
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
+
+make test_offload CC=icx GPU=INTEL
+OMP_TARGET_OFFLOAD=MANDATORY ./build/test_offload 100000 0
+```
+
 #### Runtime Diagnostics
 
-The current Makefile exports quiet Clang runtime defaults:
+During system updates one can break the GPU offload and we would like to have a run time option to check what is happening under the hood. The current Makefile exports quiet Clang runtime defaults:
 
 - `LIBOMPTARGET_INFO=0`
 - `LIBOMPTARGET_DEBUG=0`
 
-Override them while diagnosing device discovery, image loading, or launch
-behavior:
+Override them while diagnosing device discovery, image loading, or launch behavior:
 
 ```bash
 LIBOMPTARGET_INFO=16 LIBOMPTARGET_DEBUG=1 \
@@ -289,11 +276,14 @@ OMP_TARGET_OFFLOAD=MANDATORY LIBOMPTARGET_INFO=16 \
   ./build/test_offload 100000 0
 ```
 
+If you are using GCC to compile, use GOMP_DEBUG=1 instead. 
+
+
 #### NVIDIA Offload Notes
 
 NVIDIA builds accept `sm_<target>` or `compute_<target>` values. The Makefile
 can derive `sm_` values from `nvidia-smi` when `GPU_ARCH` is not supplied, but
-an explicit target is usually easier to reproduce:
+an explicit target specification is nearly always the better choice (e.g. since the underlying compiler support and the driver support for architectures may not be identical):
 
 ```bash
 make test_offload CC=clang GPU=NVIDIA GPU_ARCH=sm_70
@@ -322,7 +312,7 @@ program device ID at `0`, and rerun the mandatory-offload check.
 #### AMD Offload Notes
 
 AMD targets use the `gfx<target>` spelling. The Makefile can query `rocm-smi`
-when `GPU_ARCH` is omitted; inspect the system directly before pinning a target:
+when `GPU_ARCH` is omitted; inspect the system directly before pinning a target manually:
 
 ```bash
 rocminfo | grep -Eo 'gfx[0-9a-f]+' | sort -u
@@ -353,8 +343,10 @@ those paths before changing system libraries.
 ##### Legacy AMD Architecture Workaround
 
 This historical recipe was used for a Radeon Pro W5500 (`gfx1012`) with LLVM
-18. It compiles for the nearby `gfx1010` target and presents that target to the
-runtime for the current shell. Treat it as a record of one working environment that will allow you to repurpose a cheap GPU for real work,
+18. This was the card I bought for <120 dollars on eBAY to check the AMD paths. 
+While the card is not supported via `ROCM`, code that compiles for the nearby `gfx1010` target can be used to offload this card. 
+
+Treat the following note as as a record of one working environment that will allow you to repurpose a cheap GPU for real work,
 then verify your own setup with `OMP_TARGET_OFFLOAD=MANDATORY`.
 
 ```bash
