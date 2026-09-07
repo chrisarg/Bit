@@ -1502,6 +1502,56 @@ expands to the full logical-CPU count from `nproc --all` (SMT siblings
 included, and ignoring any affinity restriction already in force) -- see the
 `auto` note in the variable table below.
 
+##### Minimal vs maximal invocation
+
+If you want every profile (assuming the host supports them), **omit
+`PERF_PROFILES`** -- the default is the full 15-profile set. The shortest
+complete invocations are:
+
+```bash
+# Minimal single-socket: all cores (auto) + all 15 profiles (default).
+git switch main
+LIBPOPCNT_MODES=0,1 CORES=auto THREADS=auto ELEVATE=always \
+  ./scripts/sweep_cpu_tuning.pl
+
+# Minimal dual-socket: the wrapper already passes all 15 profiles.
+git switch main
+bash ./scripts/run_numa_sweeps.sh            # add --dry-run to preview first
+```
+
+To attempt only the profiles that actually resolve on the host, add
+`PERF_PRUNE=1` (see [Profile preflight](#performance-profiles)).
+
+The explicit, fine-control forms below are the same runs with every knob made
+visible -- use them when you want a fixed core mask or a recorded label rather
+than the auto-discovered values:
+
+```bash
+# Single-socket, all logical cores, explicit (i9-7900X: 10 cores / 20 threads).
+git switch main
+LIBPOPCNT_MODES=0,1 \
+CORES=0-19 THREADS=20 \
+REPS=5 PERF_REPS=3 RUN_LABEL=i9-7900x \
+PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
+ELEVATE=always \
+./scripts/sweep_cpu_tuning.pl
+
+# Dual-socket, all cores, explicit memory interleave (2x18-core, 36 threads).
+git switch main
+LIBPOPCNT_MODES=0,1 \
+CORES=0-35 THREADS=36 \
+OMP_PLACES=cores OMP_PROC_BIND=spread \
+NUMA_CMD="numactl --interleave=0,1" NUMA_POLICY="interleave=0,1" \
+REPS=5 PERF_REPS=3 RUN_LABEL=2socket-e5-2697v4 \
+PERF_PROFILES=summary,cache-l1,cache-l2,cache-l3-dram,cache-stalls,buffers-pending,buffers-store,execution-uops,execution-ports,frontend,frequency,vectorization,tlb,uncore-numa,power-rapl \
+ELEVATE=always \
+./scripts/sweep_cpu_tuning.pl
+```
+
+The minimal and explicit forms measure the same thing; the explicit ones only
+add a fixed `CORES`/`THREADS`, a `RUN_LABEL`, and the spelled-out
+`PERF_PROFILES` list (which equals the default).
+
 All sweep variables are environment variables. Comma-separated values define a
 matrix; a single value fixes that dimension.
 
@@ -1567,6 +1617,21 @@ An individual profile can still exceed the available hardware counters, so use
 the running/scaling information from `perf` when interpreting multiplexed
 counts. A missing event or permission affects that profile; the benchmark
 timing remains available, and the profile CSV/log records what failed.
+
+**Profile preflight (`PERF_PROBE` / `PERF_PRUNE`).** Because the event sets are
+architecture-specific, the script can probe the *resolved* list on the current
+host before building anything. With `PERF_PROBE=1` (the default) it runs a
+trivial `perf stat -e <profile events> -- true` per profile and prints which of
+the 15 resolve (e.g. `Profile preflight: 13/15 profiles resolve on this host
+(unresolvable: power-rapl,uncore-numa)`); a profile is unresolvable when that
+probe exits non-zero or reports a "not supported" event. Set
+`PERF_PRUNE=1` to additionally *drop* the unresolvable profiles from the run so
+only the supported ones are attempted (the `summary` profile is always kept).
+On a host where perf is entirely blocked (for example a high
+`kernel.perf_event_paranoid` or a container without `CAP_PERFMON`), every probe
+fails; the preflight says so, and with `PERF_PRUNE=1` only `summary` remains.
+Set `PERF_PROBE=0` to skip probing entirely. The probe honors the same
+privilege elevation (`ELEVATE`) as the real runs.
 
 ###### What `perf` Measures
 

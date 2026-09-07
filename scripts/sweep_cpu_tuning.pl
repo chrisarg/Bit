@@ -439,6 +439,53 @@ for my $profile (@perf_profile_names) {
 }
 $perf_profiles{summary} = $ENV{PERF_EVENTS} if defined $ENV{PERF_EVENTS};
 
+# ---------------------------------------------------------------------------
+# Optional perf-profile preflight. The event sets are architecture-specific
+# (chosen above from uname/cpuinfo), so probe the RESOLVED list on THIS host.
+#   PERF_PROBE (default 1): report-only -- print which profiles resolve.
+#   PERF_PRUNE (default 0): also drop unresolvable profiles from the run
+#                           (the `summary` profile is never pruned).
+# A profile is unresolvable when a trivial `perf stat -e <events> -- true`
+# exits non-zero or prints a "not supported" marker. Note: on hosts where perf
+# is blocked (e.g. high kernel.perf_event_paranoid or containers), every probe
+# fails; with PERF_PRUNE=1 that leaves only `summary`.
+# ---------------------------------------------------------------------------
+my @pruned_profiles;
+my %probe_ok;
+my $sudo = '';    # set by the elevation block; the probe reads whatever is set
+if ( ( $ENV{PERF_PROBE} // '1' ) ne '0' ) {
+    my $probe_sudo = ($sudo) ? 'sudo -n ' : '';
+    for my $profile (@perf_profile_names) {
+        my $ok = 0;
+        eval {
+            run [ 'sh', '-c',
+                $probe_sudo
+                  . "perf stat -x, -e "
+                  . shell_quote( $perf_profiles{$profile} )
+                  . " -- true >/dev/null 2>&1" ],
+              '>', \my $pout, '2>&1';
+            $ok = 1 if $? == 0 && ( $pout // '' ) !~ /not supported|not counted/i;
+        };
+        $probe_ok{$profile} = $ok;
+    }
+    my @ok_profiles   = grep { $probe_ok{$_} } @perf_profile_names;
+    my @fail_profiles = grep { !$probe_ok{$_} } @perf_profile_names;
+    printf "Profile preflight: %d/%d profiles resolve on this host%s\n",
+      scalar(@ok_profiles), scalar(@perf_profile_names),
+      @fail_profiles ? " (unresolvable: " . join( ',', @fail_profiles ) . ")" : "";
+
+    if ( ( $ENV{PERF_PRUNE} // '0' ) ne '0' && @fail_profiles ) {
+        @perf_profile_names = grep { $probe_ok{$_} || $_ eq 'summary' }
+          @perf_profile_names;
+        @pruned_profiles = grep { $_ ne 'summary' } @fail_profiles;
+        print "PERF_PRUNE=1: dropped unresolvable profiles: "
+          . join( ',', @pruned_profiles ) . "\n";
+    }
+}
+else {
+    $probe_ok{$_} = 1 for @perf_profile_names;
+}
+
 for my $name (qw(BITS LEFT THREADS REPS PERF_REPS)) {
     my $value = {
         BITS      => $bit_length,
@@ -460,7 +507,6 @@ die "PRIORITY must be normal, nice, or rr\n"
 make_path($results_dir);
 make_path($out_dir);
 
-my $sudo = '';
 if ( $elevate ne 'never' ) {
     my $available = 0;
     eval {
@@ -761,6 +807,16 @@ print {$report} "- Perf repetitions per configuration: $perf_reps\n";
 print {$report} "- Config order seed: `", ( defined $seed ? $seed : 'none (random per run)' ),
   "` (configuration order is shuffled; set seed to reproduce)\n";
 print {$report} "- Perf profiles: `", join( ', ', @perf_profile_names ), "`\n";
+print {$report} "- Profile preflight: ",
+  (
+    ( $ENV{PERF_PROBE} // '1' ) ne '0'
+    ? (
+        @pruned_profiles
+        ? "probed; pruned unresolvable: `" . join( ', ', @pruned_profiles ) . "`"
+        : "probed; all resolved"
+      )
+    : "disabled"
+  ), "\n";
 
 for my $profile (@perf_profile_names) {
     print {$report}
