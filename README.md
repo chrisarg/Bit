@@ -54,12 +54,10 @@ The production work I had in mind involves dense, fixed-capacity bitsets and wor
 - **Multithreaded portable performance through OpenMP:** On the **CPU** side, one can implement a cache hierarchy friendly multi level (3 to 6) tiled Boolean algebra analog of a GEneral Matrix Matrix (GEMM) across many threads/cores. On the **GPU** side one can sequentially adapt these multi-level tiled algorithms for the same purpose.  Because Bit uses flat, dense matrices, one can map the entire container to a GPU device using a single OpenMP #pragma omp target directive and exploring different parallelization strategies and work-sharing constructs. One interesting finding is that different compilers (e.g. `gcc` and the `LLVM` based ones) use different models to map OpenMP compiler directives to the underlying 2 dimensional compute fabric of GPUs, so that one has to utilize slightly different OpenMP implementations to maximize performance for a given compiler in a given compute architecture
 - **Vendor agnostic OpenMP offload:** NVIDIA, AMD, and experimental integrated Intel paths are opt-in: you do not need to use them if you are not going to deploy in the GPU. The default configuration of the build system is to not build these offloads, but retain the GPU-facing API in the library; if the latter is built without offload support, then the internal macro implementations ensure that the GPU API uses the CPU code path. Thus we will not break consuming code that uses the GPU API if the library is built without offloading capabilities.  
 
-`Bit` is not a compressed [CRoaring](https://github.com/RoaringBitmap/CRoaring)or dynamically growing bitmap
-library. Given the simplicity of the bitset data structure, one can find numerous similar implementations in software repositories. Daniel Lemire's [cbitset](https://github.com/lemire/cbitset) and the `bitset_t` dense bitvector interface in `CRoaring` are the closest libraries to `Bit` 
+
 
 ## Comparison to Other Libraries
-`Bit` is not a compressed [CRoaring](https://github.com/RoaringBitmap/CRoaring)or dynamically growing bitmap
-library. Given the simplicity of the bitset data structure, one can find numerous similar implementations in software repositories. Daniel Lemire's [cbitset](https://github.com/lemire/cbitset) and the `bitset_t` dense bitvector interface in `CRoaring` are the closest libraries to `Bit` (though both lack multithreading capabilities or hardware acceleration). These are not the only libraries that one can find in the C / C++ ecosystem that provide similar functionality. The following table contrasts features of `Bit` versus other alternatives that one may adopt for their own project:
+`Bit` is not a compressed [CRoaring](https://github.com/RoaringBitmap/CRoaring)or dynamically growing bitmap library, so given the simplicity of the static bitset data structures, one can find numerous similar implementations in software repositories. Daniel Lemire's [cbitset](https://github.com/lemire/cbitset) and the `bitset_t` dense bitvector interface in `CRoaring` are the closest libraries to `Bit` (though both lack multithreading capabilities or hardware acceleration). These are not the only libraries that one can find in the C / C++ ecosystem that provide similar functionality. The following table contrasts features of `Bit` versus other alternatives that one may adopt for their own project:
 
 | Library | Internal Structure | Dynamic Growth | Fused Logic + Count (examples) | Bit Matrices / Containers | Explicit SIMD | GPU / Hardware | Multithreading |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -1079,7 +1077,9 @@ interchangeable benchmark front ends:
 
 Use the broad sweep to find candidates across compiler, kernel, workload, and
 placement choices. Use the focused profiler when you need further insights before locking the configuration for a specific architecture, then use the NUMA runner when the question is memory placement on a
-dual-socket host and how this affects performance. The stages can be used independently when that is the only
+dual-socket host and how this affects performance (one worker per physical
+core by default -- see [Why SMT is off by default](#why-smt-is-off-by-default)).
+The stages can be used independently when that is the only
 question being investigated.
 
 These scripts and their configuration live on `main`. The benchmark sources
@@ -1208,7 +1208,8 @@ tuner's `auto` expands via `nproc --all` (the full logical-CPU complement,
 SMT siblings included, ignoring any affinity already in force) because it
 profiles whole-machine behavior, whereas `cpu_param_sweep.pl`'s `auto` uses
 the cgroup/affinity-aware `nproc`. `run_numa_sweeps.sh` is unaffected: it
-derives per-socket physical-core lists from the discovered topology instead.
+derives per-socket physical-core lists from the discovered topology instead
+(see [Why SMT is off by default](#why-smt-is-off-by-default)).
 
 ##### Repetition Ranges and Reproducible Randomization
 
@@ -1447,7 +1448,9 @@ smoke test above first on any new machine.
 | i9-7900X | 10 cores / 20 threads, 1 socket | `0-19` | `20` | direct tuner call |
 
 Dual-socket Xeon E5-2697 v4 (preferred: the auto-discovering wrapper, which
-also produces the cross-experiment comparison table):
+also produces the cross-experiment comparison table). The wrapper runs one
+worker per physical core by default -- see
+[Why SMT is off by default](#why-smt-is-off-by-default):
 
 ```bash
 git switch main
@@ -1550,7 +1553,9 @@ ELEVATE=always \
 
 The minimal and explicit forms measure the same thing; the explicit ones only
 add a fixed `CORES`/`THREADS`, a `RUN_LABEL`, and the spelled-out
-`PERF_PROFILES` list (which equals the default).
+`PERF_PROFILES` list (which equals the default). On dual-socket hosts both
+forms pin one worker per physical core (36 threads on the 72-logical Xeon);
+see [Why SMT is off by default](#why-smt-is-off-by-default).
 
 All sweep variables are environment variables. Comma-separated values define a
 matrix; a single value fixes that dimension.
@@ -1732,6 +1737,24 @@ socket, 36 logical CPUs total, no SMT), `--dry-run` resolves to CPU lists
 `0,1` -- the historical hand-written mapping. On a 2x18-core host with SMT
 enabled (72 logical CPUs), the default physical-core policy resolves to the
 same `18/18/36` worker counts, while `--smt` produces `36/36/72`.
+
+##### Why SMT is off by default
+
+Note that the default value of `--smt` is off (the flag is not passed on the
+command line): all four experiments run one OpenMP worker per physical core.
+SMT siblings share a physical core's execution ports and L1/L2 cache, so
+per-core kernel efficiency -- the quantity the perf profiles exist to measure --
+is cleanest with one thread per core; a sibling thread adds contention noise
+to exactly the counters being compared. The default also keeps results
+comparable with the historical hand-written Xeon baseline (18 workers on 18
+physical cores per socket), and it avoids confounding the experiment's
+independent variable, which is memory placement (first-touch vs interleave),
+not core occupancy. The tuner is a profiling instrument, not a
+maximum-throughput benchmark; if the question is aggregate throughput with
+every logical CPU busy, pass `--smt` explicitly. Note the contrast with
+invoking `sweep_cpu_tuning.pl` directly (standalone, without this wrapper):
+its `auto` sentinel expands to `nproc --all`, SMT siblings included -- the
+wrapper's physical-core policy is the deliberate choice for NUMA comparisons.
 
 ##### Where the results go
 
