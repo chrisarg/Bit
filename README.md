@@ -6,15 +6,15 @@ Bit is a fixed-capacity, uncompressed bitset library for C. It provides
 individual bitsets, packed collections of bitsets, set operations, population
 counts, and OpenMP-enabled container operations. The public interface is based
 on David Hanson's `Bit_T` design and extended with packed `Bit_DB_T`
-containers.
+containers. While I strive to ensure the README.md is "in sync" with the codebase, this does not
+always happen. You should therefore treat the public declarations in `include/bit.h` as the ultimate
+source of truth if something does work according to what REAMDE.md claims (and alert me to fix it!).
 
-The source tree is the authoritative description of behavior. In particular,
-the public declarations in `include/bit.h`, the implementations in `src/`, and
-the tests in `tests/` take precedence over historical notes (because updating the README.md is always less fun than coding!).
 
 ## Contents
 
 - [Project Background and Features](#project-background-and-features)
+- [Comparison to Other Libraries](#comparison-to-other-libraries)
 - [Branch Status](#branch-status)
 - [Build and Test](#build-and-test)
 - [GPU Troubleshooting and Validation](#gpu-troubleshooting-and-validation)
@@ -32,26 +32,19 @@ the tests in `tests/` take precedence over historical notes (because updating th
 
 Bit began as a retype and extension of David Hanson's `Bit_T` interface from
 Chapter 13 of *C Interfaces and Implementations* (Addison-Wesley,
-ISBN 0-201-49841-3). The project keeps the original emphasis on a small C
-interface while extending it with setop count operations, packed bitset containers,
-OpenMP execution paths, and performance-oriented population counting.
+ISBN 0-201-49841-3). This is a great book, written before the era of vector extensions and GPUs and 
+adopts the literate programming approach to educate while delivering good quality code. The bitset is formally a vector of bits, and less formally
+a contiguously stored buffer of bytes, with each bit in each byte directly addressable, modifiable and ultimately useful
+for compute work in microcontrollers or high performance massive databases using Boolean algebra. Hanson published his book just before multi-threading frameworks like `pthreads` and `OpenMP` were introduced (the specifications were published in 1997, shortly after Hanson's book was released in 1996) but before multicore processors (those would not become widely available for another decade), and half a decade before DirectX8 opened up GPUs for general purpose compute purposes. Other compute innovations that postdate this book include the introduction of vectorized operations (Single Instruction, Multiple Data aka SIMD) and the formalization of the  cache level hierarchies to narrow the memory-CPU gap. The `Bit_T` thus became the starting point of an exploration on how we can take classic books and algorithms implemented in C and polish them up for the modern era. This repository is about this personal journey (assisted in the latter stages by generative AI). 
 
-I started with Hanson's deliberately small interface because it is easy to
-reason about, then kept adding the things my own workloads needed: fast setop counts,
-borrowed storage, batches of equally sized bitsets (effectively packed vector databases), and enough CPU/GPU
-experimentation to make the preprocessor earn its keep. The result is still a
-small bitset library at heart, but it now has two useful levels of abstraction:
-an individual `Bit_T` and a packed `Bit_DB_T` for bulk work.
+The project keeps the original emphasis on a small C interface while extending it with `setop count` operations that are accelerated by vector extensions, packed bitset containers of bitsets (for the mathematically oriented, these are arrays of bitsets/bitvectors) eying applications in analytical vector databases. 
+When developing `Bit` I deliberately started with Hanson's  small interface because it is easy to
+reason about, then kept extending and experimenting with the C preprocessor as a form of meta-programming to allow seamless and portable execution in CPUs and GPUs. The result is still a
+small bitset library at heart, but it now has two useful levels of abstraction: an individual `Bit_T` and a packed `Bit_DB_T` for bulk, production work.
 
-The library is intended for dense, fixed-capacity bitsets and workloads where
-bitwise set operations, population counts, storage layout, and predictable
-memory behavior matter. It is not a compressed or dynamically growing bitmap
-library.
+The production work I had in mind involves dense, fixed-capacity bitsets and workloads where bitwise set operations, population counts (counting the bits equal to one in a byte) predictable memory access patterns for performance in both CPU and GPUs. Specific implementation features that facilitate these use cases are: 
 
-- **Population counting:** The bundled libpopcnt integration can use
-  CPU-specific population-count implementations when enabled. The project also
-  retains a portable Wilkes-Wheeler-Gill (WWG) / sideways-addition path and
-  SIMD-oriented CPU code through SIMDe.
+- **Population counting:** Counting the number of one's in a container is the basis of similarity measures (such as the Hamming distance). At the time of this writing, there are numerous ways to do this calculation, some of which are better geared to specific forms of hardware than others. A scalar population count is part of my CPU and nearly all GPUs, but hardware instructions are limited to Arm or AVX512 capable CPUs. If one were to execute massive database searches that are based e.g. on Hamming distances, memory access patterns may favor implementations that are based on SIMD extensions as compilers may not always be able to auto-vectorize. `Bit` attempts to squeeze the maximum of performance in a portable manner by 1)  bundling [libpopcnt](https://github.com/kimwalisch/libpopcnt) that can use CPU-specific population-count implementations (hardware instructions such as `VPOPCNTDQ` in AVX512 platforms or algorithms such as the Harley Searle) when enabled 2) vectorized population ops (such as bitwise AND/XOR/OR) with counts (setops) through the [SIMDe](https://github.com/simd-everywhere/simde) vectorized loads, stores and portable intrinsics for counts in vectors and 3) a portable Wilkes-Wheeler-Gill (WWG) / sideways-addition path. Retaining 
 - **Set operations:** Union, intersection, symmetric difference, and set
   difference are available for individual bitsets and packed containers.
 - **External storage:** Bitsets and containers can borrow caller-owned buffers
@@ -66,6 +59,9 @@ library.
 The current implementation favors explicit configuration over hidden magic:
 build variables select toolchains and targets, and callers remain responsible
 for synchronizing concurrent mutation of the same bitset or container.
+
+`Bit` is not a compressed [CRoaring](https://github.com/RoaringBitmap/CRoaring)or dynamically growing bitmap
+library. Given the simplicity of the bitset data structure, one can find numerous similar implementations in software repositories. Daniel Lemire's [cbitset](https://github.com/lemire/cbitset) and the `bitset_t` dense bitvector interface in `CRoaring` are the closest libraries to `Bit` 
 
 ## Branch Status
 
