@@ -115,17 +115,18 @@ Building and testing requires a Linux environment (though I have only tested Deb
 
 - A C compiler supported by the current `Makefile`: `clang`, `gcc`,
   `amdclang`, or `icx`. Versions that have been tested are:
+  
 | GCC | AMDClang | Clang | ICX |
 | :---: | :---: | :---: | :---: |
 | 12.4.0 | 18.0.0 | 18.1.8 | 2026.1.1 |
+
 The major compatibility requirement is the use of a compiler that supports an OpenMP version that is at least 201511 or newer (I have tested OpenMP versions up to 202011)
 - GNU Make.
-- OpenMP support from the selected compiler.
+- OpenMP support for  the selected compiler (this may require installing the relevant libraries).
 - CUDA and an OpenMP offload-capable LLVM toolchain for NVIDIA offload.
 - ROCm and a compatible LLVM/ROCm stack for AMD offload.
-- Intel oneAPI `icx` for experimental Intel OpenMP offload.
-- `nvcc` for the experimental CUDA benchmark and `hipcc` for the experimental
-  HIP benchmark.
+- Intel oneAPI `icx` for the Intel integrated GPU OpenMP offload (`icx` is a valid and very performant choice if the library is built without offload capabilities).
+- `nvcc` for the experimental CUDA benchmark and `hipcc` for the experimental HIP benchmarks in the `gpuOpt` branch.
 
 To get you started, just clone and build the default CPU configuration without specifying any target:
 
@@ -341,11 +342,10 @@ those paths before changing system libraries.
 ##### Legacy AMD Architecture Workaround
 
 This historical recipe was used for a Radeon Pro W5500 (`gfx1012`) with LLVM
-18. This was the card I bought for <120 dollars on eBAY to check the AMD paths. 
-While the card is not supported via `ROCM`, code that compiles for the nearby `gfx1010` target can be used to offload this card. 
+18. This was the card I bought for <120 dollars on eBAY to check the AMD paths during the GPU price bloodbath in 2026. 
+While the card is not supported via `ROCM`, code that compiles for the nearby `gfx1010` target can be used to offload `Bit` with this card. 
 
-Treat the following note as as a record of one working environment that will allow you to repurpose a cheap GPU for real work,
-then verify your own setup with `OMP_TARGET_OFFLOAD=MANDATORY`.
+Similar workarounds are possible with other AMD cards, but I feel that you should treat the following note as as a record of one working environment that will allow you to repurpose a cheap GPU for real work, rather than a general solution. If you decide to try this with another card, please verify verify your own setup with `OMP_TARGET_OFFLOAD=MANDATORY` and drop me a note.
 
 ```bash
 # Historical example: compile a nearby supported target, then present that
@@ -364,7 +364,7 @@ make that change only with an administrator and a rollback plan:
 find "$ROCM_DEVICE_LIB_PATH" -maxdepth 1 -name 'libomptarget-amdgpu-*.bc' -print
 ```
 
-Prefer a ROCm/LLVM release that supports the actual target. If an alias is used,
+In any case, prefer a ROCm/LLVM release that supports the actual target. If an alias is used,
 record it and retest after compiler, runtime, or driver updates.
 
 ### Compiler Bug Reports
@@ -396,24 +396,22 @@ removed after collection.
 
 ## Using the Library
 
-Include `bit.h` and link against `build/libbit.so` or `build/libbit.a` after
-building the library. `Bit_T` and `Bit_DB_T` are opaque handles.
+Usage is straightforward and follow's Hanson's clean separation of interfaces and implementations.
+Just include `bit.h` (the API) and link against `build/libbit.so` or `build/libbit.a` after
+building the library to your application and things should work. 
 
-Bitsets have fixed capacity. Valid bit indexes are in the range
-`0 .. Bit_length(bitset) - 1`; use `Bit_buffer_size(length)` when allocating
-external storage.
 
 ### Public API Reference
 
-The declarations live in `include/bit.h`; this section is the practical map of
-the interface. `Bit_T` and `Bit_DB_T` are opaque handles, so applications work
-through these functions rather than depending on their private layouts.
+`Bit_T` and `Bit_DB_T` are Abstract Data Types (ADT) and one works with them through their public interface.
+A C structure typedef `SETOP_COUNT_OPTS` is used to control the CPU and GPU OpenMP environment. I exposed the implementation of this structure to assist with the development of interfacing code.
 
 | Public type | Purpose |
 | --- | --- |
 | `Bit_T` | One fixed-capacity mutable bitset. |
 | `Bit_DB_T` | A packed collection of equally sized bitsets. |
 | `SETOP_COUNT_OPTS` | CPU thread count plus GPU device-residency controls for all-pairs container counts. |
+
 
 #### Individual Bitset API
 
@@ -428,7 +426,7 @@ through these functions rather than depending on their private layouts.
 | Allocating set operations | `Bit_union`, `Bit_inter`, `Bit_diff`, `Bit_minus` | Return a newly allocated result that must be passed to `Bit_free`. |
 | Count-only set operations | `Bit_union_count`, `Bit_inter_count`, `Bit_diff_count`, `Bit_minus_count` | Return the result population count without constructing a bitset. |
 
-Set-operation names follow the implementation and tests:
+Set-operation names follow the implementation and tests and require one left and one right operand:
 
 | Operation | Expression | Example for $A=\{1,3,5\}$ and $B=\{3,5,7\}$ |
 | --- | --- | --- |
@@ -440,10 +438,11 @@ Set-operation names follow the implementation and tests:
 For these individual-bitset set operations, one NULL operand is interpreted as
 the empty set. Thus `Bit_union(set, NULL)` and `Bit_minus(set, NULL)` return a
 copy of `set`, while `Bit_inter(set, NULL)` returns an empty bitset. Passing
-both operands as NULL is invalid.
+both operands as NULL is invalid. This convention follows those adopted by Hanson in his book, and frankly correspond to how these operations work in Boolean algebra. 
 
 #### Packed Container API
 
+The packed container API consists of library functions and a smaller set of macros. The macros are very helpful for meta-programming with the C preprocessor, 
 | Family | Functions | Contract |
 | --- | --- | --- |
 | Lifecycle and storage | `BitDB_new`, `BitDB_load`, `BitDB_free` | Create or borrow storage for a fixed number of equal-length bitsets. |
@@ -456,7 +455,7 @@ both operands as NULL is invalid.
 | Target convenience macros | `BitDB_{inter,union,diff,minus}_count(..., cpu\|gpu)` | Select the corresponding direct CPU or GPU function in C source. |
 | Build diagnostics | `print_Bit_configuration` | Print the compiled tile, buffer, popcount, and OpenMP configuration. |
 
-Container binary operations require two non-NULL containers whose bitsets have
+Container binary operations require two non-NULL containers (also denoted as right and left in the documentation) whose bitsets have
 the same length. If the left and right containers hold $N$ and $M$ bitsets,
 the result contains $N \times M$ integers in row-major order. `diff` and
 `minus` retain the XOR and left AND-NOT meanings shown above.
