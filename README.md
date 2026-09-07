@@ -129,24 +129,49 @@ The major compatibility requirement is the use of a compiler that supports an Op
 - `nvcc` for the experimental CUDA benchmark and `hipcc` for the experimental
   HIP benchmark.
 
-Clone and build the default CPU configuration:
+To get you started, just clone and build the default CPU configuration:
 
 ```bash
 git clone https://github.com/chrisarg/Bit.git
 cd Bit
 
-make clean
-make GPU=NONE
+make
 ```
-
-The default configuration is `GPU=NONE`. GPU-facing container calls use their CPU implementations in that configuration.
 
 The `test` target builds `build/test_bit` but does not execute it. Build and run it explicitly:
 
 ```bash
-make test GPU=NONE
+make test 
 ./build/test_bit
 ```
+This will execute a number of tests to ensure that the library builds and computes correctly.
+
+#### Compiler and GPU Target Matrix
+
+The standard `Makefile` builds the library and ordinary benchmarks on `main`
+and the specialized branches. The following table summarizes the various targets that one can build using a range of compilers. The rightmost column below is `gpuOpt`-only: its
+GPU-only and native targets require `make -f Makefile_bench.mak`. Those targets are useful in ongoing work to optimize the OpenMP implementations against native CUDA and HIP builds. The CUDA/HIP targets are all AI assisted and at the time of this writing (September 2026)  they are mess of slopware due to the AI's hallucinating and me failing to control them through rigorous prompting. 
+
+| Compiler (`CC=`) | GPU target (`GPU=`) | Standard targets | Standard OpenMP/offload checks | `gpuOpt` experimental benchmark targets |
+| --- | --- | --- | --- | --- |
+| `gcc` or `clang` | `NONE` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload` builds but detects host fallback; `bench_omp` is CPU-only | none |
+| `gcc` or `clang` | `NVIDIA` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `cuda_gpu_bench`, `gpu_bench_csv` |
+| `gcc` or `clang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `hip_gpu_bench`, `gpu_bench_csv` |
+| `gcc` or `clang` | `NVIDIA,AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, CUDA, HIP, and CSV runner targets |
+| `amdclang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, HIP, and CSV runner targets |
+| `icx` | `INTEL` | library, tests, benchmarks, bug reports | experimental `test_offload` and `bench_omp` | experimental `openmp_bit_nocpu`; no native CUDA/HIP backend |
+
+The Makefile rejects `CC=amdclang` with a GPU target other than `AMD`,
+`CC=icx` with a GPU target other than `INTEL`, and combinations such as
+`GPU=NONE,NVIDIA`.
+
+Native CUDA and HIP benchmarks deliberately compile their device source with
+`nvcc` and `hipcc`, respectively, rather than the value passed through `CC`.
+They still use `GPU=NVIDIA` or `GPU=AMD` as build guards.
+
+On `gpuOpt`, `openmp_bit_nocpu` is blocked when `GPU=NONE`. Its Makefile guard
+tests whether a non-`NONE` target was selected; validate the experimental Intel
+path with `test_offload` on the target machine.
 
 ### Offload Builds
 
@@ -212,32 +237,7 @@ These are Make variables, not runtime environment variables and are listed alpha
 There are additional optimization flags for CPU and GPU that are detailed in the benchmark sections. 
 At the time of this writing (August 2026), the major GPU optimization is the use of the algorithm for performing the setop_count operations. The two algorithms packaged with the algorithm do not have tuning parameters, but others in the experimental `gpuOpt` branch do. Passing one of those will not nuke your building, but it will not really do anything.
 
-### Compiler and GPU Target Matrix
 
-The standard `Makefile` builds the library and ordinary benchmarks on `main`
-and the specialized branches. The rightmost column below is `gpuOpt`-only: its
-GPU-only and native targets require `make -f Makefile_bench.mak`.
-
-| Compiler (`CC=`) | GPU target (`GPU=`) | Standard targets | Standard OpenMP/offload checks | `gpuOpt` experimental benchmark targets |
-| --- | --- | --- | --- | --- |
-| `gcc` or `clang` | `NONE` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload` builds but detects host fallback; `bench_omp` is CPU-only | none |
-| `gcc` or `clang` | `NVIDIA` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `cuda_gpu_bench`, `gpu_bench_csv` |
-| `gcc` or `clang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `hip_gpu_bench`, `gpu_bench_csv` |
-| `gcc` or `clang` | `NVIDIA,AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, CUDA, HIP, and CSV runner targets |
-| `amdclang` | `AMD` | library, tests, benchmarks, bug reports | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, HIP, and CSV runner targets |
-| `icx` | `INTEL` | library, tests, benchmarks, bug reports | experimental `test_offload` and `bench_omp` | experimental `openmp_bit_nocpu`; no native CUDA/HIP backend |
-
-The Makefile rejects `CC=amdclang` with a GPU target other than `AMD`,
-`CC=icx` with a GPU target other than `INTEL`, and combinations such as
-`GPU=NONE,NVIDIA`.
-
-Native CUDA and HIP benchmarks deliberately compile their device source with
-`nvcc` and `hipcc`, respectively, rather than the value passed through `CC`.
-They still use `GPU=NVIDIA` or `GPU=AMD` as build guards.
-
-On `gpuOpt`, `openmp_bit_nocpu` is blocked when `GPU=NONE`. Its Makefile guard
-tests whether a non-`NONE` target was selected; validate the experimental Intel
-path with `test_offload` on the target machine.
 
 ### GPU Troubleshooting and Validation
 
