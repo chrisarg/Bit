@@ -45,23 +45,21 @@ small bitset library at heart, but it now has two useful levels of abstraction: 
 The production work I had in mind involves dense, fixed-capacity bitsets and workloads where bitwise set operations, population counts (counting the bits equal to one in a byte) predictable memory access patterns for performance in both CPU and GPUs. Specific implementation features that facilitate these use cases are: 
 
 - **Population counting:** Counting the number of one's in a container is the basis of similarity measures (such as the Hamming distance). At the time of this writing, there are numerous ways to do this calculation, some of which are better geared to specific forms of hardware than others. A scalar population count is part of my CPU and nearly all GPUs, but hardware instructions are limited to Arm or AVX512 capable CPUs. If one were to execute massive database searches that are based e.g. on Hamming distances, memory access patterns may favor implementations that are based on SIMD extensions as compilers may not always be able to auto-vectorize. `Bit` attempts to squeeze the maximum of performance in a portable manner by 1)  bundling [libpopcnt](https://github.com/kimwalisch/libpopcnt) that can use CPU-specific population-count implementations (hardware instructions such as `VPOPCNTDQ` in AVX512 platforms or algorithms such as the Harley Searle) when enabled 2) vectorized population ops (such as bitwise AND/XOR/OR) with counts (setops) through the [SIMDe](https://github.com/simd-everywhere/simde) vectorized loads, stores and portable intrinsics for counts in vectors and 3) a portable Wilkes-Wheeler-Gill (WWG) / sideways-addition path. Retaining 
-- **Set operations:** Union, intersection, symmetric difference, and set
-  difference are available for individual bitsets and packed containers.
-- **External storage:** Bitsets and containers can borrow caller-owned buffers
-  when their storage is allocated with the size and padding required by the
-  public API.
-- **Packed containers:** `Bit_DB_T` stores equally sized bitsets in contiguous
-  storage for all-pairs count operations on CPU or, where configured, GPU
-  offload.
-- **OpenMP offload:** NVIDIA, AMD, and experimental Intel paths are opt-in;
-  the default `GPU=NONE` build keeps GPU-facing operations on the CPU.
-
-The current implementation favors explicit configuration over hidden magic:
-build variables select toolchains and targets, and callers remain responsible
-for synchronizing concurrent mutation of the same bitset or container.
+- **Fused Set operations with counts:** Union, intersection, symmetric difference, and set
+  difference are available for individual bitsets and packed containers. The library also provides fused setop count operations in which the bitwise Boolean algebra is followed by a population count without forming the full intermediate result of the bitwise operation before counting the bits. The fused setop/count operations (or fused logical cardinality operations if you want to be more formal) are accelerated to various degrees by the underlying pop count implementation for a given hardware architecture, so having multiple ways to skin the popcount cat provides an easy way to optimize Bit for your own hardware using the build system.
+- **External storage:** Bitsets and containers can borrow caller-owned buffers  when their storage is allocated with the size and padding required by the
+  public API. This functionality exists to easily interface `Bit` with other languages (e.g. Perl) without un-necessary copying memory across language interfaces.
+- **Packed containers:** `Bit_DB_T` stores equally sized bitsets in contiguous  storage for all-pairs count operations on CPU or, where configured, GPU
+  offload. Packing effectively transforms the bitsets into the equivalent of Boolean matrices of bits. This has an important theoretical implication, i.e. fused setop_count operations can be viewed as Boolean analogues of conventional matrix multiplication and thus one could port ideas from high Performance [BLAS](https://en.wikipedia.org/wiki/Basic_Linear_Algebra_Subprograms) libraries to speed up things quite a bit. Packed storage has important performance implications for the processor: a) Zero Pointer Chasing keeps the prefetcher happy b) Cache friendly implementation through tiling and c) Natural SIMD implementations:  vector lanes can massively accelerate both the setop and the cardinality computation (especially if the processor has a vector instruction for the popcount) at the register level.
+- **Multithreaded portable performance through OpenMP:** On the **CPU** side, one can implement a cache hierarchy friendly multi level (3 to 6) tiled Boolean algebra analog of a GEneral Matrix Matrix (GEMM) across many threads/cores. On the **GPU** side one can sequentially adapt these multi-level tiled algorithms for the same purpose.  Because Bit uses flat, dense matrices, one can map the entire container to a GPU device using a single OpenMP #pragma omp target directive and exploring different parallelization strategies and work-sharing constructs. One interesting finding is that different compilers (e.g. `gcc` and the `LLVM` based ones) use different models to map OpenMP compiler directives to the underlying 2 dimensional compute fabric of GPUs, so that one has to utilize slightly different OpenMP implementations to maximize performance for a given compiler in a given compute architecture
+- **Vendor agnostic OpenMP offload:** NVIDIA, AMD, and experimental integrated Intel paths are opt-in: you do not need to use them if you are not going to deploy in the GPU. The default configuration of the build system is to not build these offloads, but retain the GPU-facing API in the library; if the latter is built without offload support, then the internal macro implementations ensure that the GPU API uses the CPU code path. Thus we will not break consuming code that uses the GPU API if the library is built without offloading capabilities.  
 
 `Bit` is not a compressed [CRoaring](https://github.com/RoaringBitmap/CRoaring)or dynamically growing bitmap
 library. Given the simplicity of the bitset data structure, one can find numerous similar implementations in software repositories. Daniel Lemire's [cbitset](https://github.com/lemire/cbitset) and the `bitset_t` dense bitvector interface in `CRoaring` are the closest libraries to `Bit` 
+
+## Comparison to Other Libraries
+`Bit` is not a compressed [CRoaring](https://github.com/RoaringBitmap/CRoaring)or dynamically growing bitmap
+library. Given the simplicity of the bitset data structure, one can find numerous similar implementations in software repositories. Daniel Lemire's [cbitset](https://github.com/lemire/cbitset) and the `bitset_t` dense bitvector interface in `CRoaring` are the closest libraries to `Bit` (though both lack multithreading capabilities or hardware acceleration). 
 
 ## Branch Status
 
