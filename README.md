@@ -15,7 +15,7 @@ source of truth if something does work according to what REAMDE.md claims (and a
 
 - [Project Background and Features](#project-background-and-features)
 - [Comparison to Other Libraries](#comparison-to-other-libraries)
-- [Branch Status](#branch-status)
+- [Branches and their Status](#branches-and-their-status)
 - [Build and Test](#build-and-test)
 - [GPU Troubleshooting and Validation](#gpu-troubleshooting-and-validation)
 - [Using the Library](#using-the-library)
@@ -59,12 +59,47 @@ library. Given the simplicity of the bitset data structure, one can find numerou
 
 ## Comparison to Other Libraries
 `Bit` is not a compressed [CRoaring](https://github.com/RoaringBitmap/CRoaring)or dynamically growing bitmap
-library. Given the simplicity of the bitset data structure, one can find numerous similar implementations in software repositories. Daniel Lemire's [cbitset](https://github.com/lemire/cbitset) and the `bitset_t` dense bitvector interface in `CRoaring` are the closest libraries to `Bit` (though both lack multithreading capabilities or hardware acceleration). 
+library. Given the simplicity of the bitset data structure, one can find numerous similar implementations in software repositories. Daniel Lemire's [cbitset](https://github.com/lemire/cbitset) and the `bitset_t` dense bitvector interface in `CRoaring` are the closest libraries to `Bit` (though both lack multithreading capabilities or hardware acceleration). These are not the only libraries that one can find in the C / C++ ecosystem that provide similar functionality. The following table contrasts features of `Bit` versus other alternatives that one may adopt for their own project:
 
-## Branch Status
+| Library | Internal Structure | Dynamic Growth | Fused Logic + Count (examples) | Bit Matrices / Containers | Explicit SIMD | GPU / Hardware | Multithreading |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`Bit`** [1] | Uncompressed dense array | **No** (Fixed at init; uses external buffers) | **Yes** (Hardware-accelerated) | **Yes** (Native 2D contiguous dense matrices) | **Yes** (via `libpopcnt` or reimplementations using `SIMDe`) | **Yes** (OpenMP target pragmas) | **Yes** (Host OpenMP directives) |
+| **`CRoaring`** [2] | Compressed (Roaring format) | **Yes** (`roaring_bitmap_add()`) | **Yes** (`roaring_bitmap_and_cardinality`) | **Partial** (Array of bitmaps, sparse matrix adapters) | **Yes** (AVX2, AVX-512, NEON) | **No** | **No** (Single-threaded ops) |
+| **`BitMagic`** [3] | Compressed (Sparse/Rank-Select) | **Yes** (`set()`, `resize()`) | **Yes** (`count_and`, `count_or`) | **Yes** (Bit-transposed matrices, sparse vectors) | **Yes** (SSE, AVX2, AVX-512, NEON) | **No** | **No** |
+| **`cbitset`** [4] | Uncompressed dense array | **Yes** (`bitset_resize()`) | **Yes** (`bitset_intersection_count`) | **No** (User manages raw arrays) | **No** (Auto-vectorization only) | **No** | **No** |
+| **`goldsborough/bitset`** [5] | Uncompressed vector-backed | **Yes** (`bitset_resize()`) | **No** (Requires intermediate allocation) | **No** | **No** | **No** | **No** |
+| **`EWAHBoolArray`** [6] | Compressed (Wahl RLE) | **Yes** (`addWord()`) | **No** (Requires iterator/intermediate passes) | **No** | **No** (Avoids complex branching) | **No** | **No** |
+| **`boost::dynamic_bitset`** [7]| Uncompressed vector of blocks | **Yes** (`resize()`, `push_back()`) | **No** (`(a & b).count()` allocates) | **No** | **No** | **No** | **No** |
+| **`std::bitset`** [8] | Uncompressed fixed array | **No** (Compile-time `<size_t N>`) | **No** (`(a & b).count()` allocates) | **No** (Static arrays of bitsets only) | **No** | **No** | **No** |
 
-This repository intentionally has branch-specific tooling. Do not assume that
-every command documented below exists on every branch.
+*   [1] **chrisarg/Bit**: https://github.com/chrisarg/Bit/
+*   [2] **RoaringBitmap/CRoaring**: https://github.com/RoaringBitmap/CRoaring
+*   [3] **tlk00/BitMagic**: https://github.com/tlk00/BitMagic
+*   [4] **lemire/cbitset**: https://github.com/lemire/cbitset
+*   [5] **goldsborough/bitset**: https://github.com/goldsborough/bitset
+*   [6] **lemire/EWAHBoolArray**: https://github.com/lemire/EWAHBoolArray
+*   [7] **boost::dynamic_bitset**: https://github.com/boostorg/dynamic_bitset
+*   [8] **std::bitset**: https://en.cppreference.com/w/cpp/utility/bitset
+
+
+These libraries fall roughly in three categories that suggest their use niche: 
+1. General-Purpose Utilities (std::bitset, boost::dynamic_bitset, goldsborough/bitset)
+Designed for everyday software engineering. They provide safe, easy-to-use APIs for tracking state flags and application logic. They allow dynamic memory allocation (except std::bitset), but lack fused operations and native matrix containers. Running batch queries across thousands of bitsets requires manual loops and intermediate memory allocations.
+
+2. Compression & Big Data Indices (CRoaring, BitMagic, EWAHBoolArray)
+Engineered to handle astronomical amounts of sparse data. Both CRoaring and BitMagic recognize the memory bottleneck of intermediate allocations and implement fused logical counters.
+BitMagic explicitly provides robust container abstractions for succinct bit-transposed data (e.g., bm::sparse_vector). Crucially, it features bm::aggregator<>, a cache-friendly, SIMD-optimized engine designed for fast N-way AND/OR/SUB batch operations across groups of bit-vectors.
+However, these features are explicitly oriented toward compressed, inverted-index style workloads (like column-store databases and text search). Because these succinct matrices are composed of compressed trees or run-length encoded streams, traversing them requires complex branching logic, making adaptation to multi-core GPU accelerator threads challenging. CRoaring can still be extremely fast on dense data (it falls back to dense bitset containers), but its overall architecture and strength remain in the sparse/compressed regime
+
+3. The HPC Compute Engine: Bit deliberately trades memory compression and dynamic resizing for maximum computational throughput, explicit parallelism, and strong hardware affinity.
+HPC workloads such as bioinformatics, similarity search against static document collections, and Boolean matrix algebra rarely operate on isolated pairs of bit vectors. Instead, they process hundreds of thousands of vectors at once. Bit treats its containers (Bit_DB_T) as contiguous 2-D dense matrices of packed bitsets, enabling efficient bulk and all-pairs operations.
+While libraries such as BitMagic excel at N-way aggregations over sparse, compressed indexes using CPU SIMD, Bit is purpose-built for dense, fixed-capacity packed batches. By enforcing fixed sizes and storing matrices in contiguous memory, a single OpenMP offload directive can map the data directly onto NVIDIA,  AMD GPUs and integrated Intel GPUs. Streaming multiprocessors can then compute batch similarities with no pointer chasing and minimal branch divergence—delivering throughput that compressed, pointer-heavy formats cannot efficiently achieve on accelerator hardware.if you have massive, dense bitsets and need to throw everything modern silicon has at them (SIMD, Multithreading, and GPU compute), Bit fills a high-performance computing void. The comparison against the `IndexBinaryFlat`, a highly optimized algorithm from [FAISS](https://github.com/facebookresearch/faiss) for high performance similarity search in binary vectors using population counts of Hamming distance matrices illustrates how the well individual components of `Bit` combine to achieve performance that comes close to state of the art libraries. While FAISS optimizes a search problem, Bit optimizes the broader dense Boolean linear-algebra / similarity-computation problem.
+
+---
+
+## Branches and their Status
+
+This repository includes three specific branches with their branch-specific tooling. Historically these branches emerged from the need to test different OpenMP implementations for GPUs, the integrated Intel GPU branch (which to this day requires further work and is considered highly experimental, not fit for production work until features of OpenMP 5.0 are fully integrated in the implementation). The following table lists the three branches, but for all intents and purposes the `main` is what you need.  
 
 | Branch | Purpose | Notes |
 | --- | --- | --- |
@@ -72,26 +107,11 @@ every command documented below exists on every branch.
 | `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns `Makefile_bench.mak`, the `openmp_bit_nocpu` GPU-only kernel testbed, native CUDA/HIP benchmarks, GPU sweep/plot tooling and results, and the `gpuOpt`-to-branch synchronization helpers. The FAISS benchmark suite is cross-branch shared (see below). |
 | `inteliGPU` | Intel oneAPI CPU build and offload validation | Build with `CC=icx GPU=INTEL`. Its `scripts/` directory retains the shared bug-report helper and the shared FAISS benchmark suite. |
 
-The **FAISS benchmark suite** -- the C comparators (`openmp_bit_cpu_FAISS_comp`,
-`openmp_bit_gpu_FAISS_comp`), the Python FAISS scripts (`faiss_cpu_benchmark.py`,
-`faiss_gpu_benchmark.py`), and the comparison sweep (`faiss_compare.pl` +
-`benchmark_config_faiss.json` + `faiss_compare_visualize.R`) -- is
-**shared/synced across all three branches**, not owned by any one. It can be
-built, run, and edited on any branch, and edits propagate to the others through
-the branch-synchronization helpers. |
-
-Identify the checked-out branch, source revision, and working-tree state with:
-
-```bash
-git branch --show-current
-git rev-parse --short HEAD
-git status -sb
-```
-
-`git branch --show-current` prints nothing for a detached `HEAD`; in that case,
-use the commit printed by `git rev-parse --short HEAD` as the source revision.
+Synchronization helper scripts are used to push changes to the repository branches and ensure that mature units of work can find themselves in the `main` repository. 
 
 ## Build and Test
+
+Building and testing requires a Linux environment (though I have only tested Debian flavors such as Ubuntu 22.04, 24.04, WSL Ubuntu flavors and Armbian). As long as the tooling noted below is available, the library (at least the non GPU versions) should build without issues.
 
 ### Requirements
 
@@ -119,11 +139,9 @@ make clean
 make GPU=NONE
 ```
 
-The default configuration is `GPU=NONE`. GPU-facing container calls use their
-CPU implementations in that configuration.
+The default configuration is `GPU=NONE`. GPU-facing container calls use their CPU implementations in that configuration.
 
-The `test` target builds `build/test_bit`; it does not execute it. Build and
-run it explicitly:
+The `test` target builds `build/test_bit` but does not execute it. Build and run it explicitly:
 
 ```bash
 make test GPU=NONE
