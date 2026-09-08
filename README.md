@@ -404,7 +404,8 @@ building the library to your application and things should work. The documentati
 ### Public API Reference
 
 `Bit_T` and `Bit_DB_T` are Abstract Data Types (ADT) and one works with them through their public interface.
-A C structure typedef `SETOP_COUNT_OPTS` is used to control the CPU and GPU OpenMP environment. I exposed the implementation of this structure to assist with the development of interfacing code.
+A C structure typedef `SETOP_COUNT_OPTS` is used to control the CPU and GPU OpenMP environment. I exposed the implementation of this structure to assist with the development of interfacing code when offloading to the GPU and when multi-threading in the CPU.
+
 
 | Public type | Purpose |
 | --- | --- |
@@ -725,8 +726,27 @@ function forms when linking against a shared library from code that cannot see
 the macros. However I strongly encourage you to use the macro interface when coding in C. 
 
 ## Controlling the OpenMP environment in CPU and GPU
-`SETOP_COUNT_OPTS` separates CPU execution from advanced GPU data-residency
-decisions:
+The `SETOP_COUNT_OPTS` that provides control options for  CPU execution and advanced GPU data-residency decisions for containerized operations. This is structure in C that is declared in the header of the `Bit` library as:
+
+```C
+typedef struct {
+  int num_cpu_threads;      
+  int device_id;            
+  bool upd_1st_operand;     
+  bool upd_2nd_operand;     
+  bool release_1st_operand; 
+  bool release_2nd_operand; 
+  bool defer_counts_transfer; 
+  bool release_counts;        
+  enum {
+    TRANSPOSED_TEAM_PARALLEL_SIMD = 0, // transpose + team parallel + SIMD
+    SHARED_TILE_ILP = 1, // Shared tile + Instruction level parallelism
+  } algorithm; // reserved; current library dispatch does not read this field
+} SETOP_COUNT_OPTS;
+```
+
+The meaning of the fields is explained in the table below:
+
 
 | Field | Current behavior |
 | --- | --- |
@@ -736,18 +756,57 @@ decisions:
 | `release_1st_operand`, `release_2nd_operand` | Decreases the reference counter of the corresponding device mapping after the operation. Leave false only when a later call deliberately reuses that mapping. Setting true will not cause the de-allocation of the buffers if their reference counters is not zero. |
 | `defer_counts_transfer` | Defers the transfer of the counts from the GPU to the host e.g. when further processing should be done. |
 | `release_counts` | Decrements the reference counter of the device mapping for counts if true; may lead to de-allocation of the mapping on the device if this was the last reference to this buffer for the entire program. |
-| `algorithm` | Present in the public structure, but not read by the current library dispatch. It is not a runtime kernel selector (yet). |
+| `algorithm` | Present in the public structure, but not read by the current library dispatch. It will become runtime kernel selector (at some point in the future). |
 
-A repeated-query workflow can therefore keep an unchanged reference container
+
+### Using `SETOP_COUNT_OPTS` for device resident repetitive tasks
+
+If one conceptualizes the right sided container as a fixed, reference database of bits, a repeated query (left side container) workflow can  keep an unchanged reference container
 mapped, refresh each modified query container, and release both operand mappings
 on the final call. That optimization also creates a responsibility: if host data
 changes while its update flag is false, the device is allowed to keep using the
-older mapped contents. Keep the default one-call lifecycle until residency is a
-measured bottleneck, then make the update/release sequence explicit in the
-calling code.
+older mapped contents. 
 
-Container operation names use the same set semantics as individual bitsets:
-`diff` is XOR/symmetric difference and `minus` is AND-NOT/set difference.
+The main justification of allowing device resident bitset is that remory allocations and de-allocations in the CPU
+are very costly, so it pays handsomely in terms of performance if one did not
+have to move things around unless absolutely necessary.
+Consider for example the scenario in which one has 3 containers, each of size N
+that must be matched against a single container of size M. The device has enough
+memory to fit a single container of size N, another one of size N, and the
+results of size N \* M. In this case,
+
+```c
+SETOP_COUNT_OPTS opts_1to2 = {
+    .device_id = -1,
+    .upd_1st_operand = true,
+    .upd_2nd_operand = false,
+    .release_1st_operand = false,
+    .release_2nd_operand = false,
+    .release_counts = false
+};
+```
+
+instructs the mapper to update the first operand in the GPU when iterating over
+the first two containers of size N. To process the final container, one can use
+
+```c
+SETOP_COUNT_OPTS opts_3 = {
+    .device_id = -1,
+    .upd_1st_operand = true,
+    .upd_2nd_operand = false,
+    .release_1st_operand = true,
+    .release_2nd_operand = true,
+    .release_counts = true
+};
+```
+
+which will update the first operand in the GPU and _release_ all the buffers
+on the device upon exit. Since OpenMP manages device memory regions using
+reference counting, releasing of the regions amounts to decreasing the reference
+counters for each of the regions. Regions that are no longer referenced will be
+automatically de-allocated.
+
+
 
 ## Benchmarks and Experiments
 
