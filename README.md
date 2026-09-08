@@ -270,8 +270,8 @@ GPU-only and native targets require `make -f Makefile_bench.mak`. Those targets 
 | `gcc` or `clang` | `NVIDIA` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `cuda_gpu_bench`, `gpu_bench_csv` |
 | `gcc` or `clang` | `AMD` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `hip_gpu_bench`, `gpu_bench_csv` |
 | `amdclang` | `AMD` | library, `test`, `bench`, `bench_omp`, `bug_report` | `test_offload`, `bench_omp` | `openmp_bit_nocpu`, `hip_gpu_bench`, `gpu_bench_csv` |
-| `icx` | `INTEL` | library, `test`, `bench`, `bench_omp`, `bug_report` |  `test_offload` and `bench_omp` |  |
-| `icx` | `NONE` | library, `test`, `bench`, `bench_omp`, `bug_report` |  `test_offload` and `bench_omp` |  |
+| `icx` | `INTEL` | library, `test`, `bench`, `bench_omp`, `bug_report` |  `test_offload` , `bench_omp` |  |
+| `icx` | `NONE` | library, `test`, `bench`, `bench_omp`, `bug_report` |  `test_offload` , `bench_omp` |  |
 
 Important things to remember: 
 - The Makefile rejects `CC=amdclang` with a GPU target other than `AMD`,
