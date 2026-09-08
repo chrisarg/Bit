@@ -15,6 +15,7 @@ source of truth if something does work according to what REAMDE.md claims (and a
 
 - [Project Background and Features](#project-background-and-features)
 - [Comparison to Other Libraries](#comparison-to-other-libraries)
+- [Design, Bit Counting, and OpenMP](#design-bit-counting-and-openmp)
 - [Branches and their Status](#branches-and-their-status)
 - [Build and Test](#build-and-test)
 - [GPU Troubleshooting and Validation](#gpu-troubleshooting-and-validation)
@@ -24,7 +25,6 @@ source of truth if something does work according to what REAMDE.md claims (and a
 - [Benchmarks and Experiments](#benchmarks-and-experiments)
 - [Automation Scripts](#automation-scripts)
 - [Constraints and Current Status](#constraints-and-current-status)
-- [Design, Concurrency, and Performance Notes](#design-concurrency-and-performance-notes)
 - [Dependencies, Inspiration, and Applications](#dependencies-inspiration-and-applications)
 - [Roadmap](#roadmap)
 
@@ -44,7 +44,7 @@ small bitset library at heart, but it now has two useful levels of abstraction: 
 
 The production work I had in mind involves dense, fixed-capacity bitsets and workloads where bitwise set operations, population counts (counting the bits equal to one in a byte) predictable memory access patterns for performance in both CPU and GPUs. Specific implementation features that facilitate these use cases are: 
 
-- **Population counting:** Counting the number of one's in a container is the basis of similarity measures (such as the Hamming distance).[^snapshot] There are numerous ways to do this calculation, some of which are better geared to specific forms of hardware than others. A scalar population count is part of my CPU and nearly all GPUs, but hardware instructions are limited to Arm or AVX512 capable CPUs. If one were to execute massive database searches that are based e.g. on Hamming distances, memory access patterns may favor implementations that are based on SIMD extensions as compilers may not always be able to auto-vectorize. `Bit` attempts to squeeze the maximum of performance in a portable manner by 1)  bundling [libpopcnt](https://github.com/kimwalisch/libpopcnt) that can use CPU-specific population-count implementations (hardware instructions such as `VPOPCNTDQ` in AVX512 platforms or algorithms such as the Harley Searle) when enabled 2) vectorized population ops (such as bitwise AND/XOR/OR) with counts (setops) through the [SIMDe](https://github.com/simd-everywhere/simde) vectorized loads, stores and portable intrinsics for counts in vectors and 3) a portable Wilkes-Wheeler-Gill (WWG) / sideways-addition path. Retaining 
+- **Population counting:** Counting the number of one's in a container is the basis of similarity measures (such as the Hamming distance).[^snapshot] There are numerous ways to do this calculation, some of which are better geared to specific forms of hardware than others. A scalar population count is part of my CPU and nearly all GPUs, but hardware instructions are limited to Arm or AVX512 capable CPUs. If one were to execute massive database searches that are based e.g. on Hamming distances, memory access patterns may favor implementations that are based on SIMD extensions as compilers may not always be able to auto-vectorize. `Bit` attempts to squeeze the maximum of performance in a portable manner by 1)  bundling [libpopcnt](https://github.com/kimwalisch/libpopcnt) that can use CPU-specific population-count implementations (hardware instructions such as `VPOPCNTDQ` in AVX512 platforms or algorithms such as the Harley Searle) when enabled 2) vectorized population ops (such as bitwise AND/XOR/OR) with counts (setops) through the [SIMDe](https://github.com/simd-everywhere/simde) vectorized loads, stores and portable intrinsics for counts in vectors and 3) a portable Wilkes-Wheeler-Gill (WWG) / sideways-addition path. Key applications of bitsets in the era of data intensive applications require performant, high throughput population counting and the performance portability of this operation has heavily weighted on the design of this library.
 - **Fused Set operations with counts:** Union, intersection, symmetric difference, and set
   difference are available for individual bitsets and packed containers. The library also provides fused setop count operations in which the bitwise Boolean algebra is followed by a population count without forming the full intermediate result of the bitwise operation before counting the bits. The fused setop/count operations (or fused logical cardinality operations if you want to be more formal) are accelerated to various degrees by the underlying pop count implementation for a given hardware architecture, so having multiple ways to skin the popcount cat provides an easy way to optimize Bit for your own hardware using the build system.
 - **External storage:** Bitsets and containers can borrow caller-owned buffers  when their storage is allocated with the size and padding required by the
@@ -59,12 +59,12 @@ The production work I had in mind involves dense, fixed-capacity bitsets and wor
 ## Comparison to Other Libraries
 `Bit` is not a compressed [CRoaring](https://github.com/RoaringBitmap/CRoaring)or dynamically growing bitmap library, so given the simplicity of the static bitset data structures, one can find numerous similar implementations in software repositories. Daniel Lemire's [cbitset](https://github.com/lemire/cbitset) and the `bitset_t` dense bitvector interface in `CRoaring` are the closest libraries to `Bit` (though both lack multithreading capabilities or hardware acceleration). These are not the only libraries that one can find in the C / C++ ecosystem that provide similar functionality. The following table contrasts features of `Bit` versus other alternatives that one may adopt for their own project:
 
-| Library | Internal Structure | Dynamic Growth | Fused Logic + Count (examples) | Bit Matrices / Containers | Explicit SIMD | GPU / Hardware | Multithreading |
+| Library | Internal Structure | Dynamic Growth | Fused Logic + Count  | Bit Matrices / Containers | Explicit SIMD | GPU / Hardware | Multithreading |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`Bit`** [1] | Uncompressed dense array | **No** (Fixed at init; uses external buffers) | **Yes** (Hardware-accelerated) | **Yes** (Native 2D contiguous dense matrices) | **Yes** (via `libpopcnt` or reimplementations using `SIMDe`) | **Yes** (OpenMP target pragmas) | **Yes** (Host OpenMP directives) |
-| **`CRoaring`** [2] | Compressed (Roaring format) | **Yes** (`roaring_bitmap_add()`) | **Yes** (`roaring_bitmap_and_cardinality`) | **Partial** (Array of bitmaps, sparse matrix adapters) | **Yes** (AVX2, AVX-512, NEON) | **No** | **No** (Single-threaded ops) |
-| **`BitMagic`** [3] | Compressed (Sparse/Rank-Select) | **Yes** (`set()`, `resize()`) | **Yes** (`count_and`, `count_or`) | **Yes** (Bit-transposed matrices, sparse vectors) | **Yes** (SSE, AVX2, AVX-512, NEON) | **No** | **No** |
-| **`cbitset`** [4] | Uncompressed dense array | **Yes** (`bitset_resize()`) | **Yes** (`bitset_intersection_count`) | **No** (User manages raw arrays) | **No** (Auto-vectorization only) | **No** | **No** |
+| **`CRoaring`** [2] | Compressed (Roaring format) | **Yes** (`roaring_bitmap_add()`) | **Yes** (e.g. `roaring_bitmap_and_cardinality`) | **Partial** (Array of bitmaps, sparse matrix adapters) | **Yes** (AVX2, AVX-512, NEON) | **No** | **No** (Single-threaded ops) |
+| **`BitMagic`** [3] | Compressed (Sparse/Rank-Select) | **Yes** (`set()`, `resize()`) | **Yes** (e.g. `count_and`) | **Yes** (Bit-transposed matrices, sparse vectors) | **Yes** (SSE, AVX2, AVX-512, NEON) | **No** | **No** |
+| **`cbitset`** [4] | Uncompressed dense array | **Yes** (`bitset_resize()`) | **Yes** (e.g.`bitset_intersection_count`) | **No** (User manages raw arrays) | **No** (Auto-vectorization only) | **No** | **No** |
 | **`goldsborough/bitset`** [5] | Uncompressed vector-backed | **Yes** (`bitset_resize()`) | **No** (Requires intermediate allocation) | **No** | **No** | **No** | **No** |
 | **`EWAHBoolArray`** [6] | Compressed (Wahl RLE) | **Yes** (`addWord()`) | **No** (Requires iterator/intermediate passes) | **No** | **No** (Avoids complex branching) | **No** | **No** |
 | **`boost::dynamic_bitset`** [7]| Uncompressed vector of blocks | **Yes** (`resize()`, `push_back()`) | **No** (`(a & b).count()` allocates) | **No** | **No** | **No** | **No** |
@@ -94,6 +94,96 @@ HPC workloads such as bioinformatics, similarity search against static document 
 While libraries such as BitMagic excel at N-way aggregations over sparse, compressed indexes using CPU SIMD, Bit is purpose-built for dense, fixed-capacity packed batches. By enforcing fixed sizes and storing matrices in contiguous memory, a single OpenMP offload directive can map the data directly onto NVIDIA,  AMD GPUs and integrated Intel GPUs. Streaming multiprocessors can then compute batch similarities with no pointer chasing and minimal branch divergence—delivering throughput that compressed, pointer-heavy formats cannot efficiently achieve on accelerator hardware.if you have massive, dense bitsets and need to throw everything modern silicon has at them (SIMD, Multithreading, and GPU compute), Bit fills a high-performance computing void. The comparison against the `IndexBinaryFlat`, a highly optimized algorithm from [FAISS](https://github.com/facebookresearch/faiss) for high performance similarity search in binary vectors using population counts of Hamming distance matrices illustrates how the well individual components of `Bit` combine to achieve performance that comes close to state of the art libraries. While FAISS optimizes a search problem, Bit optimizes the broader dense Boolean linear-algebra / similarity-computation problem.
 
 ---
+
+## Design, Bit Counting, and OpenMP
+
+This section provides further background about the design choice of `Bit`'s implementation, some useful trivia and performance notes about population counting and justification about the containerized operations and the use of OpenMP.
+
+### The use of macros in `Bit`
+Internally the library relies on a considerable amount of macro code to reduce repetition. Within these macros internal `_Pragma` helpers are used to express CPU worksharing, vector length and processor adaptible SIMD reduction, coordinate the data travel to and from the GPU,  without maintaining several nearly identical
+kernels. This is one of the places where the C preprocessor is earning its keep and I am forever indebted to the Hanson book that showed me I should embrace the macro style. While the public C API does not expose these macros, it does provide a macro interface to the high level functions that can be used to direct code to the CPU or the GPU. I have found these macros to substantially cut on the amount of boilerplate I had to use to develop the functionality of the library and I encourage their use.
+
+
+### Population Count algorithms
+
+The codebase originally used the name Wilkes-Wheeler-Gill (WWG) for a portable
+sideways-addition population-count technique. Historical literature also calls
+the technique Gillies-Miller sideways addition.[^wwg-history] This algorithm offered a portable
+fallback when a specific target or compiler path did not use a native popcount
+instruction. The algorithm is a very performant one and until `Bit` release 1.0 was the default algorithm when one did not want to include the `libpopcnt` library. The present release offers as an alternative to `libpopcnt` an implementation based on `SIMDe`'s `simde_mm512_popcnt_epi64`, `simde_mm256_popcnt_epi64` or `simde_mm_popcnt_epi64` , with the choice made at _compile time_ based on compiler flags for the architecture used. Internally `SIMDe` is using different algorithms to accomodate different vector architectures (including hardware acceleration if available e.g. in Neon and AVX512 processors). If the vector architecture cannot be resolved via the compiler flags, then the `Bit` does not use vectorized loads and stores and defaults to the WWG algorith. This choice of algorithms was motivated by the history of the library: WWG was the first popcount I used, followed by the quick adoption of `libpopcnt` and more recently of `SIMDe` based portable intrinsics. There is emerging evidence, e.g. see my companion repository [bench_popcount](https://github.com/chrisarg/bench_popcount) ,  that one must consider additional choices that vary by compiler, architecture and possibly surrounding code context. Turning on LTO will also affect performance and considering that one can obtain differences in performance of an order of magnitude or more, it is worth to have more than one options on the table. 
+
+It is worth reflecting on my personal path in exploring population count implementations. This stemmed from the nature of the applications I am using `Bit` for: in these applications a performant population count can make a huge difference in how the entire application (mostly vector database searches) performs.  David Hanson's original implementation of the population count relied on a scalar lookup of the upper and lower nibbles of each byte in the bitvector. Scalar hardware population counts would not appear in processor instructions until the late 1990s and early 2000s (for those into conspiracy theories, look up the relevant stories about NSA's request/insistence to include this instruction in processor ISAs), so Hanson used a very standard approach for the time.  This vectorized approach still forms the basis of performant AVX2 vectorized popcount operations and is included in:
+- [sse-popcount](https://github.com/WojciechMula/sse-popcount), including the
+  Harley-Seal population-count work associated with Lemire, Kurz, and Mula.
+- [SIMDe](https://github.com/simd-everywhere/simde) for AVX2 paths
+
+For those who want to explore the fascinating history of the population count in the CPU (going all the way to Alan Turing) here are some links:
+- [Archived 1999 cryptography mailing-list thread](https://cryptome.org/jya/sadd.htm)
+- [The Quest for an Accelerated Population Count](https://www.oreilly.com/library/view/beautiful-code/9780596510046/ch10.html)
+- [Retrocomputing Stack Exchange – “Are there any articles elucidating the history of the POPCOUNT instruction?”](https://retrocomputing.stackexchange.com/questions/4702/are-there-any-articles-elucidating-the-history-of-the-popcount-instruction)
+- [You Won’t Believe This One Weird CPU Instruction!](https://vaibhavsagar.com/blog/2019/09/08/popcount/)
+- [Revisiting POPCOUNT Operations in CPUs/GPUs](https://sc16.supercomputing.org/sc-archive/src_poster/poster_files/spost106s2-file2.pdf)
+
+The last paper provides an interesting evaluation of popcounts in both CPU and GPU and provides an independent evaluation that the Harley-Seal which is used by [libpopcnt](https://github.com/kimwalisch/libpopcnt is slightly better than the vectorized look up method in AVX2 systems. The same paper showed that bit tweaking tricks don't really offer a substantial performance gain in the GPU. 
+I was not aware of this paper when I selected WWG as the default GPU code path unless `USE_BUILTIN_POPCOUNT=1` is selected at build time. There is a useful compiler lesson hiding here: during development I found that Clang's (and gcc's) NVIDIA target, the hand-written WWG expression and `__builtin_popcountll`
+produced byte-identical device PTX containing `popc.b64`. Both compilers recognized the
+classic SWAR pattern and canonicalized it to the hardware operation. Since  `USE_BUILTIN_POPCOUNT` need
+not change performance, I left it as the default choice for the compiler to mess with. 
+
+
+### Why Containers, OpenMP and Macros?
+
+The non-containerized bitset operations are straightforward to parallelize at
+the application level using OpenMP. Therefore one may ask what is the benefit of providing packed containers?  
+By explicitly defining the storage layout, these containers facilitate optimal scheduling for batched all-pairs operations. Techniques including CPU memory tiling, OpenMP thread scheduling, and dense GPU layouts are employed to ensure that data locality and parallel work distribution are tightly coupled to the hardware, bypassing the inefficiencies of generic loop nests.  This distinction is intentional. An application with an array of independent `Bit_T` objects can write an OpenMP loop to process one large collection of `Bit_T` against another directly and very cleanly:
+
+```c
+#include "bit.h"
+#include <assert.h>
+#include <stdlib.h>
+
+int main(void) {
+  const int query_count = 2;
+  const int reference_count = 3;
+  Bit_T queries[2];
+  Bit_T references[3];
+  int *counts = calloc((size_t)query_count * reference_count, sizeof(*counts));
+  assert(counts != NULL);
+
+  for (int i = 0; i < query_count; ++i) {
+    queries[i] = Bit_new(128);
+    Bit_bset(queries[i], 10 + i);
+  }
+  for (int j = 0; j < reference_count; ++j) {
+    references[j] = Bit_new(128);
+    Bit_bset(references[j], 10 + j);
+  }
+
+#pragma omp parallel for collapse(2)
+  for (int i = 0; i < query_count; ++i) {
+    for (int j = 0; j < reference_count; ++j) {
+      counts[i * reference_count + j] =
+          Bit_inter_count(queries[i], references[j]);
+    }
+  }
+
+  for (int i = 0; i < query_count; ++i) Bit_free(&queries[i]);
+  for (int j = 0; j < reference_count; ++j) Bit_free(&references[j]);
+  free(counts);
+  return 0;
+}
+```
+
+`Bit_DB_T` exists for the cases where one would the library to own that bulk
+organization. Its contiguous storage lets the implementation tile the two
+outer container dimensions and block the inner bit-vector reduction achieving high performance. The
+`CPU_TILE`, `BITVECTOR_TILE`, outer-row/column shape, unroll, and scratch-buffer
+settings that will be discussed in the benchmarking and tuning sections are "knobs" that affect cache use, register pressure, and memory traffic.
+These should be thought as tuning controls for a specific CPU architecture rather than universal constants, even though the default choices mostly work sufficiently well.
+A user should not need to worry about those after perhaps an initial tuning to the specific machine they want their code to run at.
+
+---
+
 
 ## Branches and their Status
 
@@ -1995,98 +2085,10 @@ research companion rather than a dependency of this library.[^snapshot] This rep
 - **Validation:** Most pointer, index, shape, and allocation checks use
   `assert`. Defining `NDEBUG` removes them; callers must till provide valid indexes,
   equal-length operands, and correctly sized borrowed buffers. I admit that a memory safe extension would be great, but unlikely to evolve past the use of compiler level sanitizers.
-- **Concurrency:**  GPU calls are synchronous in the current library path and this is not going to change. CPU concurrency safety is up to the caller, with the most significant challenge presented by applications that want to use nested parallelism or combine multiprocessing with multithreading. 
+- **Concurrency:**  GPU calls are synchronous in the current library path and this is not going to change. CPU concurrency safety is up to the caller, with the most significant challenge presented by applications that want to use nested parallelism or combine multiprocessing with multithreading. More details below
 - **GPU residency:** Update and release flags control device mappings. Internally the library transposes the right bitset container operand and uses a finite state machine to keep track of the orientation. This functionality is not exposed to the caller (it is part of the internal API), but there may be some value to slowly transition those to the public API. 
 - **Current research surfaces:** Intel OpenMP offload and native CUDA/HIP   benchmarks remain experimental, largely because I don't enough CUDA/HIP myself[^snapshot] to verify the AI generated code
 
-
-## Design, Concurrency, and Performance Notes
-
-This set of notes summarize some of my experience experimenting with this very simple library, perhaps provide justify some choices and add some potential pitfalls for those who want to use it in applications. 
-
-
-### Population Count algorithms
-
-The codebase originally used the name Wilkes-Wheeler-Gill (WWG) for a portable
-sideways-addition population-count technique. Historical literature also calls
-the technique Gillies-Miller sideways addition.[^wwg-history] This algorithm offered a portable
-fallback when a specific target or compiler path did not use a native popcount
-instruction. The algorithm is a very performant one and until `Bit` release 1.0 was the default algorithm when one did not want to include the `libpopcnt` library. The present release offers as an alternative to `libpopcnt` an implementation based on `SIMDe`'s `simde_mm512_popcnt_epi64`, `simde_mm256_popcnt_epi64` or `simde_mm_popcnt_epi64` , with the choice made at _compile time_ based on compiler flags for the architecture used. Internally `SIMDe` is using different algorithms to accomodate different vector architectures (including hardware acceleration if available e.g. in Neon and AVX512 processors). If the vector architecture cannot be resolved via the compiler flags, then the `Bit` does not use vectorized loads and stores and defaults to the WWG algorith. This choice of algorithms was motivated by the history of the library: WWG was the first popcount I used, followed by the quick adoption of `libpopcnt` and more recently of `SIMDe` based portable intrinsics. There is emerging evidence, e.g. see my companion repository [bench_popcount](https://github.com/chrisarg/bench_popcount) ,  that one must consider additional choices that vary by compiler, architecture and possibly surrounding code context. Turning on LTO will also affect performance and considering that one can obtain differences in performance of an order of magnitude or more, it is worth to have more than one options on the table. 
-
-It is worth reflecting on my personal path in exploring population count implementations. This stemmed from the nature of the applications I am using `Bit` for: in these applications a performant population count can make a huge difference in how the entire application (mostly vector database searches) performs.  David Hanson's original implementation of the population count relied on a scalar lookup of the upper and lower nibbles of each byte in the bitvector. Scalar hardware population counts would not appear in processor instructions until the late 1990s and early 2000s (for those into conspiracy theories, look up the relevant stories about NSA's request/insistence to include this instruction in processor ISAs), so Hanson used a very standard approach for the time.  This vectorized approach still forms the basis of performant AVX2 vectorized popcount operations and is included in:
-- [sse-popcount](https://github.com/WojciechMula/sse-popcount), including the
-  Harley-Seal population-count work associated with Lemire, Kurz, and Mula.
-- [SIMDe](https://github.com/simd-everywhere/simde) for AVX2 paths
-
-For those who want to explore the fascinating history of the population count in the CPU (going all the way to Alan Turing) here are some links:
-- [Archived 1999 cryptography mailing-list thread](https://cryptome.org/jya/sadd.htm)
-- [The Quest for an Accelerated Population Count](https://www.oreilly.com/library/view/beautiful-code/9780596510046/ch10.html)
-- [Retrocomputing Stack Exchange – “Are there any articles elucidating the history of the POPCOUNT instruction?”](https://retrocomputing.stackexchange.com/questions/4702/are-there-any-articles-elucidating-the-history-of-the-popcount-instruction)
-- [You Won’t Believe This One Weird CPU Instruction!](https://vaibhavsagar.com/blog/2019/09/08/popcount/)
-- [Revisiting POPCOUNT Operations in CPUs/GPUs](https://sc16.supercomputing.org/sc-archive/src_poster/poster_files/spost106s2-file2.pdf)
-
-The last paper provides an interesting evaluation of popcounts in both CPU and GPU and provides an independent evaluation that the Harley-Seal which is used by [libpopcnt](https://github.com/kimwalisch/libpopcnt is slightly better than the vectorized look up method in AVX2 systems. The same paper showed that bit tweaking tricks don't really offer a substantial performance gain in the GPU. 
-I was not aware of this paper when I selected WWG as the default GPU code path unless `USE_BUILTIN_POPCOUNT=1` is selected at build time. There is a useful compiler lesson hiding here: during development I found that Clang's (and gcc's) NVIDIA target, the hand-written WWG expression and `__builtin_popcountll`
-produced byte-identical device PTX containing `popc.b64`. Both compilers recognized the
-classic SWAR pattern and canonicalized it to the hardware operation. Since  `USE_BUILTIN_POPCOUNT` need
-not change performance, I left it as the default choice for the compiler to mess with. 
-
-
-### Why Containers, OpenMP and Macros?
-
-The non-containerized bitset operations are straightforward to parallelize at
-the application level using OpenMP. Therefore one may ask what is the benefit of providing packed containers?  
-By explicitly defining the storage layout, these containers facilitate optimal scheduling for batched all-pairs operations. Techniques including CPU memory tiling, OpenMP thread scheduling, and dense GPU layouts are employed to ensure that data locality and parallel work distribution are tightly coupled to the hardware, bypassing the inefficiencies of generic loop nests.  This distinction is intentional. An application with an array of independent
-`Bit_T` objects can write an OpenMP loop directly:
-
-```c
-#include "bit.h"
-#include <assert.h>
-#include <stdlib.h>
-
-int main(void) {
-  const int query_count = 2;
-  const int reference_count = 3;
-  Bit_T queries[2];
-  Bit_T references[3];
-  int *counts = calloc((size_t)query_count * reference_count, sizeof(*counts));
-  assert(counts != NULL);
-
-  for (int i = 0; i < query_count; ++i) {
-    queries[i] = Bit_new(128);
-    Bit_bset(queries[i], 10 + i);
-  }
-  for (int j = 0; j < reference_count; ++j) {
-    references[j] = Bit_new(128);
-    Bit_bset(references[j], 10 + j);
-  }
-
-#pragma omp parallel for collapse(2)
-  for (int i = 0; i < query_count; ++i) {
-    for (int j = 0; j < reference_count; ++j) {
-      counts[i * reference_count + j] =
-          Bit_inter_count(queries[i], references[j]);
-    }
-  }
-
-  for (int i = 0; i < query_count; ++i) Bit_free(&queries[i]);
-  for (int j = 0; j < reference_count; ++j) Bit_free(&references[j]);
-  free(counts);
-  return 0;
-}
-```
-
-`Bit_DB_T` exists for the cases where I want the library to own that bulk
-organization. Its contiguous storage lets the implementation tile the two
-outer container dimensions and block the inner bit-vector reduction. The
-`CPU_TILE`, `BITVECTOR_TILE`, outer-row/column shape, unroll, and scratch-buffer
-settings are experiments in cache use, register pressure, and memory traffic.
-These should be thought as tuning controls for a specific CPU architecture rather than universal constants, even though the default choices mostly work sufficiently well.
-
-The internal `_Pragma` helpers serve the same purpose on the code-organization
-side. They let one family of loops express CPU worksharing, SIMD reduction, GPU
-teams, and mapping choices without maintaining several nearly identical
-kernels. This is one of the places where the C preprocessor is earning its keep and I am forever indebted to the Hanson book that showed me I should embrace the macros.
 
 
 ### Concurrency and Execution
@@ -2108,7 +2110,7 @@ an explicit parallel region, with explicit tasks completed before the run-time i
 
 
 
-### Applications
+## Applications
 
 Bit is particularly useful for dense set and membership workloads such as:
 
