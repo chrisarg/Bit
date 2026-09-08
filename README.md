@@ -489,6 +489,15 @@ Bitsets and containers owned by the library are zero initialized by default. The
 and equal-shape checks. Defining `NDEBUG` during compilations removes those checks. However the library cannot recover from segfault from an an undersized external buffer or invalid index with or without `NDEBUG`. Since the library cannot determine the allocation size behind a raw
 pointer, so callers must size borrowed and extraction buffers correctly as we illustrate in the examples below.
 
+#### A note about memory allignment, allocation and library operations
+
+- Bit_T Allocation: When allocating a single bitset via Bit_new, the library uses the standard C calloc function.  Because it relies on calloc, it receives the default memory alignment provided by the host system's standard library (typically 8 or 16 bytes), without enforcing any custom strict alignment.  
+- Bit_DB_T Allocation: When allocating a packed database of bitsets via BitDB_new, the library explicitly enforces stricter alignment using a custom internal allocator.  The required alignment depends on the system architecture:  32 bytes for 32-bit architectures and 64 bytes for 64-bit architectures.
+- Borrowed External Storage: When you load an externally allocated buffer using Bit_load or BitDB_load, the library interacts with the borrowed storage in the following ways:
+    - Minimum Padding Requirements: The library explicitly expects the external buffer size to be padded to the next multiple of 8 bytes (the size of a uint64_t) to prevent out-of-bounds access during scalar operations.
+    - Dynamic Alignment Dispatch: The library does not strictly force the borrowed storage to match its ideal internal 32-byte or 64-byte alignment. Instead, it checks the external pointer's alignment at runtime during vectorized database set operations.
+    - Vectorization Fallback: If the external buffer meets the optimal alignment checks (64-byte alignment on 64-bit systems, or 8-byte alignment on 32-bit systems), the CPU executes fast aligned SIMD loads. If the external buffer is unaligned, the library safely falls back to unaligned SIMD instructions to execute the operations.  
+
 ### Examples with individual Bitsets
 
 This is a straightforward example showing the creation of two bitsets with sufficient storage for 128 bits, setting individual bits, doing a bitwise and for an overlap and computing the cardinality of the result.
@@ -547,7 +556,7 @@ int main(void) {
 
 The corresponding `Bit_*_count` functions compute the same population counts without forming the intermediate bitset.
 
-### External Storage
+### Using External Storage
 
 `Bit_load` and `BitDB_load` borrow caller-owned storage. The caller must
 allocate enough padded storage and later free the pointer returned by the
@@ -581,7 +590,7 @@ and returns the number of bytes written.
 
 Borrowed container storage is the per-bitset buffer size multiplied by the
 number of elements. `BitDB_free` returns that original pointer rather than
-freeing it behind the caller's back:
+freeing it behind the caller's back. The size of the needed external buffer can similarly be obtained by multiplying the number of bitsets in the container (variable `count` in the snippet below) and the size in bytes needed to store a library of a given number of bits (this is the value returned by `Bit_buffer_size`):
 
 ```c
 #include "bit.h"
