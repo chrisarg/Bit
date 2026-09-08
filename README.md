@@ -398,7 +398,7 @@ removed after collection.
 
 Usage is straightforward and follow's Hanson's clean separation of interfaces and implementations.
 Just include `bit.h` (the API) and link against `build/libbit.so` or `build/libbit.a` after
-building the library to your application and things should work. 
+building the library to your application and things should work. The documentation of the API below is deliberately kept at a minimum: the header file should be consulted for the precise order of arguments and their types with the examples included below showing the implementation of common use cases. 
 
 
 ### Public API Reference
@@ -442,7 +442,8 @@ both operands as NULL is invalid. This convention follows those adopted by Hanso
 
 #### Packed Container API
 
-The packed container API consists of library functions and a smaller set of macros. The macros are very helpful for meta-programming with the C preprocessor.  
+The packed container API consists of library functions and a smaller set of macros. The macros are very helpful for meta-programming with the C preprocessor and for extending the API of the library itself.  
+
 | Family | Functions | Contract |
 | --- | --- | --- |
 | Lifecycle and storage | `BitDB_new`, `BitDB_load`, `BitDB_free` | Create or borrow storage for a fixed number of equal-length bitsets. |
@@ -471,10 +472,11 @@ BitDB_inter_count_store(left, right, results, options, cpu);
 The final token may be `cpu` or `gpu`. Direct `_store_cpu` and `_store_gpu` functions remain useful for foreign-function interfaces and callers that cannot
 use C preprocessor macros.
 
-#### Ownership and Validation
+#### Ownership and Validation of Bitsets and their containers
 
 `Bit` was written with the explicit intention to facilitate flexible storage ownership: there are functions in the API that own bitsets and containers, and others that use
 externally allocated buffers for the countainers. 
+
 | Value | Owner and release rule |
 | --- | --- |
 | `Bit_new` / `BitDB_new` result | Library owns storage. `Bit_free` / `BitDB_free` releases it, sets the handle to NULL, and returns NULL. |
@@ -483,13 +485,13 @@ externally allocated buffers for the countainers.
 | `BitDB_count` or non-store container count | Caller owns the returned `int *` and releases it with `free`. |
 | `_store_` container count | Caller allocates and retains the result buffer. |
 
-The implementation uses `assert` for most pointer, index, length, allocation,
-and equal-shape checks. Defining `NDEBUG` removes those checks; it does not turn
-an undersized external buffer or invalid index into a recoverable error. In
-particular, the library cannot determine the allocation size behind a raw
-pointer, so callers must size borrowed and extraction buffers correctly.
+Bitsets and containers owned by the library are zero initialized by default. The implementation uses `assert` for most pointer, index, length, allocation,
+and equal-shape checks. Defining `NDEBUG` during compilations removes those checks. However the library cannot recover from segfault from an an undersized external buffer or invalid index with or without `NDEBUG`. Since the library cannot determine the allocation size behind a raw
+pointer, so callers must size borrowed and extraction buffers correctly as we illustrate in the examples below.
 
-### Individual Bitsets
+### Examples with individual Bitsets
+
+This is a straightforward example showing the creation of two bitsets with sufficient storage for 128 bits, setting individual bits, doing a bitwise and for an overlap and computing the cardinality of the result.
 
 ```c
 #include "bit.h"
@@ -543,14 +545,13 @@ int main(void) {
 }
 ```
 
-The corresponding `Bit_*_count` functions compute the same population counts
-without constructing result bitsets.
+The corresponding `Bit_*_count` functions compute the same population counts without forming the intermediate bitset.
 
 ### External Storage
 
 `Bit_load` and `BitDB_load` borrow caller-owned storage. The caller must
 allocate enough padded storage and later free the pointer returned by the
-matching free routine.
+matching free routine. The function `Bit_buffer_size` returns the minimum number of bytes needed to store a bitset of a requested size/capacity (in this case 130). For performance the storage used to store a bitset is the closest to the requested size integer multiple of 64.
 
 ```c
 #include "bit.h"
