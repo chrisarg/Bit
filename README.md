@@ -20,7 +20,7 @@ source of truth if something does work according to what REAMDE.md claims (and a
 - [GPU Troubleshooting and Validation](#gpu-troubleshooting-and-validation)
 - [Using the Library](#using-the-library)
 - [Public API Reference](#public-api-reference)
-- [Container Counts](#container-counts)
+- [Controlling the OpenMP environment in CPU and GPU](#controlling-the-openmp-environment-in-cpu-and-gpu)
 - [Benchmarks and Experiments](#benchmarks-and-experiments)
 - [Automation Scripts](#automation-scripts)
 - [Constraints and Current Status](#constraints-and-current-status)
@@ -501,7 +501,7 @@ This is a technical note that should not affect normal users, and is probably an
 
 At some point, I should probably take down the machinery because everyone is telling me that unaligned loads carry no penalty in our time. 
 
-### Using individual Bitsets
+### Using Individual Bitsets
 
 This is a straightforward example showing the creation of two bitsets with sufficient storage for 128 bits, setting individual bits, doing a bitwise and for an overlap and computing the cardinality of the result.
 
@@ -620,7 +620,7 @@ int main(void) {
 }
 ```
 
-## How to Play with Containers
+### How to Play with Containers
 
 The ADT `Bit_DB_T` stores equally sized bitsets in a packed container. You can create such a
 container with `BitDB_new(length, count)` and fill it with individual bitsets `BitDB_put_at`.
@@ -724,6 +724,7 @@ The macros `BitDB_inter_count`, `BitDB_union_count`, `BitDB_diff_count`, and
 function forms when linking against a shared library from code that cannot see
 the macros. However I strongly encourage you to use the macro interface when coding in C. 
 
+## Controlling the OpenMP environment in CPU and GPU
 `SETOP_COUNT_OPTS` separates CPU execution from advanced GPU data-residency
 decisions:
 
