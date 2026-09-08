@@ -2008,52 +2008,41 @@ research companion rather than a dependency of this library.[^snapshot] This rep
 
 ## Design, Concurrency, and Performance Notes
 
-### Concurrency and Execution
-
-- Individual bitsets are mutable buffers, so you are responsible for coordinating concurrent access to
-share objects.  
-
-- GPU based  container functions are synchronous. Device, update, and release
-options control data residency across calls; they do not provide asynchronous
-execution or cross-thread synchronization, i.e. the host thread blocks until the device has finished execution. 
-
-- I have used the container API through a very ordinary, even boring fork-join path: one thread
-enters a call and OpenMP parallelizes the work inside it. Nested tasks, multiple
-controlling threads sharing operands, and `fork` after OpenMP initialization
-remain untested here. In particular be very aware of the use of `Bit` in the context of multi-processing (launching a process that will then use the multi-threading capabilities of `Bit`). Traditionally this was an unsafe use of OpenMP, until v 5.0 which introduced the `omp_pause_resource` and `omp_pause_resource_all`, which allow an OpenMP runtime
-to prepare a process before a subsequent fork. Please consult the the OpenMP 5.0 API[^OpenMPfork] to ensure that you are using this feature correctly e.g.  these calls should occur outside
-an explicit parallel region, with explicit tasks completed before the run-time is paused (this means that one can screw the pooch if one is messing with OpenMP's blocking semantics) .
+This set of notes summarize some of my experience experimenting with this very simple library, perhaps provide justify some choices and add some potential pitfalls for those who want to use it in applications. 
 
 
 ### Population Count algorithms
 
-The codebase uses the name Wilkes-Wheeler-Gill (WWG) for a portable
+The codebase originally used the name Wilkes-Wheeler-Gill (WWG) for a portable
 sideways-addition population-count technique. Historical literature also calls
 the technique Gillies-Miller sideways addition.[^wwg-history] This algorithm offered a portable
 fallback when a specific target or compiler path did not use a native popcount
-instruction. The algorithm is a very performant one and until release 1.0 was the default algorithm when one did not want to include the `libpopcnt` library. The present release offers as an alternative to `libpopcnt` an implementation based on `SIMDe`'s `simde_mm256_popcnt_epi64` 
+instruction. The algorithm is a very performant one and until `Bit` release 1.0 was the default algorithm when one did not want to include the `libpopcnt` library. The present release offers as an alternative to `libpopcnt` an implementation based on `SIMDe`'s `simde_mm512_popcnt_epi64`, `simde_mm256_popcnt_epi64` or `simde_mm_popcnt_epi64` , with the choice made at _compile time_ based on compiler flags for the architecture used. Internally `SIMDe` is using different algorithms to accomodate different vector architectures (including hardware acceleration if available e.g. in Neon and AVX512 processors). If the vector architecture cannot be resolved via the compiler flags, then the `Bit` does not use vectorized loads and stores and defaults to the WWG algorith. This choice of algorithms was motivated by the history of the library: WWG was the first popcount I used, followed by the quick adoption of `libpopcnt` and more recently of `SIMDe` based portable intrinsics. There is emerging evidence, e.g. see my companion repository [bench_popcount](https://github.com/chrisarg/bench_popcount) ,  that one must consider additional choices that vary by compiler, architecture and possibly surrounding code context. Turning on LTO will also affect performance and considering that one can obtain differences in performance of an order of magnitude or more, it is worth to have more than one options on the table. 
 
-For GPU work, WWG is the default code path unless
-`USE_BUILTIN_POPCOUNT=1` is selected at build time. There is a useful compiler lesson hiding here: during development I found that Clang's (and gcc's)
-NVIDIA target, the hand-written WWG expression and `__builtin_popcountll`
-produced byte-identical device PTX containing `popc.b64`. LLVM recognized the
-classic SWAR pattern and canonicalized it to the hardware operation. That is a
-specific observation, not a promise about every compiler, optimization level,
-or AMD/NVIDIA target, but it explains why toggling `USE_BUILTIN_POPCOUNT` need
-not change performance. Inspect generated code and benchmark the intended
-binary before assigning speed to the source-level choice.The GPU-only benchmark exists to quantify if setting `USE_BUILTIN_POPCOUNT` changes performance.
+It is worth reflecting on my personal path in exploring population count implementations. This stemmed from the nature of the applications I am using `Bit` for: in these applications a performant population count can make a huge difference in how the entire application (mostly vector database searches) performs.  David Hanson's original implementation of the population count relied on a scalar lookup of the upper and lower nibbles of each byte in the bitvector. Scalar hardware population counts would not appear in processor instructions until the late 1990s and early 2000s (for those into conspiracy theories, look up the relevant stories about NSA's request/insistence to include this instruction in processor ISAs), so Hanson used a very standard approach for the time.  This vectorized approach still forms the basis of performant AVX2 vectorized popcount operations and is included in:
+- [sse-popcount](https://github.com/WojciechMula/sse-popcount), including the
+  Harley-Seal population-count work associated with Lemire, Kurz, and Mula.
+- [SIMDe](https://github.com/simd-everywhere/simde) for AVX2 paths
+
+For those who want to explore the fascinating history of the population count in the CPU (going all the way to Alan Turing) here are some links:
+- [Archived 1999 cryptography mailing-list thread](https://cryptome.org/jya/sadd.htm)
+- [The Quest for an Accelerated Population Count](https://www.oreilly.com/library/view/beautiful-code/9780596510046/ch10.html)
+- [Retrocomputing Stack Exchange – “Are there any articles elucidating the history of the POPCOUNT instruction?”](https://retrocomputing.stackexchange.com/questions/4702/are-there-any-articles-elucidating-the-history-of-the-popcount-instruction)
+- [You Won’t Believe This One Weird CPU Instruction!](https://vaibhavsagar.com/blog/2019/09/08/popcount/)
+- [Revisiting POPCOUNT Operations in CPUs/GPUs](https://sc16.supercomputing.org/sc-archive/src_poster/poster_files/spost106s2-file2.pdf)
+
+The last paper provides an interesting evaluation of popcounts in both CPU and GPU and provides an independent evaluation that the Harley-Seal which is used by [libpopcnt](https://github.com/kimwalisch/libpopcnt is slightly better than the vectorized look up method in AVX2 systems. The same paper showed that bit tweaking tricks don't really offer a substantial performance gain in the GPU. 
+I was not aware of this paper when I selected WWG as the default GPU code path unless `USE_BUILTIN_POPCOUNT=1` is selected at build time. There is a useful compiler lesson hiding here: during development I found that Clang's (and gcc's) NVIDIA target, the hand-written WWG expression and `__builtin_popcountll`
+produced byte-identical device PTX containing `popc.b64`. Both compilers recognized the
+classic SWAR pattern and canonicalized it to the hardware operation. Since  `USE_BUILTIN_POPCOUNT` need
+not change performance, I left it as the default choice for the compiler to mess with. 
 
 
-### Why Containers and OpenMP
+### Why Containers, OpenMP and Macros?
 
 The non-containerized bitset operations are straightforward to parallelize at
-the application level. Packed containers additionally make it practical to
-schedule many all-pairs count operations while controlling the storage layout.
-CPU tiling, OpenMP scheduling, and GPU layout experiments are all attempts to
-make locality and work distribution visible to the implementation rather than
-leaving every choice to a generic loop nest.
-
-This distinction is intentional. An application with an array of independent
+the application level using OpenMP. Therefore one may ask what is the benefit of providing packed containers?  
+By explicitly defining the storage layout, these containers facilitate optimal scheduling for batched all-pairs operations. Techniques including CPU memory tiling, OpenMP thread scheduling, and dense GPU layouts are employed to ensure that data locality and parallel work distribution are tightly coupled to the hardware, bypassing the inefficiencies of generic loop nests.  This distinction is intentional. An application with an array of independent
 `Bit_T` objects can write an OpenMP loop directly:
 
 ```c
@@ -2097,38 +2086,33 @@ int main(void) {
 organization. Its contiguous storage lets the implementation tile the two
 outer container dimensions and block the inner bit-vector reduction. The
 `CPU_TILE`, `BITVECTOR_TILE`, outer-row/column shape, unroll, and scratch-buffer
-settings are experiments in cache use, register pressure, and memory traffic;
-these should be thought as tuning controls for a specific CPU architecture, not universal constants.
+settings are experiments in cache use, register pressure, and memory traffic.
+These should be thought as tuning controls for a specific CPU architecture rather than universal constants, even though the default choices mostly work sufficiently well.
 
 The internal `_Pragma` helpers serve the same purpose on the code-organization
 side. They let one family of loops express CPU worksharing, SIMD reduction, GPU
 teams, and mapping choices without maintaining several nearly identical
-kernels. This is one of the places where the C preprocessor is earning its keep, but those helpers remain private implementation machinery rather than an API applications should depend on.
-
-On a single socket CPU, the relevant limits are often cache capacity and memory
-bandwidth. On a multi-socket host, page placement and thread binding matter as
-well; the `main`-only NUMA sweep documents one way to make those variables
-measurable. On a GPU, transfer volume, residency, layout conversion, and launch
-overhead can dominate a small or poorly shaped workload even when the inner
-kernel is fast.
+kernels. This is one of the places where the C preprocessor is earning its keep and I am forever indebted to the Hanson book that showed me I should embrace the macros.
 
 
-## Dependencies, Inspiration, and Applications
+### Concurrency and Execution
 
-This project incorporates or integrates the following open-source libraries:
+- Individual bitsets are mutable buffers, so you are responsible for coordinating concurrent access to
+share objects.  
 
-- [libpopcnt](https://github.com/kimwalisch/libpopcnt), a BSD 2-Clause
-  population-count library with architecture-specific implementations.
-- [SIMDe](https://github.com/simd-everywhere/simde), a header-only SIMD
-  portability layer used by the CPU implementation.
+- GPU based  container functions are synchronous. Device, update, and release
+options control data residency across calls; they do not provide asynchronous
+execution or cross-thread synchronization, i.e. the host thread blocks until the device has finished execution. 
 
-Several libraries and projects also informed the structure of this codebase and
-the author's exploration of the C preprocessor and SIMD implementation work:
+- I have used the container API through a very ordinary, even boring fork-join path: one thread
+enters a call and OpenMP parallelizes the work inside it. Nested tasks, multiple
+controlling threads sharing operands, and `fork` after OpenMP initialization
+remain untested here. In particular be very aware of the use of `Bit` in the context of multi-processing (launching a process that will then use the multi-threading capabilities of `Bit`). Traditionally this was an unsafe use of OpenMP, until v 5.0 which introduced the `omp_pause_resource` and `omp_pause_resource_all`, which allow an OpenMP runtime
+to prepare a process before a subsequent fork. Please consult the the OpenMP 5.0 API[^OpenMPfork] to ensure that you are using this feature correctly e.g.  these calls should occur outside
+an explicit parallel region, with explicit tasks completed before the run-time is paused (this means that one can screw the pooch if one is messing with OpenMP's blocking semantics) .
 
-- [sse-popcount](https://github.com/WojciechMula/sse-popcount), including the
-  Harley-Seal population-count work associated with Lemire, Kurz, and Mula.
-- [cii](https://github.com/drh/cii), David Hanson's C Interfaces and
-  Implementations library and the original `Bit_T` design.
+
+
 
 ### Applications
 
@@ -2136,25 +2120,24 @@ Bit is particularly useful for dense set and membership workloads such as:
 
 - Bioinformatics and genomic data processing, including k-mer-like encodings.
 - Network packet filtering and Bloom-filter-style membership tests.
-- Dense data representation over large fixed domains.
-- High-performance set operations and all-pairs intersection-count searches.
+- High-performance set operations and all-pairs similarity searches (the context of the FAISS like application).
 
 For genuinely sparse domains, a compressed representation such as a roaring
-bitmap can be a better fit than this uncompressed library. I have not attempted to figure out how big the capacity should be before a compressed respresentation wins out in performance. 
+bitmap can be a better fit than this uncompressed library. 
+I have not attempted to figure out how big the capacity should be before a compressed respresentation wins out in performance. 
 
 ## Roadmap
 
-- Continue validating CPU, NVIDIA, AMD, and Intel build paths.
+- Continue validating CPU, NVIDIA, AMD build paths.
+- Evaluate Intel Arc's architectures for offloads
+- Investigate offloads to FPGAs
 - Extend SIMD-oriented CPU work across more set-operation paths while retaining
   portable fallbacks.
-- Port or evaluate selected experimental `gpuOpt` count algorithms on the
-  branches where they belong.
+- Port or evaluate selected experimental `gpuOpt` CUDA/HIP implementations as an alternative to the OpenMP ones.
 - Add set-operation metrics such as Jaccard similarity.
 - Improve OS-agnostic build, profiling, and reproducibility workflows.
-- Continue evaluating native CUDA/HIP backends alongside OpenMP offload.
-- Investigate Unified Shared Memory where the target runtime supports it.
+- Investigate Unified Shared Memory where the target runtime supports it (this may be how one gets to use these ubiquitous integrated Intel GPUs!).
 
-TPU and NPU support are not implemented and are not supported build targets.
 
 ## License
 
@@ -2169,11 +2152,9 @@ Christos Argyropoulos (April 2025 -  May 2026)
 This session is intended to document the involvement of AI in this project and a
 roadmap to preserve, collect and characterize the involvement over time. In retrospect,
 some of the steps (in particular recovery of history from other machines) should have
-done much earlier than September 2026. The following few sections represent to the best of
-my knowledge the use of AI in this project, which started of as a retype and extension of
-the Bit T by David Hanson.
+done much earlier than September 2026. The following few sections represent the use of AI in this project, and some post hoc rambling about how best to record the AI contributions vis-a-vis the human inspiration in future work.
 
-### AI-Assisted Work
+### Attribution of AI-assisted work
 
 GitHub Copilot and Google Gemini assisted with generating and refactoring
 Makefile content, exploring test ideas for the OpenMP implementations, drafting
@@ -2197,13 +2178,7 @@ regular contributions, not as a complete per-file provenance record:
 The repository does not use watermark analysis to identify authorship or assign
 source code to a particular AI model.[^snapshot] While I wish there was such a framework, there is no universal source-code
 watermark detector, and any verification must use that
-provider's supported process (which I am not sure how to access) and take my word for attribution. I encourage anyone who has the technical expertise to carry out this detailed attribution to do so, because I will learn something new myself. However, editing, formatting, copying, transformation, and
-mixed human/AI work can make retrospective attribution incomplete or invalid.
-
-Writing style, comments, formatting, compiled artifacts, commit wording, and
-Git history are not sufficient evidence of a particular model's involvement.
-Model-level claims in this disclosure thus depend on my memory and frankly honesty to disclose. 
-The following sections comprise some of my thoughts on how to prospectively collect and document AI assisted contributions and frankly I wish I had thought about those earlier.
+provider's supported process, which I am not sure how to access. Therefore, I fear your must take my word when attributing parts of this work to AI. Model-level claims in this disclosure thus depend on my memory and frankly honesty to disclose.  Here are some personal thoughts on how to prospectively collect and document AI assisted contributions for future work.
 
 #### Recovering Chat History From Many Machines
 
