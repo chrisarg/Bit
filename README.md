@@ -1991,20 +1991,14 @@ research companion rather than a dependency of this library.[^snapshot] This rep
 
 ## Constraints and Current Status
 
-- **Capacity:** Bitsets have fixed, `int`-sized capacities.
+- **Capacity:** Bitsets have fixed, `int`-sized capacities. An extension to resize them is unlikely to be written in the form of an API function and this functionality resuts with the user.
 - **Validation:** Most pointer, index, shape, and allocation checks use
-  `assert`. Defining `NDEBUG` removes them; callers still provide valid indexes,
-  equal-length operands, and correctly sized borrowed buffers.
-- **Concurrency:** You synchronize shared mutation. GPU calls are synchronous
-  in the current library path.
-- **GPU residency:** Update and release flags control device mappings. GPU
-  strategy selection belongs to the experimental benchmark layer, not the
-  runtime library API.
-- **Current research surfaces:** Intel OpenMP offload and native CUDA/HIP
-  benchmarks remain experimental.
-- **Generated files:** GPU binaries, LLVM intermediates, profiler reports, and
-  benchmark results record builds and experiments; the public API is defined by
-  the header and implementation.
+  `assert`. Defining `NDEBUG` removes them; callers must till provide valid indexes,
+  equal-length operands, and correctly sized borrowed buffers. I admit that a memory safe extension would be great, but unlikely to evolve past the use of compiler level sanitizers.
+- **Concurrency:**  GPU calls are synchronous in the current library path and this is not going to change. CPU concurrency safety is up to the caller, with the most significant challenge presented by applications that want to use nested parallelism or combine multiprocessing with multithreading. 
+- **GPU residency:** Update and release flags control device mappings. Internally the library transposes the right bitset container operand and uses a finite state machine to keep track of the orientation. This functionality is not exposed to the caller (it is part of the internal API), but there may be some value to slowly transition those to the public API. 
+- **Current research surfaces:** Intel OpenMP offload and native CUDA/HIP   benchmarks remain experimental, largely because I don't enough CUDA/HIP myself[^snapshot] to verify the AI generated code
+
 
 ## Design, Concurrency, and Performance Notes
 
