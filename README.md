@@ -20,7 +20,7 @@ source of truth if something does work according to what REAMDE.md claims (and a
 - [GPU Troubleshooting and Validation](#gpu-troubleshooting-and-validation)
 - [Using the Library](#using-the-library)
 - [Public API Reference](#public-api-reference)
-- [Container Counts](#container-counts)
+- [Controlling the OpenMP environment in CPU and GPU](#controlling-the-openmp-environment-in-cpu-and-gpu)
 - [Benchmarks and Experiments](#benchmarks-and-experiments)
 - [Automation Scripts](#automation-scripts)
 - [Constraints and Current Status](#constraints-and-current-status)
@@ -105,7 +105,30 @@ This repository includes three specific branches with their branch-specific tool
 | `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns `Makefile_bench.mak`, the `openmp_bit_nocpu` GPU-only kernel testbed, native CUDA/HIP benchmarks, GPU sweep/plot tooling and results, and the `gpuOpt`-to-branch synchronization helpers. The FAISS benchmark suite is cross-branch shared (see below). |
 | `inteliGPU` | Intel oneAPI CPU build and offload validation | Build with `CC=icx GPU=INTEL`. Its `scripts/` directory retains the shared bug-report helper and the shared FAISS benchmark suite. |
 
-Synchronization helper scripts are used to push changes to the repository branches and ensure that mature units of work can find themselves in the `main` repository. 
+### Script Inventory by Branch
+
+The repository contains a number of scripts that may be used to report bugs when building the library, synchronize common code paths between two branches, profile and fine tune the library for a specific architecture via benchmarking and visualize results using `R`. Finally, there are scripts that compare the performance of an example application built with `Bit`, a poor person's analogue of the `IndexBinaryFlat` functionality from [FAISS](https://github.com/facebookresearch/faiss).  The profiling/tuning/benchmark scripts follow the same design philosophy: a `JSON` configuration file that provides the grid over which one sweeps performance metrics, a `Perl` script that parses the configuration script, executes artefacts build with `Bit`, parses and logs their output, and a `R` script that does the visualization. 
+
+
+| Script or group | `main` | `gpuOpt` | `inteliGPU` | Purpose |
+| --- | --- | --- | --- | --- |
+| `generate_bug_report.sh` | Yes | Yes | Yes | Backend for `make bug_report`; collects build configuration, diagnostics, preprocessed source, and an optional backtrace. |
+| `cpu_param_sweep.pl` + `benchmark_config_cpu.json` | Yes | No | No | JSON-driven broad CPU build/runtime sweep. |
+| `cpu_profiling_analytics.R` | Yes | No | No | Intended analysis and plotting companion for broad CPU sweep CSV files; see the compatibility note below. |
+| `sweep_cpu_tuning.pl` | Yes | No | No | Focused CPU kernel timing and `perf stat` profiling; writes its own CSV and Markdown reports. |
+| `run_numa_sweeps.sh` | Yes | No | No | Runs four dual-socket scenarios through `sweep_cpu_tuning.pl`. |
+| `gpu_param_sweep.pl` + `plot_performance.R` | No | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
+| Tracked `benchmark_GPU_params/` results | No | Yes | No | Historical GPU sweep CSV/log results kept with their producer and plotter. |
+| `faiss_compare.pl` + `benchmark_config_faiss.json` | Yes | Yes | Yes | Small JSON-driven FAISS-vs-Bit comparison sweep; harvests per-iteration timings into `benchmark_FAISS/`. Shared across branches. |
+| `faiss_compare_visualize.R` | Yes | Yes | Yes | R report for the FAISS comparison; boxplots of per-iteration times and a summarized CSV in `benchmark_FAISS/`. Shared across branches. |
+| `faiss_cpu_benchmark.py` | Yes | Yes | Yes | Native FAISS `IndexBinaryFlat` CPU baseline; one of the two sweep FAISS arms. Shared across branches. |
+| `faiss_gpu_benchmark.py` | Yes | Yes | Yes | Native FAISS GPU comparison (no CPU baseline); the other sweep FAISS arm. Shared across branches. |
+| `faiss_cpu_gpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. NOT used by the sweep; gpuOpt-only. |
+| `push_main_to_gpuOpt.sh`, `push_main_to_inteliGPU.sh` | Yes | No | No | Copy curated paths from `main` to the named destination branch. |
+| `push_gpuOpt_to_main.sh`, `push_gpuOpt_to_inteliGPU.sh` | No | Yes | No | Mirror the same selective-copy workflow with `gpuOpt` as the source branch. |
+
+The FAISS programs require Python, NumPy, and a FAISS build with GPU support.
+They print fixed-workload timing summaries and do not feed either R script.
 
 ## Build and Test
 
@@ -115,17 +138,18 @@ Building and testing requires a Linux environment (though I have only tested Deb
 
 - A C compiler supported by the current `Makefile`: `clang`, `gcc`,
   `amdclang`, or `icx`. Versions that have been tested are:
+  
 | GCC | AMDClang | Clang | ICX |
 | :---: | :---: | :---: | :---: |
 | 12.4.0 | 18.0.0 | 18.1.8 | 2026.1.1 |
+
 The major compatibility requirement is the use of a compiler that supports an OpenMP version that is at least 201511 or newer (I have tested OpenMP versions up to 202011)
 - GNU Make.
-- OpenMP support from the selected compiler.
+- OpenMP support for  the selected compiler (this may require installing the relevant libraries).
 - CUDA and an OpenMP offload-capable LLVM toolchain for NVIDIA offload.
 - ROCm and a compatible LLVM/ROCm stack for AMD offload.
-- Intel oneAPI `icx` for experimental Intel OpenMP offload.
-- `nvcc` for the experimental CUDA benchmark and `hipcc` for the experimental
-  HIP benchmark.
+- Intel oneAPI `icx` for the Intel integrated GPU OpenMP offload (`icx` is a valid and very performant choice if the library is built without offload capabilities).
+- `nvcc` for the experimental CUDA benchmark and `hipcc` for the experimental HIP benchmarks in the `gpuOpt` branch.
 
 To get you started, just clone and build the default CPU configuration without specifying any target:
 
@@ -341,11 +365,10 @@ those paths before changing system libraries.
 ##### Legacy AMD Architecture Workaround
 
 This historical recipe was used for a Radeon Pro W5500 (`gfx1012`) with LLVM
-18. This was the card I bought for <120 dollars on eBAY to check the AMD paths. 
-While the card is not supported via `ROCM`, code that compiles for the nearby `gfx1010` target can be used to offload this card. 
+18. This was the card I bought for <120 dollars on eBAY to check the AMD paths during the GPU price bloodbath in 2026. 
+While the card is not supported via `ROCM`, code that compiles for the nearby `gfx1010` target can be used to offload `Bit` with this card. 
 
-Treat the following note as as a record of one working environment that will allow you to repurpose a cheap GPU for real work,
-then verify your own setup with `OMP_TARGET_OFFLOAD=MANDATORY`.
+Similar workarounds are possible with other AMD cards, but I feel that you should treat the following note as as a record of one working environment that will allow you to repurpose a cheap GPU for real work, rather than a general solution. If you decide to try this with another card, please verify verify your own setup with `OMP_TARGET_OFFLOAD=MANDATORY` and drop me a note.
 
 ```bash
 # Historical example: compile a nearby supported target, then present that
@@ -364,7 +387,7 @@ make that change only with an administrator and a rollback plan:
 find "$ROCM_DEVICE_LIB_PATH" -maxdepth 1 -name 'libomptarget-amdgpu-*.bc' -print
 ```
 
-Prefer a ROCm/LLVM release that supports the actual target. If an alias is used,
+In any case, prefer a ROCm/LLVM release that supports the actual target. If an alias is used,
 record it and retest after compiler, runtime, or driver updates.
 
 ### Compiler Bug Reports
@@ -396,24 +419,23 @@ removed after collection.
 
 ## Using the Library
 
-Include `bit.h` and link against `build/libbit.so` or `build/libbit.a` after
-building the library. `Bit_T` and `Bit_DB_T` are opaque handles.
+Usage is straightforward and follow's Hanson's clean separation of interfaces and implementations.
+Just include `bit.h` (the API) and link against `build/libbit.so` or `build/libbit.a` after
+building the library to your application and things should work. The documentation of the API below is deliberately kept at a minimum: the header file should be consulted for the precise order of arguments and their types with the examples included below showing the implementation of common use cases. 
 
-Bitsets have fixed capacity. Valid bit indexes are in the range
-`0 .. Bit_length(bitset) - 1`; use `Bit_buffer_size(length)` when allocating
-external storage.
 
 ### Public API Reference
 
-The declarations live in `include/bit.h`; this section is the practical map of
-the interface. `Bit_T` and `Bit_DB_T` are opaque handles, so applications work
-through these functions rather than depending on their private layouts.
+`Bit_T` and `Bit_DB_T` are Abstract Data Types (ADT) and one works with them through their public interface.
+A C structure typedef `SETOP_COUNT_OPTS` is used to control the CPU and GPU OpenMP environment. I exposed the implementation of this structure to assist with the development of interfacing code when offloading to the GPU and when multi-threading in the CPU.
+
 
 | Public type | Purpose |
 | --- | --- |
 | `Bit_T` | One fixed-capacity mutable bitset. |
 | `Bit_DB_T` | A packed collection of equally sized bitsets. |
 | `SETOP_COUNT_OPTS` | CPU thread count plus GPU device-residency controls for all-pairs container counts. |
+
 
 #### Individual Bitset API
 
@@ -428,7 +450,7 @@ through these functions rather than depending on their private layouts.
 | Allocating set operations | `Bit_union`, `Bit_inter`, `Bit_diff`, `Bit_minus` | Return a newly allocated result that must be passed to `Bit_free`. |
 | Count-only set operations | `Bit_union_count`, `Bit_inter_count`, `Bit_diff_count`, `Bit_minus_count` | Return the result population count without constructing a bitset. |
 
-Set-operation names follow the implementation and tests:
+Set-operation names follow the implementation and tests and require one left and one right operand:
 
 | Operation | Expression | Example for $A=\{1,3,5\}$ and $B=\{3,5,7\}$ |
 | --- | --- | --- |
@@ -440,9 +462,11 @@ Set-operation names follow the implementation and tests:
 For these individual-bitset set operations, one NULL operand is interpreted as
 the empty set. Thus `Bit_union(set, NULL)` and `Bit_minus(set, NULL)` return a
 copy of `set`, while `Bit_inter(set, NULL)` returns an empty bitset. Passing
-both operands as NULL is invalid.
+both operands as NULL is invalid. This convention follows those adopted by Hanson in his book, and frankly correspond to how these operations work in Boolean algebra. 
 
 #### Packed Container API
+
+The packed container API consists of library functions and a smaller set of macros. The macros are very helpful for meta-programming with the C preprocessor and for extending the API of the library itself.  
 
 | Family | Functions | Contract |
 | --- | --- | --- |
@@ -453,26 +477,29 @@ both operands as NULL is invalid.
 | Clearing | `BitDB_clear_at`, `BitDB_clear` | Clear one element or the complete packed container. |
 | Allocating all-pairs counts | `BitDB_{inter,union,diff,minus}_count_{cpu,gpu}` | Allocate and return an `int` matrix; the caller uses `free`. |
 | Caller-owned all-pairs counts | `BitDB_{inter,union,diff,minus}_count_store_{cpu,gpu}` | Write into a caller-provided `int` matrix. |
-| Target convenience macros | `BitDB_{inter,union,diff,minus}_count(..., cpu\|gpu)` | Select the corresponding direct CPU or GPU function in C source. |
+| **Target convenience macros** | `BitDB_{inter,union,diff,minus}_count(..., cpu\|gpu)` | Select the corresponding direct CPU or GPU function in C source. |
+| **Target convenience macros** | `BitDB_{inter,union,diff,minus}_count_store(..., cpu\|gpu)` | Select the corresponding direct CPU or GPU function in C source. |
 | Build diagnostics | `print_Bit_configuration` | Print the compiled tile, buffer, popcount, and OpenMP configuration. |
 
-Container binary operations require two non-NULL containers whose bitsets have
+Container binary operations require two non-NULL containers (also denoted as right and left in the documentation) whose bitsets have
 the same length. If the left and right containers hold $N$ and $M$ bitsets,
 the result contains $N \times M$ integers in row-major order. `diff` and
 `minus` retain the XOR and left AND-NOT meanings shown above.
 
-The header also defines target-selecting `_store_` macros using the same order
-as the direct functions:
+The header also defines target-selecting `_count` `_count_store` macros using the same order of arguments as the direct functions, except the last:
 
 ```c
+BitDB_inter_count(left, right, results, options, cpu);
 BitDB_inter_count_store(left, right, results, options, cpu);
 ```
 
-The final token may be `cpu` or `gpu`. Direct `_store_cpu` and `_store_gpu`
-functions remain useful for foreign-function interfaces and callers that cannot
+The final token may be `cpu` or `gpu`. Direct `_store_cpu` and `_store_gpu` functions remain useful for foreign-function interfaces and callers that cannot
 use C preprocessor macros.
 
-#### Ownership and Validation
+#### Ownership and Validation of Bitsets and their containers
+
+`Bit` was written with the explicit intention to facilitate flexible storage ownership: there are functions in the API that own bitsets and containers, and others that use
+externally allocated buffers for the countainers. 
 
 | Value | Owner and release rule |
 | --- | --- |
@@ -482,13 +509,25 @@ use C preprocessor macros.
 | `BitDB_count` or non-store container count | Caller owns the returned `int *` and releases it with `free`. |
 | `_store_` container count | Caller allocates and retains the result buffer. |
 
-The implementation uses `assert` for most pointer, index, length, allocation,
-and equal-shape checks. Defining `NDEBUG` removes those checks; it does not turn
-an undersized external buffer or invalid index into a recoverable error. In
-particular, the library cannot determine the allocation size behind a raw
-pointer, so callers must size borrowed and extraction buffers correctly.
+Bitsets and containers owned by the library are zero initialized by default. The implementation uses `assert` for most pointer, index, length, allocation,
+and equal-shape checks. Defining `NDEBUG` during compilations removes those checks. However the library cannot recover from segfault from an an undersized external buffer or invalid index with or without `NDEBUG`. Since the library cannot determine the allocation size behind a raw
+pointer, so callers must size borrowed and extraction buffers correctly as we illustrate in the examples below.
 
-### Individual Bitsets
+#### A note about memory allignment, allocation and library operations
+
+This is a technical note that should not affect normal users, and is probably an overkill for many modern processors. Internally `Bit` does enforce strict alignment of the memory buffers it owns, but makes no assumptions about borrowed storage (though it will do a runtime check to optimize the execution path of logical operations and counts for such buffers). The rules are the following: 
+- _Bit_T Allocation_: When allocating a single bitset via Bit_new, the library uses the standard C calloc function.  Because it relies on calloc, it receives the default memory alignment provided by the host system's standard library (typically 8 or 16 bytes), without enforcing any custom strict alignment.  
+- _Bit_DB_T Allocation_: When allocating a packed database of bitsets via BitDB_new, the library explicitly enforces stricter alignment using a custom internal allocator.  The required alignment depends on the system architecture that the library is build for:  32 bytes for 32-bit architectures and 64 bytes for 64-bit architectures. This allows us to use aligned load/stores which may be faster in some older processors. In any case maintaining the aligned code path is no match for the C preprocessor which provides a unified internal API. 
+- _Borrowed External Storage_: When you load an externally allocated buffer using Bit_load or BitDB_load, the library interacts with the borrowed storage in the following ways:
+    - __Minimum Padding Requirements__: The library explicitly expects the external buffer size to be padded to the next multiple of 8 bytes (the size of a uint64_t) to prevent out-of-bounds access during scalar operations.
+    - __Dynamic Alignment Dispatch__: The library does not strictly force the borrowed storage to match its ideal internal 32-byte or 64-byte alignment. Instead, it checks the external pointer's alignment at runtime during vectorized database set operations.
+    - __Vectorization Fallback__: If the external buffer meets the optimal alignment checks (64-byte alignment on 64-bit systems, or 8-byte alignment on 32-bit systems), the CPU executes fast aligned SIMD loads. If the external buffer is unaligned, the library safely falls back to unaligned SIMD instructions to execute the operations.  
+
+At some point, I should probably take down the machinery because everyone is telling me that unaligned loads carry no penalty in our time. 
+
+### Using Individual Bitsets
+
+This is a straightforward example showing the creation of two bitsets with sufficient storage for 128 bits, setting individual bits, doing a bitwise and for an overlap and computing the cardinality of the result.
 
 ```c
 #include "bit.h"
@@ -542,14 +581,13 @@ int main(void) {
 }
 ```
 
-The corresponding `Bit_*_count` functions compute the same population counts
-without constructing result bitsets.
+The corresponding `Bit_*_count` functions compute the same population counts without forming the intermediate bitset.
 
-### External Storage
+### Using External Storage
 
 `Bit_load` and `BitDB_load` borrow caller-owned storage. The caller must
 allocate enough padded storage and later free the pointer returned by the
-matching free routine.
+matching free routine. The function `Bit_buffer_size` returns the minimum number of bytes needed to store a bitset of a requested size/capacity (in this case 130). For performance the storage used to store a bitset is the closest to the requested size integer multiple of 64.
 
 ```c
 #include "bit.h"
@@ -579,7 +617,7 @@ and returns the number of bytes written.
 
 Borrowed container storage is the per-bitset buffer size multiplied by the
 number of elements. `BitDB_free` returns that original pointer rather than
-freeing it behind the caller's back:
+freeing it behind the caller's back. The size of the needed external buffer can similarly be obtained by multiplying the number of bitsets in the container (variable `count` in the snippet below) and the size in bytes needed to store a library of a given number of bits (this is the value returned by `Bit_buffer_size`):
 
 ```c
 #include "bit.h"
@@ -606,14 +644,11 @@ int main(void) {
 }
 ```
 
-## Container Counts
+### How to Play with Containers
 
-`Bit_DB_T` stores equally sized bitsets in a packed container. Create a
-container with `BitDB_new(length, count)` and fill it with `BitDB_put_at`.
-
-Container element functions copy data rather than exposing an internal
-`Bit_T`. `BitDB_get_from` creates a new bitset, while extraction and replacement
-use a caller-owned byte buffer:
+The ADT `Bit_DB_T` stores equally sized bitsets in a packed container. You can create such a
+container with `BitDB_new(length, count)` and fill it with individual bitsets `BitDB_put_at`.
+The example below creates a container with 2 elements of capacity of 128 bits, then allocates a bitset of the same capacity (`seed`), sets the 9th bit and puts it at the first index of the container. Then we extract the bitset at the first index of the container and verify that the bit at the 9th position is set. 
 
 ```c
 #include "bit.h"
@@ -650,6 +685,7 @@ int main(void) {
   return 0;
 }
 ```
+In this example we initialize two containers, fill them with individual bitsets and then perform a population count in the CPU. The assignment `SETOP_COUNT_OPTS options = {.num_cpu_threads = 2};` is used to control the number of OpenMP threads we will task for this job.  
 
 ```c
 #include "bit.h"
@@ -684,10 +720,9 @@ int main(void) {
 }
 ```
 
-`BitDB_count(container)` returns a newly allocated array containing one
-population count per stored bitset. The non-store container count functions
-(`BitDB_inter_count_cpu`, `BitDB_union_count_gpu`, and so on) return a newly
-allocated result array. In both cases, callers free the returned array.
+Counting the cardinality of containers is an important data intensive application of `Bit`. The function `BitDB_count(container)` returns a newly allocated array containing one
+population count per stored bitset for the container of interest. The non-store container count functions
+(`BitDB_inter_count_cpu`, `BitDB_union_count_gpu`, and so on) also return a newly allocated result array. In both cases, the caller is responsible to free the returned array of counts, i.e. the library will not manage the storage for you.
 
 The result array for a binary container operation has
 `BitDB_nelem(left) * BitDB_nelem(right)` elements in row-major order:
@@ -696,7 +731,7 @@ The result array for a binary container operation has
 result[left_index * BitDB_nelem(right) + right_index]
 ```
 
-Use `_store_` variants when the caller owns the result buffer instead:
+Use `_store_` variants when the caller has previously allocated the research buffer :
 
 ```c
 size_t result_count = (size_t)BitDB_nelem(queries) * BitDB_nelem(references);
@@ -706,14 +741,35 @@ if (results != NULL) {
   free(results);
 }
 ```
+These `_store_` variants were created to interface with external libraries and dynamically typed languages (e.g. Perl) that use their own custom allocators. The typical C user should probably never have to use them within C. 
 
 The macros `BitDB_inter_count`, `BitDB_union_count`, `BitDB_diff_count`, and
 `BitDB_minus_count` select a `cpu` or `gpu` function at compile time. Use the
 function forms when linking against a shared library from code that cannot see
-the macros.
+the macros. However I strongly encourage you to use the macro interface when coding in C. 
 
-`SETOP_COUNT_OPTS` separates CPU execution from advanced GPU data-residency
-decisions:
+## Controlling the OpenMP environment in CPU and GPU
+The `SETOP_COUNT_OPTS` that provides control options for  CPU execution and advanced GPU data-residency decisions for containerized operations. This is structure in C that is declared in the header of the `Bit` library as:
+
+```C
+typedef struct {
+  int num_cpu_threads;      
+  int device_id;            
+  bool upd_1st_operand;     
+  bool upd_2nd_operand;     
+  bool release_1st_operand; 
+  bool release_2nd_operand; 
+  bool defer_counts_transfer; 
+  bool release_counts;        
+  enum {
+    TRANSPOSED_TEAM_PARALLEL_SIMD = 0, // transpose + team parallel + SIMD
+    SHARED_TILE_ILP = 1, // Shared tile + Instruction level parallelism
+  } algorithm; // reserved; current library dispatch does not read this field
+} SETOP_COUNT_OPTS;
+```
+
+The meaning of the fields is explained in the table below:
+
 
 | Field | Current behavior |
 | --- | --- |
@@ -723,18 +779,57 @@ decisions:
 | `release_1st_operand`, `release_2nd_operand` | Decreases the reference counter of the corresponding device mapping after the operation. Leave false only when a later call deliberately reuses that mapping. Setting true will not cause the de-allocation of the buffers if their reference counters is not zero. |
 | `defer_counts_transfer` | Defers the transfer of the counts from the GPU to the host e.g. when further processing should be done. |
 | `release_counts` | Decrements the reference counter of the device mapping for counts if true; may lead to de-allocation of the mapping on the device if this was the last reference to this buffer for the entire program. |
-| `algorithm` | Present in the public structure, but not read by the current library dispatch. It is not a runtime kernel selector (yet). |
+| `algorithm` | Present in the public structure, but not read by the current library dispatch. It will become runtime kernel selector (at some point in the future). |
 
-A repeated-query workflow can therefore keep an unchanged reference container
+
+### Using `SETOP_COUNT_OPTS` for device resident repetitive tasks
+
+If one conceptualizes the right sided container as a fixed, reference database of bits, a repeated query (left side container) workflow can  keep an unchanged reference container
 mapped, refresh each modified query container, and release both operand mappings
 on the final call. That optimization also creates a responsibility: if host data
 changes while its update flag is false, the device is allowed to keep using the
-older mapped contents. Keep the default one-call lifecycle until residency is a
-measured bottleneck, then make the update/release sequence explicit in the
-calling code.
+older mapped contents. 
 
-Container operation names use the same set semantics as individual bitsets:
-`diff` is XOR/symmetric difference and `minus` is AND-NOT/set difference.
+The main justification of allowing device resident bitset is that remory allocations and de-allocations in the CPU
+are very costly, so it pays handsomely in terms of performance if one did not
+have to move things around unless absolutely necessary.
+Consider for example the scenario in which one has 3 containers, each of size N
+that must be matched against a single container of size M. The device has enough
+memory to fit a single container of size N, another one of size N, and the
+results of size N \* M. In this case,
+
+```c
+SETOP_COUNT_OPTS opts_1to2 = {
+    .device_id = -1,
+    .upd_1st_operand = true,
+    .upd_2nd_operand = false,
+    .release_1st_operand = false,
+    .release_2nd_operand = false,
+    .release_counts = false
+};
+```
+
+instructs the mapper to update the first operand in the GPU when iterating over
+the first two containers of size N. To process the final container, one can use
+
+```c
+SETOP_COUNT_OPTS opts_3 = {
+    .device_id = -1,
+    .upd_1st_operand = true,
+    .upd_2nd_operand = false,
+    .release_1st_operand = true,
+    .release_2nd_operand = true,
+    .release_counts = true
+};
+```
+
+which will update the first operand in the GPU and _release_ all the buffers
+on the device upon exit. Since OpenMP manages device memory regions using
+reference counting, releasing of the regions amounts to decreasing the reference
+counters for each of the regions. Regions that are no longer referenced will be
+automatically de-allocated.
+
+
 
 ## Benchmarks and Experiments
 
@@ -1828,29 +1923,7 @@ sweep suite. Plot the collected CSV files with:
 Rscript ./scripts/plot_performance.R
 ```
 
-### Script Inventory by Branch
 
-The script trees are intentionally different. 
-
-| Script or group | `main` | `gpuOpt` | `inteliGPU` | Purpose |
-| --- | --- | --- | --- | --- |
-| `generate_bug_report.sh` | Yes | Yes | Yes | Backend for `make bug_report`; collects build configuration, diagnostics, preprocessed source, and an optional backtrace. |
-| `cpu_param_sweep.pl` + `benchmark_config_cpu.json` | Yes | No | No | JSON-driven broad CPU build/runtime sweep. |
-| `cpu_profiling_analytics.R` | Yes | No | No | Intended analysis and plotting companion for broad CPU sweep CSV files; see the compatibility note below. |
-| `sweep_cpu_tuning.pl` | Yes | No | No | Focused CPU kernel timing and `perf stat` profiling; writes its own CSV and Markdown reports. |
-| `run_numa_sweeps.sh` | Yes | No | No | Runs four dual-socket scenarios through `sweep_cpu_tuning.pl`. |
-| `gpu_param_sweep.pl` + `plot_performance.R` | No | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
-| Tracked `benchmark_GPU_params/` results | No | Yes | No | Historical GPU sweep CSV/log results kept with their producer and plotter. |
-| `faiss_compare.pl` + `benchmark_config_faiss.json` | Yes | Yes | Yes | Small JSON-driven FAISS-vs-Bit comparison sweep; harvests per-iteration timings into `benchmark_FAISS/`. Shared across branches. |
-| `faiss_compare_visualize.R` | Yes | Yes | Yes | R report for the FAISS comparison; boxplots of per-iteration times and a summarized CSV in `benchmark_FAISS/`. Shared across branches. |
-| `faiss_cpu_benchmark.py` | Yes | Yes | Yes | Native FAISS `IndexBinaryFlat` CPU baseline; one of the two sweep FAISS arms. Shared across branches. |
-| `faiss_gpu_benchmark.py` | Yes | Yes | Yes | Native FAISS GPU comparison (no CPU baseline); the other sweep FAISS arm. Shared across branches. |
-| `faiss_cpu_gpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. NOT used by the sweep; gpuOpt-only. |
-| `push_main_to_gpuOpt.sh`, `push_main_to_inteliGPU.sh` | Yes | No | No | Copy curated paths from `main` to the named destination branch. |
-| `push_gpuOpt_to_main.sh`, `push_gpuOpt_to_inteliGPU.sh` | No | Yes | No | Mirror the same selective-copy workflow with `gpuOpt` as the source branch. |
-
-The FAISS programs require Python, NumPy, and a FAISS build with GPU support.
-They print fixed-workload timing summaries and do not feed either R script.
 
 ### Benchmark Producers and Analytics
 
@@ -1935,61 +2008,41 @@ research companion rather than a dependency of this library.[^snapshot] This rep
 
 ## Design, Concurrency, and Performance Notes
 
-### Concurrency and Execution
+This set of notes summarize some of my experience experimenting with this very simple library, perhaps provide justify some choices and add some potential pitfalls for those who want to use it in applications. 
 
-Individual bitsets are mutable buffers, so you coordinate concurrent access to
-shared objects. CPU container calls use OpenMP internally; keep shared operands
-and result buffers under one controlling call unless your application provides
-its own synchronization.
 
-GPU-facing container functions are synchronous. Device, update, and release
-options control data residency across calls; they do not provide asynchronous
-execution or cross-thread synchronization. The `gpuOpt` layout machinery may
-retain prepared layouts, so keep ownership and lifetime boundaries explicit.
+### Population Count algorithms
 
-I have used the container API through its ordinary fork-join path: one thread
-enters a call and OpenMP parallelizes the work inside it. Nested tasks, multiple
-controlling threads sharing operands, and `fork` after OpenMP initialization
-remain untested here. An application may use runtime tools such as
-`omp_pause_resource_all` before `fork`; test that sequence with the OpenMP
-implementation you deploy.
-
-The implementation uses C preprocessor helpers and `_Pragma` to express a
-family of OpenMP CPU and GPU regions without duplicating every variant by hand.
-That is an implementation technique, not a public macro interface. The
-benchmark sources are the practical reference for how those regions are mapped
-and measured.
-
-### Population Count and WWG
-
-The codebase uses the name Wilkes-Wheeler-Gill (WWG) for a portable
+The codebase originally used the name Wilkes-Wheeler-Gill (WWG) for a portable
 sideways-addition population-count technique. Historical literature also calls
-the technique Gillies-Miller sideways addition.[^wwg-history] The distinction is historical;
-the relevant engineering point is that the arithmetic form offers a portable
-fallback when a specific target or compiler path does not use a native popcount
-instruction.
+the technique Gillies-Miller sideways addition.[^wwg-history] This algorithm offered a portable
+fallback when a specific target or compiler path did not use a native popcount
+instruction. The algorithm is a very performant one and until `Bit` release 1.0 was the default algorithm when one did not want to include the `libpopcnt` library. The present release offers as an alternative to `libpopcnt` an implementation based on `SIMDe`'s `simde_mm512_popcnt_epi64`, `simde_mm256_popcnt_epi64` or `simde_mm_popcnt_epi64` , with the choice made at _compile time_ based on compiler flags for the architecture used. Internally `SIMDe` is using different algorithms to accomodate different vector architectures (including hardware acceleration if available e.g. in Neon and AVX512 processors). If the vector architecture cannot be resolved via the compiler flags, then the `Bit` does not use vectorized loads and stores and defaults to the WWG algorith. This choice of algorithms was motivated by the history of the library: WWG was the first popcount I used, followed by the quick adoption of `libpopcnt` and more recently of `SIMDe` based portable intrinsics. There is emerging evidence, e.g. see my companion repository [bench_popcount](https://github.com/chrisarg/bench_popcount) ,  that one must consider additional choices that vary by compiler, architecture and possibly surrounding code context. Turning on LTO will also affect performance and considering that one can obtain differences in performance of an order of magnitude or more, it is worth to have more than one options on the table. 
 
-For GPU work, WWG is the default code path unless
-`USE_BUILTIN_POPCOUNT=1` is selected at build time. There is a useful compiler lesson hiding here: during development I found that Clang's (and gcc's)
-NVIDIA target, the hand-written WWG expression and `__builtin_popcountll`
-produced byte-identical device PTX containing `popc.b64`. LLVM recognized the
-classic SWAR pattern and canonicalized it to the hardware operation. That is a
-specific observation, not a promise about every compiler, optimization level,
-or AMD/NVIDIA target, but it explains why toggling `USE_BUILTIN_POPCOUNT` need
-not change performance. Inspect generated code and benchmark the intended
-binary before assigning speed to the source-level choice.The GPU-only benchmark exists to quantify if setting `USE_BUILTIN_POPCOUNT` changes performance.
+It is worth reflecting on my personal path in exploring population count implementations. This stemmed from the nature of the applications I am using `Bit` for: in these applications a performant population count can make a huge difference in how the entire application (mostly vector database searches) performs.  David Hanson's original implementation of the population count relied on a scalar lookup of the upper and lower nibbles of each byte in the bitvector. Scalar hardware population counts would not appear in processor instructions until the late 1990s and early 2000s (for those into conspiracy theories, look up the relevant stories about NSA's request/insistence to include this instruction in processor ISAs), so Hanson used a very standard approach for the time.  This vectorized approach still forms the basis of performant AVX2 vectorized popcount operations and is included in:
+- [sse-popcount](https://github.com/WojciechMula/sse-popcount), including the
+  Harley-Seal population-count work associated with Lemire, Kurz, and Mula.
+- [SIMDe](https://github.com/simd-everywhere/simde) for AVX2 paths
+
+For those who want to explore the fascinating history of the population count in the CPU (going all the way to Alan Turing) here are some links:
+- [Archived 1999 cryptography mailing-list thread](https://cryptome.org/jya/sadd.htm)
+- [The Quest for an Accelerated Population Count](https://www.oreilly.com/library/view/beautiful-code/9780596510046/ch10.html)
+- [Retrocomputing Stack Exchange – “Are there any articles elucidating the history of the POPCOUNT instruction?”](https://retrocomputing.stackexchange.com/questions/4702/are-there-any-articles-elucidating-the-history-of-the-popcount-instruction)
+- [You Won’t Believe This One Weird CPU Instruction!](https://vaibhavsagar.com/blog/2019/09/08/popcount/)
+- [Revisiting POPCOUNT Operations in CPUs/GPUs](https://sc16.supercomputing.org/sc-archive/src_poster/poster_files/spost106s2-file2.pdf)
+
+The last paper provides an interesting evaluation of popcounts in both CPU and GPU and provides an independent evaluation that the Harley-Seal which is used by [libpopcnt](https://github.com/kimwalisch/libpopcnt is slightly better than the vectorized look up method in AVX2 systems. The same paper showed that bit tweaking tricks don't really offer a substantial performance gain in the GPU. 
+I was not aware of this paper when I selected WWG as the default GPU code path unless `USE_BUILTIN_POPCOUNT=1` is selected at build time. There is a useful compiler lesson hiding here: during development I found that Clang's (and gcc's) NVIDIA target, the hand-written WWG expression and `__builtin_popcountll`
+produced byte-identical device PTX containing `popc.b64`. Both compilers recognized the
+classic SWAR pattern and canonicalized it to the hardware operation. Since  `USE_BUILTIN_POPCOUNT` need
+not change performance, I left it as the default choice for the compiler to mess with. 
 
 
-### Why Containers and OpenMP
+### Why Containers, OpenMP and Macros?
 
 The non-containerized bitset operations are straightforward to parallelize at
-the application level. Packed containers additionally make it practical to
-schedule many all-pairs count operations while controlling the storage layout.
-CPU tiling, OpenMP scheduling, and GPU layout experiments are all attempts to
-make locality and work distribution visible to the implementation rather than
-leaving every choice to a generic loop nest.
-
-This distinction is intentional. An application with an array of independent
+the application level using OpenMP. Therefore one may ask what is the benefit of providing packed containers?  
+By explicitly defining the storage layout, these containers facilitate optimal scheduling for batched all-pairs operations. Techniques including CPU memory tiling, OpenMP thread scheduling, and dense GPU layouts are employed to ensure that data locality and parallel work distribution are tightly coupled to the hardware, bypassing the inefficiencies of generic loop nests.  This distinction is intentional. An application with an array of independent
 `Bit_T` objects can write an OpenMP loop directly:
 
 ```c
@@ -2033,38 +2086,33 @@ int main(void) {
 organization. Its contiguous storage lets the implementation tile the two
 outer container dimensions and block the inner bit-vector reduction. The
 `CPU_TILE`, `BITVECTOR_TILE`, outer-row/column shape, unroll, and scratch-buffer
-settings are experiments in cache use, register pressure, and memory traffic;
-these should be thought as tuning controls for a specific CPU architecture, not universal constants.
+settings are experiments in cache use, register pressure, and memory traffic.
+These should be thought as tuning controls for a specific CPU architecture rather than universal constants, even though the default choices mostly work sufficiently well.
 
 The internal `_Pragma` helpers serve the same purpose on the code-organization
 side. They let one family of loops express CPU worksharing, SIMD reduction, GPU
 teams, and mapping choices without maintaining several nearly identical
-kernels. This is one of the places where the C preprocessor is earning its keep, but those helpers remain private implementation machinery rather than an API applications should depend on.
-
-On a single socket CPU, the relevant limits are often cache capacity and memory
-bandwidth. On a multi-socket host, page placement and thread binding matter as
-well; the `main`-only NUMA sweep documents one way to make those variables
-measurable. On a GPU, transfer volume, residency, layout conversion, and launch
-overhead can dominate a small or poorly shaped workload even when the inner
-kernel is fast.
+kernels. This is one of the places where the C preprocessor is earning its keep and I am forever indebted to the Hanson book that showed me I should embrace the macros.
 
 
-## Dependencies, Inspiration, and Applications
+### Concurrency and Execution
 
-This project incorporates or integrates the following open-source libraries:
+- Individual bitsets are mutable buffers, so you are responsible for coordinating concurrent access to
+share objects.  
 
-- [libpopcnt](https://github.com/kimwalisch/libpopcnt), a BSD 2-Clause
-  population-count library with architecture-specific implementations.
-- [SIMDe](https://github.com/simd-everywhere/simde), a header-only SIMD
-  portability layer used by the CPU implementation.
+- GPU based  container functions are synchronous. Device, update, and release
+options control data residency across calls; they do not provide asynchronous
+execution or cross-thread synchronization, i.e. the host thread blocks until the device has finished execution. 
 
-Several libraries and projects also informed the structure of this codebase and
-the author's exploration of the C preprocessor and SIMD implementation work:
+- I have used the container API through a very ordinary, even boring fork-join path: one thread
+enters a call and OpenMP parallelizes the work inside it. Nested tasks, multiple
+controlling threads sharing operands, and `fork` after OpenMP initialization
+remain untested here. In particular be very aware of the use of `Bit` in the context of multi-processing (launching a process that will then use the multi-threading capabilities of `Bit`). Traditionally this was an unsafe use of OpenMP, until v 5.0 which introduced the `omp_pause_resource` and `omp_pause_resource_all`, which allow an OpenMP runtime
+to prepare a process before a subsequent fork. Please consult the the OpenMP 5.0 API[^OpenMPfork] to ensure that you are using this feature correctly e.g.  these calls should occur outside
+an explicit parallel region, with explicit tasks completed before the run-time is paused (this means that one can screw the pooch if one is messing with OpenMP's blocking semantics) .
 
-- [sse-popcount](https://github.com/WojciechMula/sse-popcount), including the
-  Harley-Seal population-count work associated with Lemire, Kurz, and Mula.
-- [cii](https://github.com/drh/cii), David Hanson's C Interfaces and
-  Implementations library and the original `Bit_T` design.
+
+
 
 ### Applications
 
@@ -2072,25 +2120,24 @@ Bit is particularly useful for dense set and membership workloads such as:
 
 - Bioinformatics and genomic data processing, including k-mer-like encodings.
 - Network packet filtering and Bloom-filter-style membership tests.
-- Dense data representation over large fixed domains.
-- High-performance set operations and all-pairs intersection-count searches.
+- High-performance set operations and all-pairs similarity searches (the context of the FAISS like application).
 
 For genuinely sparse domains, a compressed representation such as a roaring
-bitmap can be a better fit than this uncompressed library. I have not attempted to figure out how big the capacity should be before a compressed respresentation wins out in performance. 
+bitmap can be a better fit than this uncompressed library. 
+I have not attempted to figure out how big the capacity should be before a compressed respresentation wins out in performance. 
 
 ## Roadmap
 
-- Continue validating CPU, NVIDIA, AMD, and Intel build paths.
+- Continue validating CPU, NVIDIA, AMD build paths.
+- Evaluate Intel Arc's architectures for offloads
+- Investigate offloads to FPGAs
 - Extend SIMD-oriented CPU work across more set-operation paths while retaining
   portable fallbacks.
-- Port or evaluate selected experimental `gpuOpt` count algorithms on the
-  branches where they belong.
+- Port or evaluate selected experimental `gpuOpt` CUDA/HIP implementations as an alternative to the OpenMP ones.
 - Add set-operation metrics such as Jaccard similarity.
 - Improve OS-agnostic build, profiling, and reproducibility workflows.
-- Continue evaluating native CUDA/HIP backends alongside OpenMP offload.
-- Investigate Unified Shared Memory where the target runtime supports it.
+- Investigate Unified Shared Memory where the target runtime supports it (this may be how one gets to use these ubiquitous integrated Intel GPUs!).
 
-TPU and NPU support are not implemented and are not supported build targets.
 
 ## License
 
@@ -2105,11 +2152,9 @@ Christos Argyropoulos (April 2025 -  May 2026)
 This session is intended to document the involvement of AI in this project and a
 roadmap to preserve, collect and characterize the involvement over time. In retrospect,
 some of the steps (in particular recovery of history from other machines) should have
-done much earlier than September 2026. The following few sections represent to the best of
-my knowledge the use of AI in this project, which started of as a retype and extension of
-the Bit T by David Hanson.
+done much earlier than September 2026. The following few sections represent the use of AI in this project, and some post hoc rambling about how best to record the AI contributions vis-a-vis the human inspiration in future work.
 
-### AI-Assisted Work
+### Attribution of AI-assisted work
 
 GitHub Copilot and Google Gemini assisted with generating and refactoring
 Makefile content, exploring test ideas for the OpenMP implementations, drafting
@@ -2133,13 +2178,7 @@ regular contributions, not as a complete per-file provenance record:
 The repository does not use watermark analysis to identify authorship or assign
 source code to a particular AI model.[^snapshot] While I wish there was such a framework, there is no universal source-code
 watermark detector, and any verification must use that
-provider's supported process (which I am not sure how to access) and take my word for attribution. I encourage anyone who has the technical expertise to carry out this detailed attribution to do so, because I will learn something new myself. However, editing, formatting, copying, transformation, and
-mixed human/AI work can make retrospective attribution incomplete or invalid.
-
-Writing style, comments, formatting, compiled artifacts, commit wording, and
-Git history are not sufficient evidence of a particular model's involvement.
-Model-level claims in this disclosure thus depend on my memory and frankly honesty to disclose. 
-The following sections comprise some of my thoughts on how to prospectively collect and document AI assisted contributions and frankly I wish I had thought about those earlier.
+provider's supported process, which I am not sure how to access. Therefore, I fear your must take my word when attributing parts of this work to AI. Model-level claims in this disclosure thus depend on my memory and frankly honesty to disclose.  Here are some personal thoughts on how to prospectively collect and document AI assisted contributions for future work.
 
 #### Recovering Chat History From Many Machines
 
@@ -2181,3 +2220,7 @@ submitted code and materials.
   codebase, benchmarks, and external ecosystem as of the dates indicated in
   the surrounding text (September 2026 unless otherwise noted). They are
   time-stamped observations, not permanent claims.
+
+[^OpenMPfork]:OpenMP Architecture Review Board. Openmp application programming interface, version 5.0, 2018. See
+the resource-pause run-time routines omp_pause_resource and omp_pause_resource_all. https://www.
+openmp.org/spec-html/5.0/openmpsu153.html.
