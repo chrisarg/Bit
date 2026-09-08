@@ -105,7 +105,30 @@ This repository includes three specific branches with their branch-specific tool
 | `gpuOpt` | GPU/offload kernel and comparative benchmark work | Owns `Makefile_bench.mak`, the `openmp_bit_nocpu` GPU-only kernel testbed, native CUDA/HIP benchmarks, GPU sweep/plot tooling and results, and the `gpuOpt`-to-branch synchronization helpers. The FAISS benchmark suite is cross-branch shared (see below). |
 | `inteliGPU` | Intel oneAPI CPU build and offload validation | Build with `CC=icx GPU=INTEL`. Its `scripts/` directory retains the shared bug-report helper and the shared FAISS benchmark suite. |
 
-Synchronization helper scripts are used to push changes to the repository branches and ensure that mature units of work can find themselves in the `main` repository. 
+### Script Inventory by Branch
+
+The repository contains a number of scripts that may be used to report bugs when building the library, synchronize common code paths between two branches, profile and fine tune the library for a specific architecture via benchmarking and visualize results using `R`. Finally, there are scripts that compare the performance of an example application built with `Bit`, a poor person's analogue of the `IndexBinaryFlat` functionality from [FAISS](https://github.com/facebookresearch/faiss).  The profiling/tuning/benchmark scripts follow the same design philosophy: a `JSON` configuration file that provides the grid over which one sweeps performance metrics, a `Perl` script that parses the configuration script, executes artefacts build with `Bit`, parses and logs their output, and a `R` script that does the visualization. 
+
+
+| Script or group | `main` | `gpuOpt` | `inteliGPU` | Purpose |
+| --- | --- | --- | --- | --- |
+| `generate_bug_report.sh` | Yes | Yes | Yes | Backend for `make bug_report`; collects build configuration, diagnostics, preprocessed source, and an optional backtrace. |
+| `cpu_param_sweep.pl` + `benchmark_config_cpu.json` | Yes | No | No | JSON-driven broad CPU build/runtime sweep. |
+| `cpu_profiling_analytics.R` | Yes | No | No | Intended analysis and plotting companion for broad CPU sweep CSV files; see the compatibility note below. |
+| `sweep_cpu_tuning.pl` | Yes | No | No | Focused CPU kernel timing and `perf stat` profiling; writes its own CSV and Markdown reports. |
+| `run_numa_sweeps.sh` | Yes | No | No | Runs four dual-socket scenarios through `sweep_cpu_tuning.pl`. |
+| `gpu_param_sweep.pl` + `plot_performance.R` | No | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
+| Tracked `benchmark_GPU_params/` results | No | Yes | No | Historical GPU sweep CSV/log results kept with their producer and plotter. |
+| `faiss_compare.pl` + `benchmark_config_faiss.json` | Yes | Yes | Yes | Small JSON-driven FAISS-vs-Bit comparison sweep; harvests per-iteration timings into `benchmark_FAISS/`. Shared across branches. |
+| `faiss_compare_visualize.R` | Yes | Yes | Yes | R report for the FAISS comparison; boxplots of per-iteration times and a summarized CSV in `benchmark_FAISS/`. Shared across branches. |
+| `faiss_cpu_benchmark.py` | Yes | Yes | Yes | Native FAISS `IndexBinaryFlat` CPU baseline; one of the two sweep FAISS arms. Shared across branches. |
+| `faiss_gpu_benchmark.py` | Yes | Yes | Yes | Native FAISS GPU comparison (no CPU baseline); the other sweep FAISS arm. Shared across branches. |
+| `faiss_cpu_gpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. NOT used by the sweep; gpuOpt-only. |
+| `push_main_to_gpuOpt.sh`, `push_main_to_inteliGPU.sh` | Yes | No | No | Copy curated paths from `main` to the named destination branch. |
+| `push_gpuOpt_to_main.sh`, `push_gpuOpt_to_inteliGPU.sh` | No | Yes | No | Mirror the same selective-copy workflow with `gpuOpt` as the source branch. |
+
+The FAISS programs require Python, NumPy, and a FAISS build with GPU support.
+They print fixed-workload timing summaries and do not feed either R script.
 
 ## Build and Test
 
@@ -1900,29 +1923,7 @@ sweep suite. Plot the collected CSV files with:
 Rscript ./scripts/plot_performance.R
 ```
 
-### Script Inventory by Branch
 
-The script trees are intentionally different. 
-
-| Script or group | `main` | `gpuOpt` | `inteliGPU` | Purpose |
-| --- | --- | --- | --- | --- |
-| `generate_bug_report.sh` | Yes | Yes | Yes | Backend for `make bug_report`; collects build configuration, diagnostics, preprocessed source, and an optional backtrace. |
-| `cpu_param_sweep.pl` + `benchmark_config_cpu.json` | Yes | No | No | JSON-driven broad CPU build/runtime sweep. |
-| `cpu_profiling_analytics.R` | Yes | No | No | Intended analysis and plotting companion for broad CPU sweep CSV files; see the compatibility note below. |
-| `sweep_cpu_tuning.pl` | Yes | No | No | Focused CPU kernel timing and `perf stat` profiling; writes its own CSV and Markdown reports. |
-| `run_numa_sweeps.sh` | Yes | No | No | Runs four dual-socket scenarios through `sweep_cpu_tuning.pl`. |
-| `gpu_param_sweep.pl` + `plot_performance.R` | No | Yes | No | Compatible GPU sweep and plotting pair for `benchmark_GPU_params/`. |
-| Tracked `benchmark_GPU_params/` results | No | Yes | No | Historical GPU sweep CSV/log results kept with their producer and plotter. |
-| `faiss_compare.pl` + `benchmark_config_faiss.json` | Yes | Yes | Yes | Small JSON-driven FAISS-vs-Bit comparison sweep; harvests per-iteration timings into `benchmark_FAISS/`. Shared across branches. |
-| `faiss_compare_visualize.R` | Yes | Yes | Yes | R report for the FAISS comparison; boxplots of per-iteration times and a summarized CSV in `benchmark_FAISS/`. Shared across branches. |
-| `faiss_cpu_benchmark.py` | Yes | Yes | Yes | Native FAISS `IndexBinaryFlat` CPU baseline; one of the two sweep FAISS arms. Shared across branches. |
-| `faiss_gpu_benchmark.py` | Yes | Yes | Yes | Native FAISS GPU comparison (no CPU baseline); the other sweep FAISS arm. Shared across branches. |
-| `faiss_cpu_gpu_benchmark.py` | No | Yes | No | Fixed-workload FAISS binary-index comparison with a measured CPU baseline and each detected CUDA GPU. NOT used by the sweep; gpuOpt-only. |
-| `push_main_to_gpuOpt.sh`, `push_main_to_inteliGPU.sh` | Yes | No | No | Copy curated paths from `main` to the named destination branch. |
-| `push_gpuOpt_to_main.sh`, `push_gpuOpt_to_inteliGPU.sh` | No | Yes | No | Mirror the same selective-copy workflow with `gpuOpt` as the source branch. |
-
-The FAISS programs require Python, NumPy, and a FAISS build with GPU support.
-They print fixed-workload timing summaries and do not feed either R script.
 
 ### Benchmark Producers and Analytics
 
@@ -2009,10 +2010,12 @@ research companion rather than a dependency of this library.[^snapshot] This rep
 
 ### Concurrency and Execution
 
-Individual bitsets are mutable buffers, so you coordinate concurrent access to
-shared objects. CPU container calls use OpenMP internally; keep shared operands
-and result buffers under one controlling call unless your application provides
-its own synchronization.
+- Individual bitsets are mutable buffers, so you are responsible for coordinating concurrent access to
+share objects. CPU container calls use OpenMP internally; one must keep shared operands
+and result buffers under one controlling thread unless your application provides
+its own synchronization. In particular be very aware of the use of `Bit` in the context of multi-processing (launching a process that will then use the multi-threading capabilities of `Bit`).  Traditionally this has not been a safe pattern of using OpenMP, until v 5.0 which introduced the `omp_pause_resource` and `omp_pause_resource_all`, which allow an OpenMP runtime
+to prepare a process before a subsequent fork. Please consult the the OpenMP 5.0 API[^OpenMPfork] to ensure that you are using this feature correctly e.g.  these calls should occur outside
+an explicit parallel region, with explicit tasks completed before the run-time is paused (this means that one can screw the pooch if one is messing with OpenMP's blocking semantics) .
 
 GPU-facing container functions are synchronous. Device, update, and release
 options control data residency across calls; they do not provide asynchronous
@@ -2253,3 +2256,7 @@ submitted code and materials.
   codebase, benchmarks, and external ecosystem as of the dates indicated in
   the surrounding text (September 2026 unless otherwise noted). They are
   time-stamped observations, not permanent claims.
+
+[^OpenMPfork]:OpenMP Architecture Review Board. Openmp application programming interface, version 5.0, 2018. See
+the resource-pause run-time routines omp_pause_resource and omp_pause_resource_all. https://www.
+openmp.org/spec-html/5.0/openmpsu153.html.
