@@ -2011,38 +2011,27 @@ research companion rather than a dependency of this library.[^snapshot] This rep
 ### Concurrency and Execution
 
 - Individual bitsets are mutable buffers, so you are responsible for coordinating concurrent access to
-share objects. CPU container calls use OpenMP internally; one must keep shared operands
-and result buffers under one controlling thread unless your application provides
-its own synchronization. In particular be very aware of the use of `Bit` in the context of multi-processing (launching a process that will then use the multi-threading capabilities of `Bit`).  Traditionally this has not been a safe pattern of using OpenMP, until v 5.0 which introduced the `omp_pause_resource` and `omp_pause_resource_all`, which allow an OpenMP runtime
+share objects.  
+
+- GPU based  container functions are synchronous. Device, update, and release
+options control data residency across calls; they do not provide asynchronous
+execution or cross-thread synchronization, i.e. the host thread blocks until the device has finished execution. 
+
+- I have used the container API through a very ordinary, even boring fork-join path: one thread
+enters a call and OpenMP parallelizes the work inside it. Nested tasks, multiple
+controlling threads sharing operands, and `fork` after OpenMP initialization
+remain untested here. In particular be very aware of the use of `Bit` in the context of multi-processing (launching a process that will then use the multi-threading capabilities of `Bit`). Traditionally this was an unsafe use of OpenMP, until v 5.0 which introduced the `omp_pause_resource` and `omp_pause_resource_all`, which allow an OpenMP runtime
 to prepare a process before a subsequent fork. Please consult the the OpenMP 5.0 API[^OpenMPfork] to ensure that you are using this feature correctly e.g.  these calls should occur outside
 an explicit parallel region, with explicit tasks completed before the run-time is paused (this means that one can screw the pooch if one is messing with OpenMP's blocking semantics) .
 
-GPU-facing container functions are synchronous. Device, update, and release
-options control data residency across calls; they do not provide asynchronous
-execution or cross-thread synchronization. The `gpuOpt` layout machinery may
-retain prepared layouts, so keep ownership and lifetime boundaries explicit.
 
-I have used the container API through its ordinary fork-join path: one thread
-enters a call and OpenMP parallelizes the work inside it. Nested tasks, multiple
-controlling threads sharing operands, and `fork` after OpenMP initialization
-remain untested here. An application may use runtime tools such as
-`omp_pause_resource_all` before `fork`; test that sequence with the OpenMP
-implementation you deploy.
-
-The implementation uses C preprocessor helpers and `_Pragma` to express a
-family of OpenMP CPU and GPU regions without duplicating every variant by hand.
-That is an implementation technique, not a public macro interface. The
-benchmark sources are the practical reference for how those regions are mapped
-and measured.
-
-### Population Count and WWG
+### Population Count algorithms
 
 The codebase uses the name Wilkes-Wheeler-Gill (WWG) for a portable
 sideways-addition population-count technique. Historical literature also calls
-the technique Gillies-Miller sideways addition.[^wwg-history] The distinction is historical;
-the relevant engineering point is that the arithmetic form offers a portable
-fallback when a specific target or compiler path does not use a native popcount
-instruction.
+the technique Gillies-Miller sideways addition.[^wwg-history] This algorithm offered a portable
+fallback when a specific target or compiler path did not use a native popcount
+instruction. The algorithm is a very performant one and until release 1.0 was the default algorithm when one did not want to include the `libpopcnt` library. The present release offers as an alternative to `libpopcnt` an implementation based on `SIMDe`'s `simde_mm256_popcnt_epi64` 
 
 For GPU work, WWG is the default code path unless
 `USE_BUILTIN_POPCOUNT=1` is selected at build time. There is a useful compiler lesson hiding here: during development I found that Clang's (and gcc's)
