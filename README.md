@@ -491,14 +491,17 @@ pointer, so callers must size borrowed and extraction buffers correctly as we il
 
 #### A note about memory allignment, allocation and library operations
 
-- Bit_T Allocation: When allocating a single bitset via Bit_new, the library uses the standard C calloc function.  Because it relies on calloc, it receives the default memory alignment provided by the host system's standard library (typically 8 or 16 bytes), without enforcing any custom strict alignment.  
-- Bit_DB_T Allocation: When allocating a packed database of bitsets via BitDB_new, the library explicitly enforces stricter alignment using a custom internal allocator.  The required alignment depends on the system architecture:  32 bytes for 32-bit architectures and 64 bytes for 64-bit architectures.
-- Borrowed External Storage: When you load an externally allocated buffer using Bit_load or BitDB_load, the library interacts with the borrowed storage in the following ways:
-    - Minimum Padding Requirements: The library explicitly expects the external buffer size to be padded to the next multiple of 8 bytes (the size of a uint64_t) to prevent out-of-bounds access during scalar operations.
-    - Dynamic Alignment Dispatch: The library does not strictly force the borrowed storage to match its ideal internal 32-byte or 64-byte alignment. Instead, it checks the external pointer's alignment at runtime during vectorized database set operations.
-    - Vectorization Fallback: If the external buffer meets the optimal alignment checks (64-byte alignment on 64-bit systems, or 8-byte alignment on 32-bit systems), the CPU executes fast aligned SIMD loads. If the external buffer is unaligned, the library safely falls back to unaligned SIMD instructions to execute the operations.  
+This is a technical note that should not affect normal users, and is probably an overkill for many modern processors. Internally `Bit` does enforce strict alignment of the memory buffers it owns, but makes no assumptions about borrowed storage (though it will do a runtime check to optimize the execution path of logical operations and counts for such buffers). The rules are the following: 
+- _Bit_T Allocation_: When allocating a single bitset via Bit_new, the library uses the standard C calloc function.  Because it relies on calloc, it receives the default memory alignment provided by the host system's standard library (typically 8 or 16 bytes), without enforcing any custom strict alignment.  
+- _Bit_DB_T Allocation_: When allocating a packed database of bitsets via BitDB_new, the library explicitly enforces stricter alignment using a custom internal allocator.  The required alignment depends on the system architecture that the library is build for:  32 bytes for 32-bit architectures and 64 bytes for 64-bit architectures. This allows us to use aligned load/stores which may be faster in some older processors. In any case maintaining the aligned code path is no match for the C preprocessor which provides a unified internal API. 
+- _Borrowed External Storage_: When you load an externally allocated buffer using Bit_load or BitDB_load, the library interacts with the borrowed storage in the following ways:
+    - __Minimum Padding Requirements__: The library explicitly expects the external buffer size to be padded to the next multiple of 8 bytes (the size of a uint64_t) to prevent out-of-bounds access during scalar operations.
+    - __Dynamic Alignment Dispatch__: The library does not strictly force the borrowed storage to match its ideal internal 32-byte or 64-byte alignment. Instead, it checks the external pointer's alignment at runtime during vectorized database set operations.
+    - __Vectorization Fallback__: If the external buffer meets the optimal alignment checks (64-byte alignment on 64-bit systems, or 8-byte alignment on 32-bit systems), the CPU executes fast aligned SIMD loads. If the external buffer is unaligned, the library safely falls back to unaligned SIMD instructions to execute the operations.  
 
-### Examples with individual Bitsets
+At some point, I should probably take down the machinery because everyone is telling me that unaligned loads carry no penalty in our time. 
+
+### Using individual Bitsets
 
 This is a straightforward example showing the creation of two bitsets with sufficient storage for 128 bits, setting individual bits, doing a bitwise and for an overlap and computing the cardinality of the result.
 
@@ -617,14 +620,11 @@ int main(void) {
 }
 ```
 
-## Container Counts
+## How to Play with Containers
 
-`Bit_DB_T` stores equally sized bitsets in a packed container. Create a
-container with `BitDB_new(length, count)` and fill it with `BitDB_put_at`.
-
-Container element functions copy data rather than exposing an internal
-`Bit_T`. `BitDB_get_from` creates a new bitset, while extraction and replacement
-use a caller-owned byte buffer:
+The ADT `Bit_DB_T` stores equally sized bitsets in a packed container. You can create such a
+container with `BitDB_new(length, count)` and fill it with individual bitsets `BitDB_put_at`.
+The example below creates a container with 2 elements of capacity of 128 bits, then allocates a bitset of the same capacity (`seed`), sets the 9th bit and puts it at the first index of the container. Then we extract the bitset at the first index of the container and verify that the bit at the 9th position is set. 
 
 ```c
 #include "bit.h"
@@ -661,6 +661,7 @@ int main(void) {
   return 0;
 }
 ```
+In this example we initialize two containers, fill them with individual bitsets and then perform a population count in the CPU. The assignment `SETOP_COUNT_OPTS options = {.num_cpu_threads = 2};` is used to control the number of OpenMP threads we will task for this job.  
 
 ```c
 #include "bit.h"
@@ -695,10 +696,9 @@ int main(void) {
 }
 ```
 
-`BitDB_count(container)` returns a newly allocated array containing one
-population count per stored bitset. The non-store container count functions
-(`BitDB_inter_count_cpu`, `BitDB_union_count_gpu`, and so on) return a newly
-allocated result array. In both cases, callers free the returned array.
+Counting the cardinality of containers is an important data intensive application of `Bit`. The function `BitDB_count(container)` returns a newly allocated array containing one
+population count per stored bitset for the container of interest. The non-store container count functions
+(`BitDB_inter_count_cpu`, `BitDB_union_count_gpu`, and so on) also return a newly allocated result array. In both cases, the caller is responsible to free the returned array of counts, i.e. the library will not manage the storage for you.
 
 The result array for a binary container operation has
 `BitDB_nelem(left) * BitDB_nelem(right)` elements in row-major order:
@@ -707,7 +707,7 @@ The result array for a binary container operation has
 result[left_index * BitDB_nelem(right) + right_index]
 ```
 
-Use `_store_` variants when the caller owns the result buffer instead:
+Use `_store_` variants when the caller has previously allocated the research buffer :
 
 ```c
 size_t result_count = (size_t)BitDB_nelem(queries) * BitDB_nelem(references);
@@ -717,11 +717,12 @@ if (results != NULL) {
   free(results);
 }
 ```
+These `_store_` variants were created to interface with external libraries and dynamically typed languages (e.g. Perl) that use their own custom allocators. The typical C user should probably never have to use them within C. 
 
 The macros `BitDB_inter_count`, `BitDB_union_count`, `BitDB_diff_count`, and
 `BitDB_minus_count` select a `cpu` or `gpu` function at compile time. Use the
 function forms when linking against a shared library from code that cannot see
-the macros.
+the macros. However I strongly encourage you to use the macro interface when coding in C. 
 
 `SETOP_COUNT_OPTS` separates CPU execution from advanced GPU data-residency
 decisions:
