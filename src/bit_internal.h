@@ -897,6 +897,7 @@ static inline uint64_t tree_adder(uint64_t v) {
  */
 #ifndef NOGPU
 
+#define NUM_OF_THREADS 512
 /* Ensure both operands and counts are present on the target device */
 #define SETOP_INIT_GPU(bit, bits, counts, opts)                                \
   const int _setop_dev_id = (opts).device_id;                                  \
@@ -979,7 +980,7 @@ static inline uint64_t tree_adder(uint64_t v) {
                     opts.device_id, NULL, 0);                                  \
                                                                                \
   /* --- 2. MAIN COMPUTE KERNEL --- */                                         \
-  OMP_GPU_TEAMS(num_targets, 512, opts.device_id)                              \
+  OMP_GPU_TEAMS(num_targets, NUM_OF_THREADS, opts.device_id)                              \
   for (int k = 0; k < num_targets; k++) {                                      \
     OMP_PARALLEL(n) {                                                          \
       OMP_GPU_FOR_NOWAIT                                                       \
@@ -1033,7 +1034,7 @@ static inline uint64_t tree_adder(uint64_t v) {
   ENSURE_GPU_LAYOUT(bits_qwords, n, bit_size_in_qwords, LAYOUT_ROW_MAJOR,      \
                     opts.device_id, NULL, 0);                                  \
                                                                                \
-  OMP_GPU_TEAMS(num_targets, 512, opts.device_id)                              \
+  OMP_GPU_TEAMS(num_targets, NUM_OF_THREADS, opts.device_id)                              \
   for (int k = 0; k < num_targets; k++) {                                      \
     uint64_t shift_k = k * bit_size_in_qwords;                                 \
     OMP_PARALLEL(n) {                                                          \
