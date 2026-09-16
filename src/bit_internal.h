@@ -157,7 +157,30 @@ static inline uint64_t tree_adder(uint64_t v) {
 }
 
 /* CPU popcount dispatcher */
+#if defined(__clang__) || defined(__INTEL_LLVM_COMPILER) ||                    \
+    defined(__llvm__) || defined(__GNUC__)
+
+#// Fallback for GCC < 10 which lack __has_builtin but support popcount
+#ifndef __has_builtin
+#define __has_builtin(x) 0
+#endif
+
+#if __has_builtin(__builtin_popcountll) || (defined(__GNUC__) && !defined(__clang__))
+#define POPCOUNT(x) __builtin_popcountll((x))
+#else
 #define POPCOUNT(x) count_WWG((x))
+#endif
+
+#endif
+
+/* Simple unroll up to 4 times via the preprocessor */
+#define UNROLL_1(foo)  (foo)
+#define UNROLL_2(foo)  (foo UNROLL_1(foo))
+#define UNROLL_3(foo)  (foo UNROLL_2(foo))
+#define UNROLL_4(foo)  (foo UNROLL_3(foo))
+
+
+#define UNROLL(n, foo) UNROLL_##n(foo)
 
 /* ===========================================================================
    SECTION 1: OPENMP CPU PARALLELIZATION HELPERS
@@ -252,7 +275,7 @@ static inline uint64_t tree_adder(uint64_t v) {
     uint64_t count = 0;                                                        \
     unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     size_t limit =                                                             \
-        (bit_size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;          \
+        (bit_size_in_qwords / (VECTOR_QWORDS * 4)) * (VECTOR_QWORDS * 4);     \
     size_t i = 0;                                                              \
                                                                                \
     VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
@@ -260,7 +283,7 @@ static inline uint64_t tree_adder(uint64_t v) {
     VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;                                      \
     VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;                                      \
                                                                                \
-    for (; i < limit; i += VECTOR_BLOCK_SIZE) {                                \
+    for (; i < limit; i += VECTOR_QWORDS*4) {                                \
       /* Inline loads, op, and popcount to minimize live register state */     \
       sum0 = SIMDe_VECTOR_ADD(                                                 \
           sum0, SIMDe_POPCOUNT(BIT##op(                                        \
@@ -290,6 +313,35 @@ static inline uint64_t tree_adder(uint64_t v) {
                     VECTOR_UNALIGNED_LOAD(                                     \
                         (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(3)]))));   \
     }                                                                          \
+    /* Vector tail: 0..3 full vector blocks via switch fallthrough */          \
+    size_t vrem = (bit_size_in_qwords - i) / VECTOR_QWORDS;                    \
+    assert(vrem <= 3);                                                         \
+    switch (vrem) {                                                            \
+    case 3:                                                                    \
+      sum3 = SIMDe_VECTOR_ADD(                                                 \
+          sum3, SIMDe_POPCOUNT(BIT##op(                                        \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)]),      \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(2)]))));   \
+      /* fall through */                                                       \
+    case 2:                                                                    \
+      sum2 = SIMDe_VECTOR_ADD(                                                 \
+          sum2, SIMDe_POPCOUNT(BIT##op(                                        \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)]),      \
+                    VECTOR_UNALIGNED_LOAD(                                     \
+                        (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(1)]))));   \
+      /* fall through */                                                       \
+    case 1:                                                                    \
+      sum1 = SIMDe_VECTOR_ADD(                                                 \
+          sum1, SIMDe_POPCOUNT(BIT##op(                                        \
+                    VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&s->qwords[i]),       \
+                    VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&t->qwords[i]))));    \
+    default:                                                                   \
+      break;                                                                   \
+    }                                                                          \
+    i += vrem * VECTOR_QWORDS;                                                 \
     /* Horizontal sum of the vector elements */                                \
     sum0 = SIMDe_VECTOR_ADD(sum0, sum1);                                       \
     sum2 = SIMDe_VECTOR_ADD(sum2, sum3);                                       \
@@ -383,10 +435,10 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define setop(set, op, s, t)                                                   \
   do {                                                                         \
     size_t limit =                                                             \
-        (s->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;           \
+        (s->size_in_qwords / (VECTOR_QWORDS * 4)) * (VECTOR_QWORDS * 4);       \
     unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     unsigned int i = 0;                                                        \
-    for (; i < limit; i += VECTOR_BLOCK_SIZE) {                                \
+    for (; i < limit; i += VECTOR_QWORDS * 4) {                                \
       /* Load First operand */                                                 \
       VECTOR_TYPE a0 = VECTOR_UNALIGNED_LOAD(                                  \
           (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)]);                    \
@@ -430,6 +482,76 @@ static inline uint64_t tree_adder(uint64_t v) {
     }                                                                          \
   } while (0)
 #endif
+
+/* Vectorized single-bitset popcount body, parameterized on the load macro so
+ * callers can dispatch between aligned and unaligned loads at runtime (as
+ * setop_count_db_cpu does). count must be an lvalue accumulating the result.
+ */
+#define bit_count_body(count, s, bit_size_in_qwords, LOAD_MACRO)               \
+  do {                                                                         \
+    size_t limit = ((bit_size_in_qwords) / (VECTOR_QWORDS * 4)) *              \
+                   (VECTOR_QWORDS * 4);                                        \
+    size_t i = 0;                                                              \
+    VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
+    VECTOR_TYPE sum1 = SIMDe_ZERO_VECTOR;                                      \
+    VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;                                      \
+    VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;                                      \
+    for (; i < limit; i += VECTOR_QWORDS * 4) {                                \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
+          SIMDe_POPCOUNT(                                                      \
+              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)])));   \
+      sum1 = SIMDe_VECTOR_ADD(                                                 \
+          sum1,                                                                \
+          SIMDe_POPCOUNT(                                                      \
+              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)])));   \
+      sum2 = SIMDe_VECTOR_ADD(                                                 \
+          sum2,                                                                \
+          SIMDe_POPCOUNT(                                                      \
+              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)])));   \
+      sum3 = SIMDe_VECTOR_ADD(                                                 \
+          sum3,                                                                \
+          SIMDe_POPCOUNT(                                                      \
+              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(3)])));   \
+    }                                                                          \
+    size_t vrem = ((bit_size_in_qwords) - i) / VECTOR_QWORDS; /* 0..3 */       \
+    assert(vrem <= 3);                                                         \
+    switch (vrem) {                                                            \
+    case 3:                                                                    \
+      sum3 = SIMDe_VECTOR_ADD(                                                 \
+          sum3,                                                                \
+          SIMDe_POPCOUNT(                                                      \
+              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)])));   \
+      /* fall through */                                                       \
+    case 2:                                                                    \
+      sum2 = SIMDe_VECTOR_ADD(                                                 \
+          sum2,                                                                \
+          SIMDe_POPCOUNT(                                                      \
+              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)])));   \
+      /* fall through */                                                       \
+    case 1:                                                                    \
+      sum1 = SIMDe_VECTOR_ADD(                                                 \
+          sum1, SIMDe_POPCOUNT(LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i])));     \
+    default:                                                                   \
+      break;                                                                   \
+    }                                                                          \
+    i += vrem * VECTOR_QWORDS;                                                 \
+    /* Reduce 4 accumulators down to 1 (optimal binary reduction tree) */      \
+    sum0 = SIMDe_VECTOR_ADD(sum0, sum1);                                       \
+    sum2 = SIMDe_VECTOR_ADD(sum2, sum3);                                       \
+    sum0 = SIMDe_VECTOR_ADD(sum0, sum2);                                       \
+    /* Extract vector elements to scalar */                                    \
+    uint64_t sum_array[VECTOR_QWORDS];                                         \
+    SIMDe_STORE_VECTOR(sum_array, sum0);                                       \
+    for (size_t j = 0; j < VECTOR_QWORDS; j++) {                               \
+      count += sum_array[j];                                                   \
+    }                                                                          \
+    /* Scalar fringe for the partial vector */                                 \
+    for (; i < bit_size_in_qwords; i++) {                                      \
+      count += POPCOUNT(s->qwords[i]);                                         \
+    }                                                                          \
+  } while (0)
+
 /* --- End Section 3: SINGLE-BITSET SET OPERATION MACROS --- */
 
 /* ===========================================================================
@@ -523,9 +645,9 @@ static inline uint64_t tree_adder(uint64_t v) {
   do {                                                                         \
     uint64_t count = 0;                                                        \
     size_t k_idx = k_b;                                                        \
-    CHUNK_LIMIT(limit, k_b, k_max, VECTOR_BLOCK_SIZE)                          \
+    CHUNK_LIMIT(limit, k_b, k_max, (VECTOR_QWORDS * 4))                        \
     VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
-    for (; k_idx < limit; k_idx += VECTOR_BLOCK_SIZE) {                        \
+    for (; k_idx < limit; k_idx += VECTOR_QWORDS * 4) {                        \
       sum0 = SIMDe_VECTOR_ADD(                                                 \
           sum0,                                                                \
           SIMDe_POPCOUNT(BIT##op(                                              \
@@ -550,6 +672,32 @@ static inline uint64_t tree_adder(uint64_t v) {
               LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(3)]),     \
               LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(3)]))));  \
     }                                                                          \
+    /* Vector tail: 0..3 full vector blocks via switch fallthrough */          \
+    size_t vrem = (k_max - k_idx) / VECTOR_QWORDS;                             \
+    assert(vrem <= 3);                                                         \
+    switch (vrem) {                                                            \
+    case 3:                                                                    \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(2)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(2)]))));  \
+      /* fall through */                                                       \
+    case 2:                                                                    \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0,                                                                \
+          SIMDe_POPCOUNT(BIT##op(                                              \
+              LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx + VECTOR_OFFSET(1)]),     \
+              LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx + VECTOR_OFFSET(1)]))));  \
+      /* fall through */                                                       \
+    case 1:                                                                    \
+      sum0 = SIMDe_VECTOR_ADD(                                                 \
+          sum0, SIMDe_POPCOUNT(BIT##op(LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx]), \
+                                     LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx])))); \
+    default:                                                                   \
+      break;                                                                   \
+    }                                                                          \
+    k_idx += vrem * VECTOR_QWORDS;                                             \
     uint64_t sum_array[VECTOR_QWORDS];                                         \
     SIMDe_STORE_VECTOR(sum_array, sum0);                                       \
     for (size_t j_idx = 0; j_idx < VECTOR_QWORDS; j_idx++) {                   \
@@ -863,7 +1011,14 @@ static inline uint64_t tree_adder(uint64_t v) {
   SETOP_VAR_INIT(bit, bits, bit_qwords, bits_qwords, bit_size_in_qwords,       \
                  num_targets, n)                                               \
                                                                                \
+  /* Aligned loads are only safe when EVERY row of both DBs is vector-aligned: \
+     base pointers aligned AND the row stride (bit_size_in_qwords qwords) is a \
+     multiple of the vector width, otherwise rows past the first are           \
+     misaligned. On the scalar path VECTOR_QWORDS is 0, so the modulo is       \
+     guarded out and only the base-pointer check applies. */                   \
   bool aligned = ALIGN_CHECK(bit_qwords) && ALIGN_CHECK(bits_qwords);          \
+  if (VECTOR_QWORDS > 0 && (bit_size_in_qwords % VECTOR_QWORDS) != 0)          \
+    aligned = false;                                                           \
   int numthreads = opts.num_cpu_threads;                                       \
   if (numthreads <= 0) {                                                       \
     numthreads = omp_get_max_threads();                                        \
@@ -980,7 +1135,7 @@ static inline uint64_t tree_adder(uint64_t v) {
                     opts.device_id, NULL, 0);                                  \
                                                                                \
   /* --- 2. MAIN COMPUTE KERNEL --- */                                         \
-  OMP_GPU_TEAMS(num_targets, NUM_OF_THREADS, opts.device_id)                              \
+  OMP_GPU_TEAMS(num_targets, NUM_OF_THREADS, opts.device_id)                   \
   for (int k = 0; k < num_targets; k++) {                                      \
     OMP_PARALLEL(n) {                                                          \
       OMP_GPU_FOR_NOWAIT                                                       \
@@ -1034,7 +1189,7 @@ static inline uint64_t tree_adder(uint64_t v) {
   ENSURE_GPU_LAYOUT(bits_qwords, n, bit_size_in_qwords, LAYOUT_ROW_MAJOR,      \
                     opts.device_id, NULL, 0);                                  \
                                                                                \
-  OMP_GPU_TEAMS(num_targets, NUM_OF_THREADS, opts.device_id)                              \
+  OMP_GPU_TEAMS(num_targets, NUM_OF_THREADS, opts.device_id)                   \
   for (int k = 0; k < num_targets; k++) {                                      \
     uint64_t shift_k = k * bit_size_in_qwords;                                 \
     OMP_PARALLEL(n) {                                                          \

@@ -16,18 +16,18 @@ void topk_int_omp_gpu(const int *dist, int64_t N, int64_t M, int K,
     K = M;
 
   // Map the output buffers directly to the device to use as in-place heaps.
-#pragma omp target data map(from : out_dist[0 : N * K], out_idx[0 : N * K]) \
+#pragma omp target data map(from : out_dist[0 : N * K], out_idx[0 : N * K])    \
     device(dev_id)
   {
     // UNIFIED OPTIMIZATION:
     // Force exactly 1 team per row, and 1 thread per team.
-    // This entirely eliminates intra-warp divergence and allows us to 
+    // This entirely eliminates intra-warp divergence and allows us to
     // work directly in the output buffers without malloc/free.
-#pragma omp target teams distribute num_teams(N) thread_limit(1) \
+#pragma omp target teams distribute num_teams(N) thread_limit(1)               \
     is_device_ptr(dist) device(dev_id)
     for (int64_t row = 0; row < N; ++row) {
-      
-      // Because thread_limit is 1, this executes sequentially by the master 
+
+      // Because thread_limit is 1, this executes sequentially by the master
       // thread of the team. No inner parallel region is needed.
       int *my_heap_d = out_dist + row * K;
       int *my_heap_i = out_idx + row * K;
@@ -76,16 +76,17 @@ void topk_int_omp_gpu(const int *dist, int64_t N, int64_t M, int K,
   if (K > M)
     K = M;
 
-  // We map out_dist and out_idx to the device. 'from' allocates uninitialized 
+  // We map out_dist and out_idx to the device. 'from' allocates uninitialized
   // memory on the GPU, which we use directly as our in-place working heap.
 #pragma omp target data map(from : out_dist[0 : N * K], out_idx[0 : N * K])    \
     device(dev_id)
   {
     // Flatten the parallel execution: 1 Thread = 1 Row.
     // The runtime handles grouping these threads into optimal warps/teams.
-#pragma omp target teams distribute parallel for is_device_ptr(dist) device(dev_id)
+#pragma omp target teams distribute parallel for is_device_ptr(dist)           \
+    device(dev_id)
     for (int64_t row = 0; row < N; ++row) {
-      
+
       // Each thread works directly in the output buffer
       int *my_heap_d = out_dist + row * K;
       int *my_heap_i = out_idx + row * K;

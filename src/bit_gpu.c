@@ -36,8 +36,24 @@
 // Make popcount functions available on GPU device targets
 #pragma omp declare target(count_WWG)
 #pragma omp declare target(tree_adder)
+
+
 // GPU popcount alias
-#define POPCOUNT_GPU count_WWG
+#if defined(__clang__) || defined(__INTEL_LLVM_COMPILER) ||                    \
+    defined(__llvm__) || defined(__GNUC__)
+
+#// Fallback for GCC < 10 which lack __has_builtin but support popcount
+#ifndef __has_builtin
+#define __has_builtin(x) 0
+#endif
+
+#if __has_builtin(__builtin_popcountll) || (defined(__GNUC__) && !defined(__clang__))
+#define POPCOUNT_GPU(x) __builtin_popcountll((x))
+#else
+#define POPCOUNT_GPU(x) count_WWG((x))
+#endif
+
+#endif
 
 
 

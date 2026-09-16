@@ -934,6 +934,14 @@ reference counting, releasing of the regions amounts to decreasing the reference
 counters for each of the regions. Regions that are no longer referenced will be
 automatically de-allocated.
 
+> **Caveat — buffer reuse and stale mappings.** With the `release_*` flags left
+> false, a device mapping stays resident after the call returns. If the caller
+> then frees that host buffer and allocates a new one, the allocator may return
+> the same address while the device mapping is still live, so a later GPU call
+> can operate on (or fail against) a stale mapping. Either keep reusing the
+> same buffers across GPU calls, or set the `release_*` flags on the final call
+> that needs each mapping.
+
 
 
 ## Benchmarks and Experiments

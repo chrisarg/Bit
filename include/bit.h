@@ -166,6 +166,13 @@ typedef struct {
   } algorithm; // reserved; current library dispatch does not read this field
 } SETOP_COUNT_OPTS;
 
+/* NOTE: with the release_* flags left false, the device mapping for an operand
+ * or counts buffer stays resident after the call returns. If the caller then
+ * frees that host buffer and allocates a new one, the allocator may reuse the
+ * same address while the device mapping is still live, so a subsequent GPU
+ * call can reference a stale mapping. Reuse buffers across GPU calls, or set
+ * the release_* flags on the last call that needs each mapping. */
+
 /*
     Functions that create, free and obtain the properties of the bitset. Note
     the following error checking

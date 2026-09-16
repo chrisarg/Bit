@@ -1,9 +1,12 @@
 #include "bit.h"
+#include <omp.h>
 #include <stdbool.h>
 #include <signal.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -13,6 +16,7 @@ typedef struct {
   int total;
   int passed;
   int failed;
+  int skipped;
 } TestResults;
 
 typedef struct {
@@ -21,7 +25,7 @@ typedef struct {
 } MapClosure;
 
 // Initialize test results
-TestResults results = {0, 0, 0};
+TestResults results = {0, 0, 0, 0};
 
 static void test_map_apply(int n, int bit, void *cl) {
   MapClosure *closure = (MapClosure *)cl;
@@ -114,6 +118,14 @@ void report_test(const char *test_name, bool passed) {
     printf("FAIL: %s\n", test_name);
     results.failed++;
   }
+}
+
+// Report a test that could not run (e.g. no GPU device on a NOGPU build).
+// Skipped tests do not count as passed or failed.
+void report_skip(const char *test_name) {
+  results.total++;
+  results.skipped++;
+  printf("SKIP: %s\n", test_name);
 }
 
 // Basic operations tests
@@ -813,6 +825,456 @@ bool test_bitDB_store_macros() {
   return success;
 }
 
+/* ==========================================================================
+   Coverage-gap tests: SIMD tails, Bit_count alignment dispatch, tile
+   boundaries, and CPU-vs-GPU parity. Added to exercise the vector fringe
+   paths that the stride-divisible 65536-bit main size never reaches.
+   ========================================================================== */
+
+/* Deterministic xorshift64 PRNG so randomized patterns are reproducible. */
+static uint64_t xs64(uint64_t *state) {
+  uint64_t x = *state;
+  x ^= x << 13;
+  x ^= x >> 7;
+  x ^= x << 17;
+  *state = x;
+  return x;
+}
+
+/* Fill a bitset with a deterministic pseudo-random pattern. Bit_length() is
+   the public accessor since Bit_T is opaque here. */
+static void fill_random(Bit_T bit, uint64_t seed) {
+  uint64_t state = seed ? seed : 0x9E3779B97F4A7C15ull;
+  for (int i = 0; i < Bit_length(bit); ++i) {
+    if (xs64(&state) & 1ull) {
+      Bit_bset(bit, i);
+    }
+  }
+}
+
+/* 1a. Bit_count must agree on an aligned buffer and a deliberately
+   misaligned (offset-by-8) buffer holding the same pattern, forcing both
+   arms of the aligned/unaligned dispatch in Bit_count. */
+bool test_bit_count_alignment() {
+  bool success = true;
+  /* Sizes chosen so nqwords is below and above one 4x vector stride on every
+     path (AVX-512 stride is 32 qwords). */
+  const int lengths[] = {64, 4096, 65536};
+  for (size_t t = 0; t < sizeof(lengths) / sizeof(lengths[0]); ++t) {
+    int len = lengths[t];
+    size_t buf_bytes = (size_t)Bit_buffer_size(len);
+
+    Bit_T ref = Bit_new(len);
+    fill_random(ref, 0xDEADBEEFull + (uint64_t)len);
+    int expected = Bit_count(ref);
+
+    /* Aligned buffer via calloc (glibc returns >=16-byte aligned). */
+    unsigned char *aligned_buf = calloc(1, buf_bytes);
+    Bit_extract(ref, aligned_buf);
+    Bit_T aligned_set = Bit_load(len, aligned_buf);
+    int aligned_count = Bit_count(aligned_set);
+    success = success && (aligned_count == expected);
+
+    /* Misaligned buffer: shift by 8 bytes within a larger allocation so the
+       base pointer is not 64-byte aligned. */
+    unsigned char *raw = calloc(1, buf_bytes + 64);
+    unsigned char *mis_buf = raw + 8;
+    Bit_extract(ref, mis_buf);
+    Bit_T mis_set = Bit_load(len, mis_buf);
+    int mis_count = Bit_count(mis_set);
+    success = success && (mis_count == expected);
+
+    /* Bit_load marks the buffer external, so Bit_free returns it without
+       freeing; free the underlying allocations ourselves. */
+    Bit_free(&aligned_set);
+    Bit_free(&mis_set);
+    free(aligned_buf);
+    free(raw);
+    Bit_free(&ref);
+  }
+  report_test(__func__, success);
+  return success;
+}
+
+/* 1b. Sweep bit lengths so size_in_qwords mod (4*VECTOR_QWORDS) hits 0,1,2,3
+   and sub-vector residues, checking Bit_count against a Bit_get reference.
+   This is the test that actually works the vrem switch tail. */
+bool test_bit_count_fringe_sizes() {
+  bool success = true;
+  /* lengths chosen to give a spread of qword residues and a sub-vector tail */
+  const int lengths[] = {64,    128,   192,   256,   320,   4096,  4160,
+                         4161,  4223,  8191,  65535, 65536, 131071};
+  for (size_t t = 0; t < sizeof(lengths) / sizeof(lengths[0]); ++t) {
+    int len = lengths[t];
+    Bit_T bit = Bit_new(len);
+    fill_random(bit, 0xABCDEFull + (uint64_t)len);
+    int got = Bit_count(bit);
+    int want = 0;
+    for (int i = 0; i < len; ++i) {
+      want += Bit_get(bit, i);
+    }
+    success = success && (got == want);
+    Bit_free(&bit);
+  }
+  report_test(__func__, success);
+  return success;
+}
+
+/* 1c. All four setops and their _count forms at fringe sizes; verify
+   _count == Bit_count(result) and that result bits match a Bit_get
+   reference computed per index. */
+bool test_setop_fringe_sizes() {
+  bool success = true;
+  const int lengths[] = {4161, 65535, 131071};
+  for (size_t t = 0; t < sizeof(lengths) / sizeof(lengths[0]); ++t) {
+    int len = lengths[t];
+    Bit_T a = Bit_new(len);
+    Bit_T b = Bit_new(len);
+    fill_random(a, 0x11111111ull + (uint64_t)len);
+    fill_random(b, 0x22222222ull + (uint64_t)len);
+
+    Bit_T inter = Bit_inter(a, b);
+    Bit_T uni = Bit_union(a, b);
+    Bit_T minus = Bit_minus(a, b);
+    Bit_T diff = Bit_diff(a, b);
+
+    /* _count must equal counting the materialized result. */
+    success = success && (Bit_inter_count(a, b) == Bit_count(inter));
+    success = success && (Bit_union_count(a, b) == Bit_count(uni));
+    success = success && (Bit_minus_count(a, b) == Bit_count(minus));
+    success = success && (Bit_diff_count(a, b) == Bit_count(diff));
+
+    /* Bit-exact check via the public Bit_get accessor. */
+    for (int i = 0; i < len && success; ++i) {
+      int av = Bit_get(a, i), bv = Bit_get(b, i);
+      if (Bit_get(inter, i) != (av & bv) || Bit_get(uni, i) != (av | bv) ||
+          Bit_get(minus, i) != (av & (1 - bv)) || Bit_get(diff, i) != (av ^ bv)) {
+        success = false;
+        break;
+      }
+    }
+
+    Bit_free(&a);
+    Bit_free(&b);
+    Bit_free(&inter);
+    Bit_free(&uni);
+    Bit_free(&minus);
+    Bit_free(&diff);
+  }
+  report_test(__func__, success);
+  return success;
+}
+
+/* 1d. DB counts at sizes straddling K_BLOCK (1024 qwords) and not divisible
+   by the 4x vector stride, with a small nelem so fringe kernels run. Every
+   counts[i*n+j] is cross-checked against a per-pair reference. */
+bool test_bitdb_count_tile_boundaries() {
+  bool success = true;
+  /* bit lengths whose qword counts are 1023, 1024, 1025 (K_BLOCK +/- 1) and
+     one non-multiple of the stride (e.g. 1030 qwords). */
+  const int lengths[] = {65472, 65536, 65600, 65920};
+  const int nelem = 3;
+  for (size_t t = 0; t < sizeof(lengths) / sizeof(lengths[0]); ++t) {
+    int len = lengths[t];
+    Bit_DB_T left = BitDB_new(len, nelem);
+    Bit_DB_T right = BitDB_new(len, nelem);
+
+    /* Fill each row of both DBs with deterministic random bits. */
+    for (int r = 0; r < nelem; ++r) {
+      Bit_T tmp = Bit_new(len);
+      fill_random(tmp, 0x1000ull * (uint64_t)(r + 1) + (uint64_t)len);
+      BitDB_put_at(left, r, tmp);
+      Bit_free(&tmp);
+      tmp = Bit_new(len);
+      fill_random(tmp, 0x2000ull * (uint64_t)(r + 1) + (uint64_t)len);
+      BitDB_put_at(right, r, tmp);
+      Bit_free(&tmp);
+    }
+
+    int *inter = BitDB_inter_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+    int *uni = BitDB_union_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+    int *diff = BitDB_diff_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+    int *minus = BitDB_minus_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+
+    /* Per-pair reference via materialized setop + Bit_count. */
+    for (int i = 0; i < nelem && success; ++i) {
+      Bit_T li = BitDB_get_from(left, i);
+      for (int j = 0; j < nelem; ++j) {
+        Bit_T rj = BitDB_get_from(right, j);
+        Bit_T ri = Bit_inter(li, rj);
+        Bit_T ru = Bit_union(li, rj);
+        Bit_T rm = Bit_minus(li, rj);
+        Bit_T rd = Bit_diff(li, rj);
+        size_t idx = (size_t)i * (size_t)nelem + (size_t)j;
+        if (inter[idx] != Bit_count(ri) || uni[idx] != Bit_count(ru) ||
+            minus[idx] != Bit_count(rm) || diff[idx] != Bit_count(rd)) {
+          success = false;
+        }
+        Bit_free(&rj);
+        Bit_free(&ri);
+        Bit_free(&ru);
+        Bit_free(&rm);
+        Bit_free(&rd);
+      }
+      Bit_free(&li);
+    }
+
+    free(inter);
+    free(uni);
+    free(diff);
+    free(minus);
+    BitDB_free(&right);
+    BitDB_free(&left);
+    if (!success)
+      break;
+  }
+  report_test(__func__, success);
+  return success;
+}
+
+/* 2a. CPU-vs-GPU parity on a randomized DB for all four ops. Reports SKIP
+   when no OpenMP target device is available (or the build is NOGPU, in which
+   case the gpu entry points silently degrade to cpu and parity would be
+   meaningless). */
+/* Probe whether a target region actually runs on a device (not host fallback).
+   More reliable than omp_get_num_devices(), which can report 0 in libomptarget
+   even when offload works (lazy device init). Mirrors test_offload.c. */
+static int gpu_offload_available(void) {
+  int on_host = 1;
+#pragma omp target map(from : on_host)
+  { on_host = omp_is_initial_device(); }
+  return !on_host;
+}
+
+bool test_bitDB_gpu_parity() {
+  /* Two skip conditions:
+     1. Compile-time NOGPU: the gpu entry points are compiled to call the cpu
+        implementation, so the comparison below would be vacuous. (Note: on
+        gcc/libgomp, offload plugins can report devices > 0 even on a NOGPU
+        build, so a runtime device-count probe alone is not sufficient.)
+     2. Runtime: a GPU build whose target region falls back to the host
+        (no usable device), detected by actually running one. */
+#if defined(NOGPU)
+  report_skip(__func__);
+  return true;
+#else
+  if (!gpu_offload_available()) {
+    report_skip(__func__);
+    return true;
+  }
+#endif
+
+  int len = 131071; /* odd qword count to exercise tails on both targets */
+  const int nelem = 4;
+  Bit_DB_T left = BitDB_new(len, nelem);
+  Bit_DB_T right = BitDB_new(len, nelem);
+  for (int r = 0; r < nelem; ++r) {
+    Bit_T tmp = Bit_new(len);
+    fill_random(tmp, 0xA5A5ull * (uint64_t)(r + 1));
+    BitDB_put_at(left, r, tmp);
+    Bit_free(&tmp);
+    tmp = Bit_new(len);
+    fill_random(tmp, 0x5A5Aull * (uint64_t)(r + 1));
+    BitDB_put_at(right, r, tmp);
+    Bit_free(&tmp);
+  }
+
+  bool success = true;
+  size_t ncounts = (size_t)nelem * (size_t)nelem;
+
+  int *ci = BitDB_inter_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+  int *cu = BitDB_union_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+  int *cd = BitDB_diff_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+  int *cm = BitDB_minus_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+
+  int *gi = BitDB_inter_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
+  int *gu = BitDB_union_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
+  int *gd = BitDB_diff_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
+  int *gm = BitDB_minus_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
+
+  for (size_t i = 0; i < ncounts; ++i) {
+    if (ci[i] != gi[i] || cu[i] != gu[i] || cd[i] != gd[i] || cm[i] != gm[i]) {
+      success = false;
+      break;
+    }
+  }
+
+  free(ci);
+  free(cu);
+  free(cd);
+  free(cm);
+  free(gi);
+  free(gu);
+  free(gd);
+  free(gm);
+  BitDB_free(&right);
+  BitDB_free(&left);
+  report_test(__func__, success);
+  return success;
+}
+
+/* 1. The DB tiling/partitioning must be thread-count invariant: the same op
+   at different num_cpu_threads must produce identical counts. Catches
+   fringe/partition double-count or omission that only shows up when the
+   collapse(2) space is split differently. */
+bool test_bitdb_count_thread_sweep() {
+  int len = 131071; /* odd qword count, exercises tails under partitioning */
+  const int nelem = 5; /* not a multiple of OUTER_ROW/COL(4), forces fringes */
+  Bit_DB_T left = BitDB_new(len, nelem);
+  Bit_DB_T right = BitDB_new(len, nelem);
+  for (int r = 0; r < nelem; ++r) {
+    Bit_T tmp = Bit_new(len);
+    fill_random(tmp, 0xC0FFEEull * (uint64_t)(r + 1));
+    BitDB_put_at(left, r, tmp);
+    Bit_free(&tmp);
+    tmp = Bit_new(len);
+    fill_random(tmp, 0xBADDCAFEull * (uint64_t)(r + 1));
+    BitDB_put_at(right, r, tmp);
+    Bit_free(&tmp);
+  }
+  size_t ncounts = (size_t)nelem * (size_t)nelem;
+  bool success = true;
+
+  /* Reference: single-threaded. (BitDB_*_count are macros, so pass a named
+     opts variable rather than a compound literal.) */
+  const SETOP_COUNT_OPTS opts1 = {.num_cpu_threads = 1};
+  int *ref = BitDB_inter_count(left, right, opts1, cpu);
+
+  const int threads[] = {1, 2, 4, 8};
+  for (size_t t = 0; t < sizeof(threads) / sizeof(threads[0]); ++t) {
+    const SETOP_COUNT_OPTS optst = {.num_cpu_threads = threads[t]};
+    int *c = BitDB_inter_count(left, right, optst, cpu);
+    for (size_t i = 0; i < ncounts; ++i) {
+      if (c[i] != ref[i]) {
+        success = false;
+        break;
+      }
+    }
+    free(c);
+    if (!success)
+      break;
+  }
+  free(ref);
+  BitDB_free(&right);
+  BitDB_free(&left);
+  report_test(__func__, success);
+  return success;
+}
+
+/* 2. External-buffer lifecycle for DBs: BitDB_load wraps a caller buffer and
+   BitDB_free must NOT free it (returns the original pointer). Also confirm
+   the loaded DB computes the same counts as a library-allocated copy. */
+bool test_bitDB_load_external_buffer() {
+  bool success = true;
+  int len = 4161; /* odd qword count */
+  const int nelem = 2;
+  size_t db_bytes = (size_t)Bit_buffer_size(len) * (size_t)nelem;
+
+  unsigned char *buf = calloc(1, db_bytes);
+  Bit_DB_T ext = BitDB_load(len, nelem, buf);
+
+  /* Same content in a library-allocated DB. */
+  Bit_DB_T lib = BitDB_new(len, nelem);
+  for (int r = 0; r < nelem; ++r) {
+    Bit_T tmp = Bit_new(len);
+    fill_random(tmp, 0x7777ull * (uint64_t)(r + 1));
+    BitDB_put_at(lib, r, tmp);
+    BitDB_put_at(ext, r, tmp);
+    Bit_free(&tmp);
+  }
+
+  int *ce = BitDB_inter_count(ext, ext, (SETOP_COUNT_OPTS){}, cpu);
+  int *cl = BitDB_inter_count(lib, lib, (SETOP_COUNT_OPTS){}, cpu);
+  for (int i = 0; i < nelem * nelem; ++i) {
+    if (ce[i] != cl[i]) {
+      success = false;
+      break;
+    }
+  }
+  free(ce);
+  free(cl);
+
+  /* Contract: BitDB_free on an externally-loaded DB returns the original
+     buffer pointer and does not free it (we free buf ourselves). */
+  void *returned = BitDB_free(&ext);
+  success = success && (returned == (void *)buf);
+  free(buf);
+
+  BitDB_free(&lib);
+  report_test(__func__, success);
+  return success;
+}
+
+/* 3. A large-but-legal bitset exercises the accumulation path well past the
+   int-width-sensitive region without approaching the INT_MAX assert. */
+bool test_bit_count_large() {
+  bool success = true;
+  const int len = 1 << 24; /* ~16.7M bits = 262144 qwords, multiple of 4V */
+  Bit_T bit = Bit_new(len);
+  /* Set a known number of bits: every 1024th bit plus a contiguous tail. */
+  int expected = 0;
+  for (int i = 0; i < len; i += 1024) {
+    Bit_bset(bit, i);
+    ++expected;
+  }
+  Bit_set(bit, len - 1000, len - 1);
+  expected += 1000;
+  success = success && (Bit_count(bit) == expected);
+
+  /* Same via the DB single-element path. */
+  Bit_DB_T db = BitDB_new(len, 1);
+  BitDB_put_at(db, 0, bit);
+  success = success && (BitDB_count_at(db, 0) == expected);
+
+  BitDB_free(&db);
+  Bit_free(&bit);
+  report_test(__func__, success);
+  return success;
+}
+
+/* 4. setop_validate early-return branches: self-operation (s == t) and the
+   documented results for NULL operands. These encode the API contract and
+   are otherwise never executed. */
+bool test_setop_validate_branches() {
+  bool success = true;
+  int len = 4096;
+  Bit_T a = Bit_new(len);
+  fill_random(a, 0x5150ull);
+
+  /* Self-ops: inter(s,s)=union(s,s)=s ; minus(s,s)=empty ; diff(s,s)=empty.
+     For the count forms the self-result is the popcount (or 0). */
+  int cnt = Bit_count(a);
+  success = success && (Bit_inter_count(a, a) == cnt);
+  success = success && (Bit_union_count(a, a) == cnt);
+  success = success && (Bit_minus_count(a, a) == 0);
+  success = success && (Bit_diff_count(a, a) == 0);
+
+  /* Materialized self-ops return a bitset equal to the operand (or empty). */
+  Bit_T si = Bit_inter(a, a);
+  success = success && (Bit_count(si) == cnt);
+  Bit_free(&si);
+  Bit_T sm = Bit_minus(a, a);
+  success = success && (Bit_count(sm) == 0);
+  Bit_free(&sm);
+
+  /* NULL-operand branches (s == NULL with valid t, t == NULL with valid s).
+     Defaults per the setop_validate args at each call site in bit.c:
+     inter: (snull=0, tnull=0); union: (snull=count(t), tnull=count(s));
+     minus: (snull=0, tnull=count(s)); diff: (snull=count(t), tnull=count(s)). */
+  success = success && (Bit_inter_count(NULL, a) == 0);
+  success = success && (Bit_inter_count(a, NULL) == 0);
+  success = success && (Bit_union_count(NULL, a) == cnt);
+  success = success && (Bit_union_count(a, NULL) == cnt);
+  success = success && (Bit_minus_count(NULL, a) == 0);
+  success = success && (Bit_minus_count(a, NULL) == cnt);
+  success = success && (Bit_diff_count(NULL, a) == cnt);
+  success = success && (Bit_diff_count(a, NULL) == cnt);
+
+  Bit_free(&a);
+  report_test(__func__, success);
+  return success;
+}
+
 void run_tests() {
   printf("Running bit library tests...\n\n");
 
@@ -863,11 +1325,27 @@ void run_tests() {
   test_bitDB_inter_count();
   test_bitDB_store_macros();
 
+  // Coverage-gap tests: SIMD tails, alignment dispatch, tile boundaries
+  test_bit_count_alignment();
+  test_bit_count_fringe_sizes();
+  test_setop_fringe_sizes();
+  test_bitdb_count_tile_boundaries();
+
+  // CPU-vs-GPU parity (SKIPs at runtime when no device / NOGPU build)
+  test_bitDB_gpu_parity();
+
+  // Dispatch/lifecycle/contract coverage
+  test_bitdb_count_thread_sweep();
+  test_bitDB_load_external_buffer();
+  test_bit_count_large();
+  test_setop_validate_branches();
+
   // Print summary
   printf("\nTest Summary:\n");
-  printf("  Total:  %d\n", results.total);
-  printf("  Passed: %d\n", results.passed);
-  printf("  Failed: %d\n", results.failed);
+  printf("  Total:   %d\n", results.total);
+  printf("  Passed:  %d\n", results.passed);
+  printf("  Failed:  %d\n", results.failed);
+  printf("  Skipped: %d\n", results.skipped);
 }
 
 int main() {

@@ -3,7 +3,7 @@
    the necessary includes and configurations to enable SIMD operations across
    different architectures. It ensures that the appropriate SIMD headers are
    included and that the Bit project can leverage the performance benefits of
-   SIMD instructions on supported platforms.
+   SIMD instructions on supported platforms. 
 
     * Author : Christos Argyropoulos
     * Created : July 4th 2026
@@ -141,16 +141,8 @@ BIT_SIMD_PRAGMA_MESSAGE(message("[bit] SIMD path selected: Scalar fallback"))
 #endif
 #endif
 
-// ------------------------------------------------------------------------
-// Loop Macro Configurations
-// ------------------------------------------------------------------------
 
-// Set loop unroll factor (U=4) to match the setop macro memory logic
-#define VECTOR_UNROLL_FACTOR 4
-
-// The block size represents the total number of uint64_t elements processed per
-// iteration
-#define VECTOR_BLOCK_SIZE (VECTOR_QWORDS * VECTOR_UNROLL_FACTOR)
 
 // Correctly calculates the array index offset for a specific vector load/store
 #define VECTOR_OFFSET(k) ((k) * VECTOR_QWORDS)
+

@@ -1,4 +1,5 @@
 // Benchmarking code for the bit library
+#include <stddef.h>
 #define _POSIX_C_SOURCE 199309L
 #include "bit.h"
 #include "simde_integration.h"
@@ -14,6 +15,9 @@
 #define BPB (sizeof(unsigned char) * 8)       // bits per byte
 #define nqwords(len)                                                           \
   ((((len) + BPQW - 1) & (~(BPQW - 1))) / BPQW) // ceil(len/QBPW)
+
+// used to prevent compiler optimization of the result
+#define DO_NOT_OPTIMIZE_AWAY(val) __asm__ volatile("" : : "g"(val) : "memory")
 
 // Benchmarking function type definition
 typedef int64_t (*benchmark_func)(int size, int iterations);
@@ -80,6 +84,7 @@ int64_t bench_Bit_count(int size, int iterations) {
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   for (int i = 0; i < iterations; i++) {
     result = Bit_count(bit1);
+    DO_NOT_OPTIMIZE_AWAY(result);
   }
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -96,9 +101,12 @@ int64_t bench_Bit_inter_count(int size, int iterations) {
   Bit_T bit2 = Bit_new(size);
   Bit_set(bit1, size / 2, size - 1);
   Bit_bset(bit1, 0);
+  Bit_set(bit2, size / 2, size - 1);
+  Bit_bset(bit2, 0);
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   for (int i = 0; i < iterations; i++) {
     result = Bit_inter_count(bit1, bit2);
+    DO_NOT_OPTIMIZE_AWAY(result);
   }
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -115,10 +123,13 @@ int64_t bench_Bit_inter_count_mem(int size, int iterations) {
   Bit_T bit2 = Bit_new(size);
   Bit_set(bit1, size / 2, size - 1);
   Bit_bset(bit1, 0);
+  Bit_set(bit2, size / 2, size - 1);
+  Bit_bset(bit2, 0);
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   for (int i = 0; i < iterations; i++) {
     Bit_T bit3 = Bit_inter(bit1, bit2);
     result = Bit_count(bit3);
+    DO_NOT_OPTIMIZE_AWAY(result);
     Bit_free(&bit3);
   }
 
@@ -136,13 +147,20 @@ int64_t bench_Bit_inter(int size, int iterations) {
   Bit_T bit2 = Bit_new(size);
   Bit_set(bit1, size / 2, size - 1);
   Bit_bset(bit1, 0);
+  Bit_set(bit2, size / 2, size - 1);
+  Bit_bset(bit2, 0);
   clock_gettime(CLOCK_MONOTONIC, &start_time);
   for (int i = 0; i < iterations; i++) {
     Bit_T bit3 = Bit_inter(bit1, bit2);
+    DO_NOT_OPTIMIZE_AWAY(bit3);
     Bit_free(&bit3);
   }
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
+
+  Bit_free(&bit1);
+  Bit_free(&bit2);
+
   timeElapsed = timeDiff(&end_time, &start_time);
   return timeElapsed;
 }
@@ -167,10 +185,13 @@ int64_t bench_Bit_and(int size, int iterations) {
   for (int i = 0; i < iterations; i++) {
     for (int j = size_in_qwords; --j >= 0;) {
       result = bit1[j] & bit2[j];
+      DO_NOT_OPTIMIZE_AWAY(result);
     }
   }
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
+  free((void *)bit1);
+  free((void *)bit2);
   timeElapsed = timeDiff(&end_time, &start_time);
   return timeElapsed;
 }
@@ -180,9 +201,6 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
   int64_t timeElapsed = 0;
   size_t size_in_qwords = nqwords(size);
   size_t size_in_bytes = size_in_qwords * BPQW / BPB;
-
-  // used to prevent compiler optimization of the result
-  #define DO_NOT_OPTIMIZE_AWAY(val) __asm__ volatile("" : : "g"(val) : "memory")
 
   unsigned long long *bit1 = malloc(size_in_bytes);
   unsigned long long *bit2 = malloc(size_in_bytes);
@@ -207,6 +225,7 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
     // Handle remaining elements
     for (; j > 0; j--) {
       volatile unsigned long long result = bit1[j - 1] & bit2[j - 1];
+      DO_NOT_OPTIMIZE_AWAY(result);
     }
   }
 #elif defined(BIT_SIMD_PATH_AVX2)
@@ -223,6 +242,7 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
     // Handle remaining elements
     for (; j > 0; j--) {
       volatile unsigned long long result = bit1[j - 1] & bit2[j - 1];
+      DO_NOT_OPTIMIZE_AWAY(result);
     }
   }
 #elif defined(BIT_SIMD_PATH_128)
@@ -239,6 +259,7 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
     // Handle remaining elements
     for (; j > 0; j--) {
       volatile unsigned long long result = bit1[j - 1] & bit2[j - 1];
+      DO_NOT_OPTIMIZE_AWAY(result);
     }
   }
 #else
@@ -246,11 +267,114 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
   for (int i = 0; i < iterations; i++) {
     for (int j = size_in_qwords; --j >= 0;) {
       result = bit1[j] & bit2[j];
+      DO_NOT_OPTIMIZE_AWAY(result);
     }
   }
 #endif
 
   clock_gettime(CLOCK_MONOTONIC, &end_time);
+  free((void *)bit1);
+  free((void *)bit2);
+  timeElapsed = timeDiff(&end_time, &start_time);
+  return timeElapsed;
+}
+
+int64_t bench_inter_reimpl_SIMD(int size, int iterations) {
+  struct timespec start_time, end_time;
+  int64_t timeElapsed = 0;
+  size_t size_in_qwords = nqwords(size);
+  size_t size_in_bytes = size_in_qwords * BPQW / BPB;
+
+// used to prevent compiler optimization of the result
+#define DO_NOT_OPTIMIZE_AWAY(val) __asm__ volatile("" : : "g"(val) : "memory")
+
+  unsigned long long *bit1 = malloc(size_in_bytes);
+  unsigned long long *bit2 = malloc(size_in_bytes);
+
+  // Initialize with some data pattern
+  for (size_t i = 0; i < size_in_qwords; i++) {
+    bit1[i] = i + 1;
+    bit2[i] = ~i;
+  }
+  clock_gettime(CLOCK_MONOTONIC, &start_time);
+#if defined(BIT_SIMD_PATH_AVX512)
+  // SIMDe AVX512 version - process 8 qwords (512 bits) at once
+  for (int i = 0; i < iterations; i++) {
+    unsigned long long *result = malloc(size_in_bytes);
+    int j = size_in_qwords;
+    // Process 8 qwords at a time
+    for (; j >= 8; j -= 8) {
+      simde__m512i a = simde_mm512_loadu_si512(bit1 + j - 8);
+      simde__m512i b = simde_mm512_loadu_si512(bit2 + j - 8);
+      volatile simde__m512i c = simde_mm512_and_si512(a, b);
+      DO_NOT_OPTIMIZE_AWAY(c);
+      simde_mm512_storeu_si512((simde__m512i *)(result + j - 8), c);
+    }
+    // Handle remaining elements
+    for (; j > 0; j--) {
+      result[j - 1] = bit1[j - 1] & bit2[j - 1];
+    }
+    DO_NOT_OPTIMIZE_AWAY(result);
+    free((void *)result);
+  }
+#elif defined(BIT_SIMD_PATH_AVX2)
+  // SIMDe AVX2 version - process 4 qwords (256 bits) at once
+  for (int i = 0; i < iterations; i++) {
+    unsigned long long *result = malloc(size_in_bytes);
+    int j = size_in_qwords;
+    // Process 4 qwords at a time
+    for (; j >= 4; j -= 4) {
+      simde__m256i a = simde_mm256_loadu_si256(bit1 + j - 4);
+      simde__m256i b = simde_mm256_loadu_si256(bit2 + j - 4);
+      volatile simde__m256i c = simde_mm256_and_si256(a, b);
+      DO_NOT_OPTIMIZE_AWAY(c);
+      simde_mm256_storeu_si256((simde__m256i *)(result + j - 4), c);
+    }
+    // Handle remaining elements
+    for (; j > 0; j--) {
+      result[j - 1] = bit1[j - 1] & bit2[j - 1];
+    }
+    DO_NOT_OPTIMIZE_AWAY(result);
+    free(result);
+  }
+#elif defined(BIT_SIMD_PATH_128)
+  // SIMDe AVX version - process 2 qwords (128 bits) at once
+  for (int i = 0; i < iterations; i++) {
+    unsigned long long *result = malloc(size_in_bytes);
+    int j = size_in_qwords;
+    // Process 2 qwords at a time
+    for (; j >= 2; j -= 2) {
+      simde__m128i a = simde_mm_loadu_si128((simde__m128i *)(bit1 + j - 2));
+      simde__m128i b = simde_mm_loadu_si128((simde__m128i *)(bit2 + j - 2));
+      volatile simde__m128i c = simde_mm_and_si128(a, b);
+      DO_NOT_OPTIMIZE_AWAY(c);
+      simde_mm_storeu_si128((simde__m128i *)(result + j - 2), c);
+    }
+    // Handle remaining elements
+    for (; j > 0; j--) {
+      result[j - 1] = bit1[j - 1] & bit2[j - 1];
+    }
+    DO_NOT_OPTIMIZE_AWAY(result);
+    free(result);
+  }
+#else
+  // Scalar version (fallback)
+  for (int i = 0; i < iterations; i++) {
+    unsigned long long *result = malloc(size_in_bytes);
+    for (int j = size_in_qwords; --j >= 0;) {
+      result[j] = bit1[j] & bit2[j];
+    }
+    DO_NOT_OPTIMIZE_AWAY(result);
+    free(result);
+  }
+
+#endif
+
+  clock_gettime(CLOCK_MONOTONIC, &end_time);
+
+  free((void *)bit1);
+  free((void *)bit2);
+
   timeElapsed = timeDiff(&end_time, &start_time);
   return timeElapsed;
 }
@@ -258,9 +382,9 @@ int64_t bench_Bit_and_SIMD(int size, int iterations) {
 int main() {
   int size_array[] = {128,   256,   512,   1024,   2048,   4096,   8192,
                       16384, 32768, 65536, 131072, 262144, 524288, 1048576};
-  char *test_array[] = {"Count", "Inter Count", "Inter Count Mem",
-                        "Inter", "And",         "And_SIMD",
-                        "aset",  "aclear"};
+  char *test_array[] = {"Count",    "Inter Count",   "Inter Count Mem",
+                        "Inter",    "Inter Re SIMD", "And",
+                        "And_SIMD", "aset",          "aclear"};
 #ifndef NDEBUG
   printf("Debug mode is enabled.\n");
 #else
@@ -279,12 +403,12 @@ int main() {
          "(native SSE4.2 and fallback via SIMDe)\n");
 #endif
 
-print_Bit_configuration();
+  print_Bit_configuration();
   // Array of benchmark functions
   benchmark_func benchmark_funcs[] = {
-      bench_Bit_count,       bench_Bit_inter_count, bench_Bit_inter_count_mem,
-      bench_Bit_inter_count, bench_Bit_and,         bench_Bit_and_SIMD,
-      bench_Bit_aset,        bench_Bit_aclear,
+      bench_Bit_count,    bench_Bit_inter_count,   bench_Bit_inter_count_mem,
+      bench_Bit_inter,    bench_inter_reimpl_SIMD, bench_Bit_and,
+      bench_Bit_and_SIMD, bench_Bit_aset,          bench_Bit_aclear,
   };
   char *test_explantion[] = {
       "Count the number of bits set in the bitset",
@@ -293,6 +417,7 @@ print_Bit_configuration();
        "\tforming the intersection and then counting"),
       "Intersection of two bitsets",
       "Bitwise AND of two buffers (no SIMD intrinsics, or #pragma omp simd)",
+      "Reimplemented intersection using SIMD intrinsics",
       "Bitwise AND of two buffers using SIMD intrinsics",
       "Set an array of bits (up to 2048) in the bitset",
       "Clear an array of bits (up to 2048) in the bitset",
@@ -302,7 +427,7 @@ print_Bit_configuration();
   for (size_t i = 0; i < sizeof(test_array) / sizeof(char *); i++) {
     printf("%s => %s\n", test_array[i], test_explantion[i]);
   }
-  int iterations = 1000;
+  int iterations = 10000;
   int64_t timeElapsed;
   char s[50];
   for (size_t j = 0; j < sizeof(test_array) / sizeof(char *); j++) {

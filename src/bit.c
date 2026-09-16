@@ -206,45 +206,19 @@ int Bit_count(T set) {
   assert(set);
   int length = 0;
 #if !USE_LIBPOPCNT
-size_t limit = (set->size_in_qwords / VECTOR_BLOCK_SIZE) * VECTOR_BLOCK_SIZE;
-  size_t i = 0;
-
-  VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;
-  VECTOR_TYPE sum1 = SIMDe_ZERO_VECTOR;
-  VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;
-  VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;
-
-  for (; i < limit; i += VECTOR_BLOCK_SIZE) {
-    sum0 = SIMDe_VECTOR_ADD(sum0, SIMDe_POPCOUNT(
-        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(0)])));
-    
-    sum1 = SIMDe_VECTOR_ADD(sum1, SIMDe_POPCOUNT(
-        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)])));
-    
-    sum2 = SIMDe_VECTOR_ADD(sum2, SIMDe_POPCOUNT(
-        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)])));
-    
-    sum3 = SIMDe_VECTOR_ADD(sum3, SIMDe_POPCOUNT(
-        VECTOR_UNALIGNED_LOAD((VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)])));
+#if BIT_SIMD_PATH_SCALAR
+  /* Scalar fallback (no vector types available) */
+  for (unsigned int k = 0; k < set->size_in_qwords; k++) {
+    length += POPCOUNT(set->qwords[k]);
   }
-
-  // Reduce 4 accumulators down to 1 (Optimal binary reduction tree)
-  sum0 = SIMDe_VECTOR_ADD(sum0, sum1);
-  sum2 = SIMDe_VECTOR_ADD(sum2, sum3);
-  sum0 = SIMDe_VECTOR_ADD(sum0, sum2);
-
-  // Extract vector elements to scalar
-  uint64_t sum_array[VECTOR_QWORDS];
-  SIMDe_STORE_VECTOR(sum_array, sum0); 
-  
-  for (size_t j = 0; j < VECTOR_QWORDS; j++) {
-    length += sum_array[j];
+#else
+  /* Dispatch on pointer alignment, mirroring setop_count_db_cpu */
+  if (ALIGN_CHECK(set->qwords)) {
+    bit_count_body(length, set, set->size_in_qwords, VECTOR_ALIGNED_LOAD);
+  } else {
+    bit_count_body(length, set, set->size_in_qwords, VECTOR_UNALIGNED_LOAD);
   }
-
-  // Handle remaining elements (Fringe)
-  for (; i < set->size_in_qwords; i++) {
-    length += POPCOUNT(set->qwords[i]);
-  }
+#endif
 #else
   length = (int)popcnt(set->bytes, set->size_in_bytes);
 #endif
@@ -261,7 +235,7 @@ int Bit_buffer_size(int length) {
 void Bit_aset(T set, int indices[], int n) {
   assert(set);
   assert(indices);
-  for ( int i = 0; i < n; i++) {
+  for (int i = 0; i < n; i++) {
     assert(indices[i] >= 0 && indices[i] < (int)set->length);
     set->bytes[indices[i] / BPB] |= 1 << (indices[i] % BPB);
   }
@@ -269,7 +243,7 @@ void Bit_aset(T set, int indices[], int n) {
 void Bit_aclear(T set, int indices[], int n) {
   assert(set);
   assert(indices);
-  for ( int i = 0; i < n; i++) {
+  for (int i = 0; i < n; i++) {
     assert(indices[i] >= 0 && indices[i] < (int)set->length);
     set->bytes[indices[i] / BPB] &= ~(1 << (indices[i] % BPB));
   }
@@ -365,7 +339,7 @@ void Bit_set(T set, int lo, int hi) {
 int Bit_eq(T s, T t) {
   assert(s && t);
   assert(s->length == t->length);
-  for ( int i = s->size_in_qwords; --i >= 0;)
+  for (int i = s->size_in_qwords; --i >= 0;)
     if (s->qwords[i] != t->qwords[i])
       return 0;
   return 1;
@@ -374,7 +348,7 @@ int Bit_eq(T s, T t) {
 int Bit_leq(T s, T t) {
   assert(s && t);
   assert(s->length == t->length);
-  for ( int i = s->size_in_qwords; --i >= 0;)
+  for (int i = s->size_in_qwords; --i >= 0;)
     if ((s->qwords[i] & ~t->qwords[i]) != 0)
       return 0;
   return 1;
@@ -384,7 +358,7 @@ int Bit_lt(T s, T t) {
   assert(s && t);
   assert(s->length == t->length);
   int lt = 0;
-  for ( int i = s->size_in_qwords; --i >= 0;)
+  for (int i = s->size_in_qwords; --i >= 0;)
     if ((s->qwords[i] & ~t->qwords[i]) != 0)
       return 0;
     else if ((s->qwords[i] & t->qwords[i]) != 0)
@@ -443,31 +417,31 @@ extern void _Bit_gpu_configuration(void);
 #endif
 
 void print_Bit_configuration(void) {
-    printf("==========================================\n");
-    printf("        System Bit Configuration          \n");
-    printf("==========================================\n");
-    
-    // Using fixed-width specifiers for clean alignment (e.g., %-20s)
-    printf(" %-20s : %d\n", "CPU_TILE_BIT",      CPU_TILE_BIT);
-    printf(" %-20s : %d\n", "CPU_TILE_BITS",     CPU_TILE_BITS);
-    printf(" %-20s : %d\n", "GPU_TILE_J",        GPU_TILE_J);
-    printf(" %-20s : %d\n", "GPU_ILP",           GPU_ILP);
-    printf(" %-20s : %d\n", "K_BLOCK",           K_BLOCK);
-    printf(" %-20s : %d\n", "SETOP_BUFFER_SIZE", SETOP_BUFFER_SIZE);
-    printf(" %-20s : %d\n", "OUTER_ROW_NUM", OUTER_ROW_NUM);
-    printf(" %-20s : %d\n", "OUTER_COL_NUM", OUTER_COL_NUM);
-    printf(" %-20s : %d\n", "OUTER_VEC_BLK", OUTER_VEC_BLK);
-    
-    printf("------------------------------------------\n");
-    printf(" %-20s : %s\n", "Using LIBPOPCNT",     USE_LIBPOPCNT ? "Yes" : "No");
-    #ifndef NOGPU
-      _Bit_gpu_configuration();
-    #endif
+  printf("==========================================\n");
+  printf("        System Bit Configuration          \n");
+  printf("==========================================\n");
+
+  // Using fixed-width specifiers for clean alignment (e.g., %-20s)
+  printf(" %-20s : %d\n", "CPU_TILE_BIT", CPU_TILE_BIT);
+  printf(" %-20s : %d\n", "CPU_TILE_BITS", CPU_TILE_BITS);
+  printf(" %-20s : %d\n", "GPU_TILE_J", GPU_TILE_J);
+  printf(" %-20s : %d\n", "GPU_ILP", GPU_ILP);
+  printf(" %-20s : %d\n", "K_BLOCK", K_BLOCK);
+  printf(" %-20s : %d\n", "SETOP_BUFFER_SIZE", SETOP_BUFFER_SIZE);
+  printf(" %-20s : %d\n", "OUTER_ROW_NUM", OUTER_ROW_NUM);
+  printf(" %-20s : %d\n", "OUTER_COL_NUM", OUTER_COL_NUM);
+  printf(" %-20s : %d\n", "OUTER_VEC_BLK", OUTER_VEC_BLK);
+
+  printf("------------------------------------------\n");
+  printf(" %-20s : %s\n", "Using LIBPOPCNT", USE_LIBPOPCNT ? "Yes" : "No");
+#ifndef NOGPU
+  _Bit_gpu_configuration();
+#endif
 
 #ifdef _OPENMP
-     printf(" %-20s : %d\n", "OpenMP version", _OPENMP);
+  printf(" %-20s : %d\n", "OpenMP version", _OPENMP);
 #endif
-    printf("==========================================\n");
+  printf("==========================================\n");
 }
 /* --- End Section 10: PUBLIC API — SINGLE BITSET --- */
 
