@@ -290,7 +290,6 @@ int64_t bench_inter_reimpl_SIMD(int size, int iterations) {
 
   unsigned long long *bit1 = malloc(size_in_bytes);
   unsigned long long *bit2 = malloc(size_in_bytes);
-
   // Initialize with some data pattern
   for (size_t i = 0; i < size_in_qwords; i++) {
     bit1[i] = i + 1;
@@ -300,7 +299,8 @@ int64_t bench_inter_reimpl_SIMD(int size, int iterations) {
 #if defined(BIT_SIMD_PATH_AVX512)
   // SIMDe AVX512 version - process 8 qwords (512 bits) at once
   for (int i = 0; i < iterations; i++) {
-    unsigned long long *result = malloc(size_in_bytes);
+    unsigned long long *result = calloc(size_in_qwords, sizeof(*result));
+    Bit_T result_bit = Bit_load(size, result);
     int j = size_in_qwords;
     // Process 8 qwords at a time
     for (; j >= 8; j -= 8) {
@@ -315,12 +315,14 @@ int64_t bench_inter_reimpl_SIMD(int size, int iterations) {
       result[j - 1] = bit1[j - 1] & bit2[j - 1];
     }
     DO_NOT_OPTIMIZE_AWAY(result);
-    free((void *)result);
+    Bit_free(&result_bit);
+    free(result);
   }
 #elif defined(BIT_SIMD_PATH_AVX2)
   // SIMDe AVX2 version - process 4 qwords (256 bits) at once
   for (int i = 0; i < iterations; i++) {
-    unsigned long long *result = malloc(size_in_bytes);
+    unsigned long long *result = calloc(size_in_qwords, sizeof(*result));
+    Bit_T result_bit = Bit_load(size, result);
     int j = size_in_qwords;
     // Process 4 qwords at a time
     for (; j >= 4; j -= 4) {
@@ -335,12 +337,14 @@ int64_t bench_inter_reimpl_SIMD(int size, int iterations) {
       result[j - 1] = bit1[j - 1] & bit2[j - 1];
     }
     DO_NOT_OPTIMIZE_AWAY(result);
+    Bit_free(&result_bit);
     free(result);
   }
 #elif defined(BIT_SIMD_PATH_128)
   // SIMDe AVX version - process 2 qwords (128 bits) at once
   for (int i = 0; i < iterations; i++) {
-    unsigned long long *result = malloc(size_in_bytes);
+    unsigned long long *result = calloc(size_in_qwords, sizeof(*result));
+    Bit_T result_bit = Bit_load(size, result);
     int j = size_in_qwords;
     // Process 2 qwords at a time
     for (; j >= 2; j -= 2) {
@@ -355,16 +359,19 @@ int64_t bench_inter_reimpl_SIMD(int size, int iterations) {
       result[j - 1] = bit1[j - 1] & bit2[j - 1];
     }
     DO_NOT_OPTIMIZE_AWAY(result);
+    Bit_free(&result_bit);
     free(result);
   }
 #else
   // Scalar version (fallback)
   for (int i = 0; i < iterations; i++) {
-    unsigned long long *result = malloc(size_in_bytes);
+    unsigned long long *result = calloc(size_in_qwords, sizeof(*result));
+    Bit_T result_bit = Bit_load(size, result);
     for (int j = size_in_qwords; --j >= 0;) {
       result[j] = bit1[j] & bit2[j];
     }
     DO_NOT_OPTIMIZE_AWAY(result);
+    Bit_free(&result_bit);
     free(result);
   }
 
@@ -374,7 +381,6 @@ int64_t bench_inter_reimpl_SIMD(int size, int iterations) {
 
   free((void *)bit1);
   free((void *)bit2);
-
   timeElapsed = timeDiff(&end_time, &start_time);
   return timeElapsed;
 }
@@ -416,8 +422,8 @@ int main() {
       ("Count the number of bits set in the intersection by first\n"
        "\tforming the intersection and then counting"),
       "Intersection of two bitsets",
-      "Bitwise AND of two buffers (no SIMD intrinsics, or #pragma omp simd)",
       "Reimplemented intersection using SIMD intrinsics",
+      "Bitwise AND of two buffers using scalar operations",
       "Bitwise AND of two buffers using SIMD intrinsics",
       "Set an array of bits (up to 2048) in the bitset",
       "Clear an array of bits (up to 2048) in the bitset",

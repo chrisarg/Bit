@@ -464,6 +464,37 @@ bool test_bit_diff() {
   return success;
 }
 
+bool test_bit_setop_vector_tails() {
+  bool success = true;
+
+  for (int qwords = 1; qwords <= 32 && success; qwords++) {
+    int length = qwords * 64;
+    Bit_T bit1 = Bit_new(length);
+    Bit_T bit2 = Bit_new(length);
+    Bit_bset(bit1, 0);
+    Bit_bset(bit1, length - 1);
+    Bit_bset(bit2, length / 2);
+    Bit_bset(bit2, length - 1);
+
+    Bit_T union_bit = Bit_union(bit1, bit2);
+    Bit_T inter_bit = Bit_inter(bit1, bit2);
+    Bit_T minus_bit = Bit_minus(bit1, bit2);
+    Bit_T diff_bit = Bit_diff(bit1, bit2);
+    success = Bit_count(union_bit) == 3 && Bit_count(inter_bit) == 1 &&
+              Bit_count(minus_bit) == 1 && Bit_count(diff_bit) == 2;
+
+    Bit_free(&bit1);
+    Bit_free(&bit2);
+    Bit_free(&union_bit);
+    Bit_free(&inter_bit);
+    Bit_free(&minus_bit);
+    Bit_free(&diff_bit);
+  }
+
+  report_test(__func__, success);
+  return success;
+}
+
 // Count operation tests
 bool test_bit_count_operations() {
   Bit_T bit1 = Bit_new(SIZE_OF_TEST_BIT);
@@ -1301,6 +1332,7 @@ void run_tests() {
   test_bit_inter();
   test_bit_minus();
   test_bit_diff();
+  test_bit_setop_vector_tails();
 
   // Count operations
   test_bit_count_operations();

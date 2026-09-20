@@ -126,6 +126,7 @@ struct T_DB {
 #define C3_WWG UINT64_C(0x0F0F0F0F0F0F0F0F)
 #define C4_WWG UINT64_C(0x0101010101010101)
 
+// note we assume a 64-bit input for the WWG popcount algorithm
 static inline uint64_t count_WWG(uint64_t x) {
   x -= (x >> 1) & C1_WWG;
   x = ((x >> 2) & C2_WWG) + (x & C2_WWG);
@@ -165,7 +166,8 @@ static inline uint64_t tree_adder(uint64_t v) {
 #define __has_builtin(x) 0
 #endif
 
-#if __has_builtin(__builtin_popcountll) || (defined(__GNUC__) && !defined(__clang__))
+#if __has_builtin(__builtin_popcountll) ||                                     \
+    (defined(__GNUC__) && !defined(__clang__))
 #define POPCOUNT(x) __builtin_popcountll((x))
 #else
 #define POPCOUNT(x) count_WWG((x))
@@ -173,12 +175,15 @@ static inline uint64_t tree_adder(uint64_t v) {
 
 #endif
 
-/* Simple unroll up to 4 times via the preprocessor */
-#define UNROLL_1(foo)  (foo)
-#define UNROLL_2(foo)  (foo UNROLL_1(foo))
-#define UNROLL_3(foo)  (foo UNROLL_2(foo))
-#define UNROLL_4(foo)  (foo UNROLL_3(foo))
-
+/* Simple unroll up to 8 times via the preprocessor */
+#define UNROLL_1(foo) (foo)
+#define UNROLL_2(foo) (foo UNROLL_1(foo))
+#define UNROLL_3(foo) (foo UNROLL_2(foo))
+#define UNROLL_4(foo) (foo UNROLL_3(foo))
+#define UNROLL_5(foo) (foo UNROLL_4(foo))
+#define UNROLL_6(foo) (foo UNROLL_5(foo))
+#define UNROLL_7(foo) (foo UNROLL_6(foo))
+#define UNROLL_8(foo) (foo UNROLL_7(foo))
 
 #define UNROLL(n, foo) UNROLL_##n(foo)
 
@@ -275,7 +280,7 @@ static inline uint64_t tree_adder(uint64_t v) {
     uint64_t count = 0;                                                        \
     unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     size_t limit =                                                             \
-        (bit_size_in_qwords / (VECTOR_QWORDS * 4)) * (VECTOR_QWORDS * 4);     \
+        (bit_size_in_qwords / (VECTOR_QWORDS * 4)) * (VECTOR_QWORDS * 4);      \
     size_t i = 0;                                                              \
                                                                                \
     VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
@@ -283,7 +288,7 @@ static inline uint64_t tree_adder(uint64_t v) {
     VECTOR_TYPE sum2 = SIMDe_ZERO_VECTOR;                                      \
     VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;                                      \
                                                                                \
-    for (; i < limit; i += VECTOR_QWORDS*4) {                                \
+    for (; i < limit; i += VECTOR_QWORDS * 4) {                                \
       /* Inline loads, op, and popcount to minimize live register state */     \
       sum0 = SIMDe_VECTOR_ADD(                                                 \
           sum0, SIMDe_POPCOUNT(BIT##op(                                        \
@@ -427,6 +432,7 @@ static inline uint64_t tree_adder(uint64_t v) {
 #if BIT_SIMD_PATH_SCALAR
 #define setop(set, op, s, t)                                                   \
   do {                                                                         \
+    unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     _Pragma(STRINGIFY(omp simd)) /* SIMD directive for the set operation */    \
         for (unsigned int i = 0; i < bit_size_in_qwords; i++)                  \
             set->qwords[i] = BIT_SCALAR##op(s->qwords[i], t->qwords[i]);       \
@@ -438,44 +444,70 @@ static inline uint64_t tree_adder(uint64_t v) {
         (s->size_in_qwords / (VECTOR_QWORDS * 4)) * (VECTOR_QWORDS * 4);       \
     unsigned int bit_size_in_qwords = s->size_in_qwords;                       \
     unsigned int i = 0;                                                        \
+    VECTOR_TYPE r0 = SIMDe_ZERO_VECTOR;                                        \
+    VECTOR_TYPE r1 = SIMDe_ZERO_VECTOR;                                        \
+    VECTOR_TYPE r2 = SIMDe_ZERO_VECTOR;                                        \
+    VECTOR_TYPE r3 = SIMDe_ZERO_VECTOR;                                        \
     for (; i < limit; i += VECTOR_QWORDS * 4) {                                \
-      /* Load First operand */                                                 \
-      VECTOR_TYPE a0 = VECTOR_UNALIGNED_LOAD(                                  \
-          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)]);                    \
-      VECTOR_TYPE b0 = VECTOR_UNALIGNED_LOAD(                                  \
-          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(0)]);                    \
-      VECTOR_TYPE r0 = BIT##op(a0, b0);                                        \
+                                                                               \
+      r0 = BIT##op(VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)]),       \
+                   VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(0)]));      \
       VECTOR_UNALIGNED_STORE(                                                  \
           (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(0)], r0);              \
                                                                                \
-      /* Load Second operand */                                                \
-      a0 = VECTOR_UNALIGNED_LOAD(                                              \
-          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)]);                    \
-      b0 = VECTOR_UNALIGNED_LOAD(                                              \
-          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(1)]);                    \
-      r0 = BIT##op(a0, b0);                                                    \
+      r1 = BIT##op(VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)]),       \
+                   VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(1)]));      \
       VECTOR_UNALIGNED_STORE(                                                  \
-          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)], r0);              \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)], r1);              \
                                                                                \
-      /* Load Third operand */                                                 \
-      a0 = VECTOR_UNALIGNED_LOAD(                                              \
-          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)]);                    \
-      b0 = VECTOR_UNALIGNED_LOAD(                                              \
-          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(2)]);                    \
-      r0 = BIT##op(a0, b0);                                                    \
+      r2 = BIT##op(VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)]),       \
+                   VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(2)]));      \
       VECTOR_UNALIGNED_STORE(                                                  \
-          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)], r0);              \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)], r2);              \
                                                                                \
-      /* Load Fourth operand */                                                \
-      a0 = VECTOR_UNALIGNED_LOAD(                                              \
-          (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(3)]);                    \
-      b0 = VECTOR_UNALIGNED_LOAD(                                              \
-          (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(3)]);                    \
-      r0 = BIT##op(a0, b0);                                                    \
+      r3 = BIT##op(VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(3)]),       \
+                   VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(3)]));      \
       VECTOR_UNALIGNED_STORE(                                                  \
-          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)], r0);              \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(3)], r3);              \
     }                                                                          \
                                                                                \
+    /* Vector tail: 0..3 full vector blocks via switch fallthrough */          \
+    size_t vrem = (bit_size_in_qwords - i) / VECTOR_QWORDS;                    \
+    assert(vrem <= 3);                                                         \
+    switch (vrem) {                                                            \
+    case 3:                                                                    \
+      r3 = BIT##op(VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)]),       \
+                   VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(2)]));      \
+      VECTOR_UNALIGNED_STORE(                                                  \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(2)], r3);              \
+    case 2:                                                                    \
+      r2 = BIT##op(VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)]),       \
+                   VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(1)]));      \
+      VECTOR_UNALIGNED_STORE(                                                  \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(1)], r2);              \
+    case 1:                                                                    \
+      r1 = BIT##op(VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)]),       \
+                   VECTOR_UNALIGNED_LOAD(                                      \
+                       (VECTOR_TYPE *)&t->qwords[i + VECTOR_OFFSET(0)]));      \
+      VECTOR_UNALIGNED_STORE(                                                  \
+          (VECTOR_TYPE *)&set->qwords[i + VECTOR_OFFSET(0)], r1);              \
+    default:                                                                   \
+      break;                                                                   \
+    }                                                                          \
+    i += vrem * VECTOR_QWORDS;                                                 \
     /* Scalar remainder loop */                                                \
     for (; i < bit_size_in_qwords; i++) {                                      \
       set->qwords[i] = BIT_SCALAR##op(s->qwords[i], t->qwords[i]);             \
@@ -489,8 +521,8 @@ static inline uint64_t tree_adder(uint64_t v) {
  */
 #define bit_count_body(count, s, bit_size_in_qwords, LOAD_MACRO)               \
   do {                                                                         \
-    size_t limit = ((bit_size_in_qwords) / (VECTOR_QWORDS * 4)) *              \
-                   (VECTOR_QWORDS * 4);                                        \
+    size_t limit =                                                             \
+        ((bit_size_in_qwords) / (VECTOR_QWORDS * 4)) * (VECTOR_QWORDS * 4);    \
     size_t i = 0;                                                              \
     VECTOR_TYPE sum0 = SIMDe_ZERO_VECTOR;                                      \
     VECTOR_TYPE sum1 = SIMDe_ZERO_VECTOR;                                      \
@@ -498,36 +530,30 @@ static inline uint64_t tree_adder(uint64_t v) {
     VECTOR_TYPE sum3 = SIMDe_ZERO_VECTOR;                                      \
     for (; i < limit; i += VECTOR_QWORDS * 4) {                                \
       sum0 = SIMDe_VECTOR_ADD(                                                 \
-          sum0,                                                                \
-          SIMDe_POPCOUNT(                                                      \
-              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)])));   \
+          sum0, SIMDe_POPCOUNT(LOAD_MACRO(                                     \
+                    (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(0)])));        \
       sum1 = SIMDe_VECTOR_ADD(                                                 \
-          sum1,                                                                \
-          SIMDe_POPCOUNT(                                                      \
-              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)])));   \
+          sum1, SIMDe_POPCOUNT(LOAD_MACRO(                                     \
+                    (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)])));        \
       sum2 = SIMDe_VECTOR_ADD(                                                 \
-          sum2,                                                                \
-          SIMDe_POPCOUNT(                                                      \
-              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)])));   \
+          sum2, SIMDe_POPCOUNT(LOAD_MACRO(                                     \
+                    (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)])));        \
       sum3 = SIMDe_VECTOR_ADD(                                                 \
-          sum3,                                                                \
-          SIMDe_POPCOUNT(                                                      \
-              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(3)])));   \
+          sum3, SIMDe_POPCOUNT(LOAD_MACRO(                                     \
+                    (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(3)])));        \
     }                                                                          \
     size_t vrem = ((bit_size_in_qwords) - i) / VECTOR_QWORDS; /* 0..3 */       \
     assert(vrem <= 3);                                                         \
     switch (vrem) {                                                            \
     case 3:                                                                    \
       sum3 = SIMDe_VECTOR_ADD(                                                 \
-          sum3,                                                                \
-          SIMDe_POPCOUNT(                                                      \
-              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)])));   \
+          sum3, SIMDe_POPCOUNT(LOAD_MACRO(                                     \
+                    (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(2)])));        \
       /* fall through */                                                       \
     case 2:                                                                    \
       sum2 = SIMDe_VECTOR_ADD(                                                 \
-          sum2,                                                                \
-          SIMDe_POPCOUNT(                                                      \
-              LOAD_MACRO((VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)])));   \
+          sum2, SIMDe_POPCOUNT(LOAD_MACRO(                                     \
+                    (VECTOR_TYPE *)&s->qwords[i + VECTOR_OFFSET(1)])));        \
       /* fall through */                                                       \
     case 1:                                                                    \
       sum1 = SIMDe_VECTOR_ADD(                                                 \
@@ -692,8 +718,9 @@ static inline uint64_t tree_adder(uint64_t v) {
       /* fall through */                                                       \
     case 1:                                                                    \
       sum0 = SIMDe_VECTOR_ADD(                                                 \
-          sum0, SIMDe_POPCOUNT(BIT##op(LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx]), \
-                                     LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx])))); \
+          sum0,                                                                \
+          SIMDe_POPCOUNT(BIT##op(LOAD_MACRO((VECTOR_TYPE *)&a_row[k_idx]),     \
+                                 LOAD_MACRO((VECTOR_TYPE *)&b_row[k_idx]))));  \
     default:                                                                   \
       break;                                                                   \
     }                                                                          \
