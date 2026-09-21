@@ -33,13 +33,13 @@ void compute_cpu_popcount_reference_32bit(
     uint32_t *cpu_results);
 
 void compare_gpu_to_cpu_results(
-    const int *gpu_results,
+    const uint64_t *gpu_results,
     const uint32_t *cpu_results,
     size_t num_queries,
     size_t num_refs,
     size_t *agreements,
     size_t *disagreements,
-    uint32_t *max_result);
+    uint64_t *max_result);
 
 void compute_mean_stddev(
     const double *values,

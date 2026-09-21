@@ -11,6 +11,7 @@ benchmark script.
 #define _POSIX_C_SOURCE 199309L
 
 #include "openmp_bit_faiss_bench.h"
+#include <inttypes.h>
 
 #define T Bit_T
 #define T_DB Bit_DB_T
@@ -21,7 +22,7 @@ benchmark script.
 
 typedef Bench_Instrumentation CPU_Instrumentation;
 
-void BitDB_diff_count_store_cpu_instrument(T_DB bit, T_DB bits, int *counts,
+void BitDB_diff_count_store_cpu_instrument(T_DB bit, T_DB bits, uint64_t *counts,
                                            SETOP_COUNT_OPTS opts,
                                            CPU_Instrumentation *instr) {
   clock_gettime(CLOCK_MONOTONIC, &instr->start_time);
@@ -29,10 +30,11 @@ void BitDB_diff_count_store_cpu_instrument(T_DB bit, T_DB bits, int *counts,
   clock_gettime(CLOCK_MONOTONIC, &instr->end_time);
 }
 
-int *BitDB_diff_count_cpu_instrument(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts,
-                                     CPU_Instrumentation *instr) {
+uint64_t *BitDB_diff_count_cpu_instrument(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts,
+                                           CPU_Instrumentation *instr) {
+  assert(BitDB_nelem(bit) == 0 || BitDB_nelem(bits) <= SIZE_MAX / BitDB_nelem(bit));
   size_t nelem = (size_t)BitDB_nelem(bit) * BitDB_nelem(bits);
-  int *counts = (int *)calloc(nelem, sizeof(int));
+  uint64_t *counts = calloc(nelem, sizeof(*counts));
   assert(counts != NULL);
   BitDB_diff_count_store_cpu_instrument(bit, bits, counts, opts, instr);
   return counts;
@@ -50,11 +52,11 @@ FilteredResults database_match_cpu_filter_instrument(Bit_DB_T db1, Bit_DB_T db2,
 
   clock_gettime(CLOCK_MONOTONIC, &instr->start_e2e);
 
-  int *top_scores = malloc(num_queries * top_k * sizeof(*top_scores));
-  int *top_ids = malloc(num_queries * top_k * sizeof(*top_ids));
+  uint64_t *top_scores = malloc(num_queries * top_k * sizeof(*top_scores));
+  size_t *top_ids = malloc(num_queries * top_k * sizeof(*top_ids));
   assert(top_scores && top_ids);
 
-  int *results = BitDB_diff_count_cpu_instrument(db1, db2, opts, instr);
+  uint64_t *results = BitDB_diff_count_cpu_instrument(db1, db2, opts, instr);
 
   clock_gettime(CLOCK_MONOTONIC, &instr->start_CPU_overhead);
   topk_int_omp_cpu(results, num_queries, num_refs, top_k, top_scores, top_ids,
@@ -70,7 +72,7 @@ FilteredResults database_match_cpu_filter_instrument(Bit_DB_T db1, Bit_DB_T db2,
    * A plain serial loop is used (no host OpenMP fork-join) for consistency
    * with the GPU comparator; the pass is O(num_queries * top_k) and cheaper
    * than the parallel-region dispatch it would otherwise pay. */
-  int min_score = INT_MAX;
+  uint64_t min_score = UINT64_MAX;
   for (size_t candidate = 0; candidate < num_queries * top_k; ++candidate) {
     if (top_scores[candidate] < min_score) {
       min_score = top_scores[candidate];
@@ -258,9 +260,9 @@ int main(int argc, char *argv[]) {
 
   size_t agreements = 0;
   size_t disagreements = 0;
-  uint32_t verify_max = 0;
+  uint64_t verify_max = 0;
   if (verify) {
-    int *library_counts = BitDB_diff_count_cpu_instrument(
+    uint64_t *library_counts = BitDB_diff_count_cpu_instrument(
         db1, db2, (SETOP_COUNT_OPTS){.num_cpu_threads = num_threads}, &instr);
     compare_gpu_to_cpu_results(library_counts, cpu_results, num_of_bits,
                                num_of_ref_bits, &agreements, &disagreements,
@@ -313,12 +315,12 @@ int main(int argc, char *argv[]) {
 
   puts(
       "Printing filtered results and scores (five scores, first five queries)");
-  for (int i = 0; i < 5 && i < num_of_bits; i++) {
-    printf("|Query %d:\t|", i);
+  for (size_t i = 0; i < 5 && i < (size_t)num_of_bits; i++) {
+    printf("|Query %zu:\t|", i);
     for (size_t j = 0; j < 5 && j < top_k; j++) {
-      printf("  Score: %5d, ID: %5d |",
-             filtered_results.top_scores[i * (int)top_k + (int)j],
-             filtered_results.top_ids[i * (int)top_k + (int)j]);
+      printf("  Score: %5" PRIu64 ", ID: %5zu |",
+             filtered_results.top_scores[i * top_k + j],
+             filtered_results.top_ids[i * top_k + j]);
     }
     printf("\n");
   }

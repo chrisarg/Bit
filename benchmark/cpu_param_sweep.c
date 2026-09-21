@@ -171,7 +171,8 @@ int database_match_omp(Bit_T *bit, Bit_T *bitsets, int num_of_bits,
 }
 
 int database_match_container_omp(Bit_DB_T db1, Bit_DB_T db2, int num_threads) {
-  int max = 0, current = 0, *results;
+  uint64_t max = 0, current = 0;
+  uint64_t *results;
   results = BitDB_inter_count_cpu(
       db1, db2, (SETOP_COUNT_OPTS){.num_cpu_threads = num_threads});
   size_t nelem = (size_t)BitDB_nelem(db2) * BitDB_nelem(db1);

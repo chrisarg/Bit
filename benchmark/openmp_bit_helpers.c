@@ -82,24 +82,24 @@ void compute_cpu_popcount_reference_32bit(
 }
 
 void compare_gpu_to_cpu_results(
-    const int *gpu_results,
+    const uint64_t *gpu_results,
     const uint32_t *cpu_results,
     size_t num_queries,
     size_t num_refs,
     size_t *agreements,
     size_t *disagreements,
-    uint32_t *max_result)
+    uint64_t *max_result)
 {
     size_t agree = 0, disagree = 0;
-    uint32_t maxval = 0;
+    uint64_t maxval = 0;
     for (size_t i = 0; i < num_queries * num_refs; ++i) {
-        if ((uint32_t)gpu_results[i] == cpu_results[i]) {
+        if (gpu_results[i] == cpu_results[i]) {
             ++agree;
         } else {
             ++disagree;
         }
-        if ((uint32_t)gpu_results[i] > maxval) {
-            maxval = (uint32_t)gpu_results[i];
+        if (gpu_results[i] > maxval) {
+            maxval = gpu_results[i];
         }
     }
     if (agreements) *agreements = agree;

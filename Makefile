@@ -249,7 +249,7 @@ ifeq ($(COMPILER_ID),gcc)
   ifeq ($(filter NVIDIA,$(GPU_LIST)),NVIDIA)
     NVIDIA_GCC_ARCH_FLAG := $(if $(strip $(NVIDIA_ARCH_LIST)),\
       -foffload-options=nvptx-none=-march=$(firstword \
-        $(sort $(NVIDIA_ARCH_LIST))),)
+        $(sort $(NVIDIA_ARCH_LIST))$(space)),)
     OFFLOAD_FL += -foffload=nvptx-none $(NVIDIA_GCC_ARCH_FLAG)
   endif
   ifeq ($(filter AMD,$(GPU_LIST)),AMD)
@@ -302,6 +302,15 @@ TILE_VARS := GPU_TILE_J GPU_ILP CPU_TILE BITVECTOR_TILE BUFFER_SIZE OUTER_ROW_NU
 
 SIMD_DIAGNOSTICS ?= 0
 BUG_REPORT ?= 0
+# GCC's OpenMP offload linker cannot reliably carry LTO-generated device
+# outlined functions through a shared library (for example topk GPU kernels).
+# Keep LTO enabled for host builds, but default it off for GCC GPU builds.
+ifeq ($(COMPILER_ID),gcc)
+  ifneq ($(filter NONE,$(GPU_LIST)),NONE)
+    APPLY_LTO ?= 0
+    $(info Disabling LTO for GCC OpenMP offload build)
+  endif
+endif
 APPLY_LTO ?= 1
 LIBPOPCNT ?= 1
 USE_BUILTIN_POPCOUNT ?= 0
@@ -369,14 +378,11 @@ BUILD_DIR ?= build
 $(shell mkdir -p $(BUILD_DIR))
 
 
-
-
-
 OPENMP_GPU_IMPL_MACRO := -DOPENMP_GPU_IMPL_$(OPENMP_GPU_IMPL)
 
 CFLAGS0 := -Wall -Wextra -Iinclude -D_POSIX_C_SOURCE=199309L -std=c11 -fPIC \
   -O3 -march=native -Wno-unused-function -Wno-unused-variable \
-  -Wno-unused-but-set-variable
+  -Wno-unused-but-set-variable -Wno-implicit-fallthrough
 CFLAGS0 += -DGPU_TILE_J=$(GPU_TILE_J) -DGPU_ILP=$(GPU_ILP) \
   -DCPU_TILE=$(CPU_TILE) -DBITVECTOR_TILE=$(BITVECTOR_TILE) \
   -DBUFFER_SIZE=$(BUFFER_SIZE) -DOUTER_ROW_NUM=$(OUTER_ROW_NUM) \
@@ -419,6 +425,7 @@ endif
 CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(OFFLOAD_FL) $(CFLAGS0) \
           $(OPENMP_GPU_IMPL_MACRO)  $(REPORT_CFLAGS) -I./src
 HOST_ONLY_CFLAGS := $(DEFINES) $(OPENMP_FLAG) $(CFLAGS0) $(REPORT_CFLAGS) -I./src
+LINK_FLAGS :=
 
 # Link Time Optimization (LTO) is enabled by default for supported compilers, 
 # but can be disabled by setting APPLY_LTO=0 or APPLY_LTO=no
@@ -492,8 +499,7 @@ ifeq ($(VALID_APPLY_LTO),1)
         $(shell which $(c) 2>/dev/null)))
       ifneq ($(strip $(LLD_CANDIDATE)),)
         $(info Using $(LLD_CANDIDATE) for LTO linking (avoids ld.bfd/gold plugin version drift))
-        CFLAGS += -fuse-ld=lld
-        HOST_ONLY_CFLAGS += -fuse-ld=lld
+        LINK_FLAGS += -fuse-ld=lld
       endif
     endif
 
@@ -520,8 +526,7 @@ ifeq ($(VALID_CLANG_RUNTIME_RPATH),1)
     CLANG_OMP_LIBDIR := $(shell $(CC) -print-resource-dir 2>/dev/null | sed -E 's#/clang/[0-9]+$$##')
     ifneq ($(filter /%,$(CLANG_OMP_LIBDIR)),)
       $(info Embedding rpath to $(CLANG_OMP_LIBDIR) for version-matched OpenMP runtime resolution)
-      CFLAGS += -Wl,-rpath,$(CLANG_OMP_LIBDIR) -Wl,--disable-new-dtags
-      HOST_ONLY_CFLAGS += -Wl,-rpath,$(CLANG_OMP_LIBDIR) -Wl,--disable-new-dtags
+      LINK_FLAGS += -Wl,-rpath,$(CLANG_OMP_LIBDIR) -Wl,--disable-new-dtags
     endif
   endif
 endif
@@ -668,21 +673,21 @@ $(OPENMP_BIT_HELPERS_OBJ): benchmark/openmp_bit_helpers.c $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
 $(TARGET): $(OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -shared -o $@ $^ $(BUILD_RPATH_FLAG)
+	$(CC_ENV) $(CC) $(CFLAGS) $(LINK_FLAGS) -shared -o $@ $^ $(BUILD_RPATH_FLAG)
 
 $(TARGET_STATIC): $(OBJ)
 	$(AR) rcs $@ $^
 
 test: $(TARGET) $(TEST_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_EXEC) $(TEST_OBJ) -L$(BUILD_DIR) \
+	$(CC_ENV) $(CC) $(CFLAGS) $(LINK_FLAGS) -o $(TEST_EXEC) $(TEST_OBJ) -L$(BUILD_DIR) \
     -lbit $(BUILD_RPATH_FLAG) 
 
 test_offload: $(TEST_OFFLOAD_OBJ)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $(TEST_OFFLOAD_EXEC) $(TEST_OFFLOAD_OBJ) \
+	$(CC_ENV) $(CC) $(CFLAGS) $(LINK_FLAGS) -o $(TEST_OFFLOAD_EXEC) $(TEST_OFFLOAD_OBJ) \
     $(BUILD_RPATH_FLAG) -lm
 
 bench: $(TARGET) $(BENCH_OBJ) bench_omp
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $(BENCH_EXEC) $(BENCH_OBJ)     \
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) $(LINK_FLAGS) -o $(BENCH_EXEC) $(BENCH_OBJ)     \
     -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lrt
 
 ifeq ($(filter NONE,$(GPU_LIST)),NONE)
@@ -704,22 +709,22 @@ $(BENCH_OBJ): $(BENCH_SRC) $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
 $(BENCH_OMP_EXEC): $(BENCH_OMP_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_OBJ)  \
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) $(LINK_FLAGS) -o $@ $(BENCH_OMP_OBJ)  \
     $(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
 $(BENCH_OMP_NOGPU_EXEC): $(BENCH_OMP_NOGPU_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_OMP_NOGPU_OBJ) \
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) $(LINK_FLAGS) -o $@ $(BENCH_OMP_NOGPU_OBJ) \
   $(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
 $(BENCH_CONTAINER_EXEC): $(BENCH_CONTAINER_OBJ) $(TARGET)
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_CONTAINER_OBJ) \
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) $(LINK_FLAGS) -o $@ $(BENCH_CONTAINER_OBJ) \
   -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
 $(BENCH_SWEEP_OBJ): $(BENCH_SWEEP_SRC) $(CONFIG_STAMP)
 	$(HOST_COMPILE_CMD)
 
 $(BENCH_SWEEP_EXEC): $(BENCH_SWEEP_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ $(BENCH_SWEEP_OBJ) \
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) $(LINK_FLAGS) -o $@ $(BENCH_SWEEP_OBJ) \
 	$(OPENMP_BIT_HELPERS_OBJ) -L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
 # CPU FAISS comparator: host-only compilation and host top-k (from libbit).
@@ -730,7 +735,7 @@ $(BENCH_CPU_FAISS_OBJ): $(BENCH_CPU_FAISS_SRC) benchmark/openmp_bit_faiss_bench.
 	$(HOST_COMPILE_CMD)
 
 $(BENCH_CPU_FAISS_EXEC): $(BENCH_CPU_FAISS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
-	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) -o $@ \
+	$(CC_ENV) $(CC) $(HOST_ONLY_CFLAGS) $(LINK_FLAGS) -o $@ \
 	$(BENCH_CPU_FAISS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
 	-L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lm -lrt
 
@@ -743,7 +748,7 @@ $(BENCH_GPU_FAISS_OBJ): $(BENCH_GPU_FAISS_SRC) benchmark/openmp_bit_faiss_bench.
 	$(COMPILE_CMD)
 
 $(BENCH_GPU_FAISS_EXEC): $(BENCH_GPU_FAISS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) $(TARGET)
-	$(CC_ENV) $(CC) $(CFLAGS) -o $@ \
+	$(CC_ENV) $(CC) $(CFLAGS) $(LINK_FLAGS) -o $@ \
 	$(BENCH_GPU_FAISS_OBJ) $(OPENMP_BIT_HELPERS_OBJ) \
 	-L$(BUILD_DIR) -lbit $(BUILD_RPATH_FLAG) -lrt -lm
 endif

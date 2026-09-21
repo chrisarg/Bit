@@ -57,10 +57,14 @@
 
 
 
-int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
+uint64_t *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
+  size_t result_count;
+  if (!bit_size_mul(bit->nelem, bits->nelem, &result_count) ||
+      result_count > SIZE_MAX / sizeof(uint64_t))
+    return NULL;
+  uint64_t *counts = calloc(result_count, sizeof(*counts));
+  if (!counts)
+    return NULL;
 #ifndef NOGPU
   BitDB_inter_count_store_gpu(bit, bits, counts, opts);
 #else
@@ -69,7 +73,7 @@ int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
   return counts;
 }
 
-void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, uint64_t *counts,
                                  SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, &, opts);
@@ -78,10 +82,14 @@ void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *counts,
 #endif
 }
 
-int *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
+uint64_t *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
+  size_t result_count;
+  if (!bit_size_mul(bit->nelem, bits->nelem, &result_count) ||
+      result_count > SIZE_MAX / sizeof(uint64_t))
+    return NULL;
+  uint64_t *counts = calloc(result_count, sizeof(*counts));
+  if (!counts)
+    return NULL;
 #ifndef NOGPU
   BitDB_union_count_store_gpu(bit, bits, counts, opts);
 #else
@@ -90,7 +98,7 @@ int *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
   return counts;
 }
 
-void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, uint64_t *counts,
                                  SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, |, opts);
@@ -99,10 +107,14 @@ void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int *counts,
 #endif
 }
 
-int *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
+uint64_t *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
+  size_t result_count;
+  if (!bit_size_mul(bit->nelem, bits->nelem, &result_count) ||
+      result_count > SIZE_MAX / sizeof(uint64_t))
+    return NULL;
+  uint64_t *counts = calloc(result_count, sizeof(*counts));
+  if (!counts)
+    return NULL;
 #ifndef NOGPU
   BitDB_diff_count_store_gpu(bit, bits, counts, opts);
 #else
@@ -111,7 +123,7 @@ int *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
   return counts;
 }
 
-void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, uint64_t *counts,
                                 SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, ^, opts);
@@ -120,10 +132,14 @@ void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *counts,
 #endif
 }
 
-int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
-
-  int *counts = (int *)calloc(bit->nelem * bits->nelem, sizeof(int));
-  assert(counts != NULL);
+uint64_t *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
+  size_t result_count;
+  if (!bit_size_mul(bit->nelem, bits->nelem, &result_count) ||
+      result_count > SIZE_MAX / sizeof(uint64_t))
+    return NULL;
+  uint64_t *counts = calloc(result_count, sizeof(*counts));
+  if (!counts)
+    return NULL;
 #ifndef NOGPU
   BitDB_minus_count_store_gpu(bit, bits, counts, opts);
 #else
@@ -132,7 +148,7 @@ int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts) {
   return counts;
 }
 
-void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *counts,
+void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, uint64_t *counts,
                                  SETOP_COUNT_OPTS opts) {
 #ifndef NOGPU
   setop_count_db_gpu(bit, bits, counts, &~, opts);

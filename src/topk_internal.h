@@ -11,29 +11,29 @@
 #endif
 
 // Max Heap : finds the top smallest candidates (min values)
-static inline void sift_down(int *dist_base, int *idx_base,
-                                       int64_t start, int64_t n, int tid,
-                                       int stride) {
-  int64_t root = start;
+static inline void sift_down(uint64_t *dist_base, size_t *idx_base,
+                             size_t start, size_t n, size_t tid,
+                             size_t stride) {
+  size_t root = start;
   while (2 * root + 1 < n) {
-    int64_t child = 2 * root + 1;
-    int64_t c1_off = child * stride + tid;
-    int64_t c2_off = (child + 1) * stride + tid;
+    size_t child = 2 * root + 1;
+    size_t c1_off = child * stride + tid;
+    size_t c2_off = (child + 1) * stride + tid;
 
     if (child + 1 < n && dist_base[c1_off] < dist_base[c2_off]) {
       child++;
       c1_off = c2_off;
     }
 
-    int64_t root_off = root * stride + tid;
+    size_t root_off = root * stride + tid;
     if (dist_base[root_off] >= dist_base[c1_off])
       break;
 
-    int td = dist_base[root_off];
+    uint64_t td = dist_base[root_off];
     dist_base[root_off] = dist_base[c1_off];
     dist_base[c1_off] = td;
 
-    int ti = idx_base[root_off];
+    size_t ti = idx_base[root_off];
     idx_base[root_off] = idx_base[c1_off];
     idx_base[c1_off] = ti;
 
@@ -42,14 +42,14 @@ static inline void sift_down(int *dist_base, int *idx_base,
 }
 
 // Min Heap : finds the top largest candidates (max values)
-static inline void sift_down_min(int *dist_base, int *idx_base,
-                                           int64_t start, int64_t n, int tid,
-                                           int stride) {
-  int64_t root = start;
+static inline void sift_down_min(uint64_t *dist_base, size_t *idx_base,
+                                 size_t start, size_t n, size_t tid,
+                                 size_t stride) {
+  size_t root = start;
   while (2 * root + 1 < n) {
-    int64_t child = 2 * root + 1;
-    int64_t c1_off = child * stride + tid;
-    int64_t c2_off = (child + 1) * stride + tid;
+    size_t child = 2 * root + 1;
+    size_t c1_off = child * stride + tid;
+    size_t c2_off = (child + 1) * stride + tid;
 
     // For a min-heap, we want to find the SMALLER of the two children.
     // Notice the '>' operator here compared to the max-heap's '<'
@@ -58,19 +58,19 @@ static inline void sift_down_min(int *dist_base, int *idx_base,
       c1_off = c2_off;
     }
 
-    int64_t root_off = root * stride + tid;
+    size_t root_off = root * stride + tid;
     
     // If the root is already smaller than or equal to the smallest child, the heap property is satisfied.
     if (dist_base[root_off] <= dist_base[c1_off])
       break;
 
     // Swap distances
-    int td = dist_base[root_off];
+    uint64_t td = dist_base[root_off];
     dist_base[root_off] = dist_base[c1_off];
     dist_base[c1_off] = td;
 
     // Swap indices
-    int ti = idx_base[root_off];
+    size_t ti = idx_base[root_off];
     idx_base[root_off] = idx_base[c1_off];
     idx_base[c1_off] = ti;
 
@@ -78,9 +78,9 @@ static inline void sift_down_min(int *dist_base, int *idx_base,
   }
 }
 
-static inline void heapify(int *dist_base, int *idx_base, int64_t n,
-                                     int tid, int stride) {
-  for (int64_t i = (n - 2) / 2; i >= 0; --i) {
+static inline void heapify(uint64_t *dist_base, size_t *idx_base, size_t n,
+                           size_t tid, size_t stride) {
+  for (size_t i = n / 2; i-- > 0;) {
     sift_down(dist_base, idx_base, i, n, tid, stride);
   }
 }

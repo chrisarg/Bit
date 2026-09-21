@@ -27,13 +27,13 @@ typedef struct {
 // Initialize test results
 TestResults results = {0, 0, 0, 0};
 
-static void test_map_apply(int n, int bit, void *cl) {
+static void test_map_apply(size_t n, int bit, void *cl) {
   MapClosure *closure = (MapClosure *)cl;
   closure->visits++;
   Bit_put(closure->set, n, 1 - bit);
 }
 
-static Bit_T make_bit_with_indices(int length, const int *indices, size_t count) {
+static Bit_T make_bit_with_indices(size_t length, const size_t *indices, size_t count) {
   Bit_T bit = Bit_new(length);
   for (size_t i = 0; i < count; ++i) {
     Bit_bset(bit, indices[i]);
@@ -41,19 +41,19 @@ static Bit_T make_bit_with_indices(int length, const int *indices, size_t count)
   return bit;
 }
 
-static void set_bits(Bit_T bit, const int *indices, size_t count) {
+static void set_bits(Bit_T bit, const size_t *indices, size_t count) {
   for (size_t i = 0; i < count; ++i) {
     Bit_bset(bit, indices[i]);
   }
 }
 
-static void clear_bits(Bit_T bit, const int *indices, size_t count) {
+static void clear_bits(Bit_T bit, const size_t *indices, size_t count) {
   for (size_t i = 0; i < count; ++i) {
     Bit_bclear(bit, indices[i]);
   }
 }
 
-static bool expect_bits(Bit_T bit, const int *indices, size_t count, int expected) {
+static bool expect_bits(Bit_T bit, const size_t *indices, size_t count, int expected) {
   for (size_t i = 0; i < count; ++i) {
     if (Bit_get(bit, indices[i]) != expected) {
       return false;
@@ -241,10 +241,10 @@ bool test_bit_count() {
 
 bool test_bit_aset_aclear() {
   Bit_T bit = Bit_new(16);
-  int set_indices[] = {0, 2, 7, 13};
-  int zero_indices[] = {1, 3, 4, 5};
-  int clear_indices[] = {2, 13};
-  int preserved_indices[] = {0, 7};
+  size_t set_indices[] = {0, 2, 7, 13};
+  size_t zero_indices[] = {1, 3, 4, 5};
+  size_t clear_indices[] = {2, 13};
+  size_t preserved_indices[] = {0, 7};
 
   Bit_aset(bit, set_indices, 4);
   bool success = expect_bits(bit, set_indices, 4, 1) &&
@@ -261,12 +261,12 @@ bool test_bit_aset_aclear() {
 
 bool test_bit_not_and_map() {
   Bit_T bit = Bit_new(16);
-  int initial_indices[] = {0, 2, 4, 6, 8, 10, 12, 14};
-  int one_indices[] = {0, 1, 3, 5, 6};
-  int zero_indices[] = {2, 4};
-  int reset_indices[] = {0, 2};
-  int mapped_one_indices[] = {1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-  int mapped_zero_indices[] = {0, 2};
+  size_t initial_indices[] = {0, 2, 4, 6, 8, 10, 12, 14};
+  size_t one_indices[] = {0, 1, 3, 5, 6};
+  size_t zero_indices[] = {2, 4};
+  size_t reset_indices[] = {0, 2};
+  size_t mapped_one_indices[] = {1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  size_t mapped_zero_indices[] = {0, 2};
 
   set_bits(bit, initial_indices, 8);
 
@@ -574,8 +574,8 @@ bool test_bitDB_properties() {
 
 bool test_bitDB_count_at_and_count() {
   Bit_DB_T bit = BitDB_new(64, 3);
-  int first_indices[] = {1, 63};
-  int second_indices[] = {0, 1, 2};
+  size_t first_indices[] = {1, 63};
+  size_t second_indices[] = {0, 1, 2};
   Bit_T first = make_bit_with_indices(64, first_indices, 2);
   Bit_T second = make_bit_with_indices(64, second_indices, 3);
   Bit_T third = Bit_new(64);
@@ -584,7 +584,7 @@ bool test_bitDB_count_at_and_count() {
   BitDB_put_at(bit, 1, second);
   BitDB_put_at(bit, 2, third);
 
-  int *counts = BitDB_count(bit);
+  uint64_t *counts = BitDB_count(bit);
   bool success = (BitDB_count_at(bit, 0) == 2 && BitDB_count_at(bit, 1) == 3 &&
                   BitDB_count_at(bit, 2) == 0 && counts[0] == 2 &&
                   counts[1] == 3 && counts[2] == 0);
@@ -601,8 +601,8 @@ bool test_bitDB_count_at_and_count() {
 
 bool test_bitDB_clear_ops() {
   Bit_DB_T bit = BitDB_new(64, 2);
-  int first_indices[] = {1, 3};
-  int second_indices[] = {5, 7};
+  size_t first_indices[] = {1, 3};
+  size_t second_indices[] = {5, 7};
   Bit_T first = make_bit_with_indices(64, first_indices, 2);
   Bit_T second = make_bit_with_indices(64, second_indices, 2);
 
@@ -721,31 +721,31 @@ bool test_bitDB_count_macro_variants() {
   BitDB_put_at(right, 1, value);
 
   const SETOP_COUNT_OPTS opts = {.num_cpu_threads = 1};
-  const int expected_inter[4] = {1, 1, 0, 1};
-  const int expected_union[4] = {2, 3, 2, 2};
-  const int expected_diff[4] = {1, 2, 2, 1};
-  const int expected_minus[4] = {1, 1, 1, 0};
+  const uint64_t expected_inter[4] = {1, 1, 0, 1};
+  const uint64_t expected_union[4] = {2, 3, 2, 2};
+  const uint64_t expected_diff[4] = {1, 2, 2, 1};
+  const uint64_t expected_minus[4] = {1, 1, 1, 0};
   bool success = true;
 
-  int *inter_counts = BitDB_inter_count(left, right, opts, cpu);
+  uint64_t *inter_counts = BitDB_inter_count(left, right, opts, cpu);
   for (int i = 0; i < 4; ++i) {
     success = success && inter_counts[i] == expected_inter[i];
   }
   free(inter_counts);
 
-  int *union_counts = BitDB_union_count(left, right, opts, cpu);
+  uint64_t *union_counts = BitDB_union_count(left, right, opts, cpu);
   for (int i = 0; i < 4; ++i) {
     success = success && union_counts[i] == expected_union[i];
   }
   free(union_counts);
 
-  int *diff_counts = BitDB_diff_count(left, right, opts, cpu);
+  uint64_t *diff_counts = BitDB_diff_count(left, right, opts, cpu);
   for (int i = 0; i < 4; ++i) {
     success = success && diff_counts[i] == expected_diff[i];
   }
   free(diff_counts);
 
-  int *minus_counts = BitDB_minus_count(left, right, opts, cpu);
+  uint64_t *minus_counts = BitDB_minus_count(left, right, opts, cpu);
   for (int i = 0; i < 4; ++i) {
     success = success && minus_counts[i] == expected_minus[i];
   }
@@ -781,10 +781,10 @@ bool test_bitDB_inter_count() {
   BitDB_put_at(bit1, 1, bitset1);
   BitDB_put_at(bit2, 1, bitset2);
 
-  int *count = BitDB_count(bit1);
-  int *count2 = BitDB_count(bit2);
+  uint64_t *count = BitDB_count(bit1);
+  uint64_t *count2 = BitDB_count(bit2);
 
-  int *inter_count = BitDB_inter_count(bit1, bit2, (SETOP_COUNT_OPTS){}, cpu);
+  uint64_t *inter_count = BitDB_inter_count(bit1, bit2, (SETOP_COUNT_OPTS){}, cpu);
   bool success = (*inter_count == 1) &&
                  (inter_count[1] == 1 && inter_count[SIZEOF_BITDB] == 1 &&
                   inter_count[SIZEOF_BITDB + 1] == 2);
@@ -822,31 +822,31 @@ bool test_bitDB_store_macros() {
   BitDB_put_at(right, 1, value);
 
   const SETOP_COUNT_OPTS opts = {.num_cpu_threads = 1};
-  int actual[4] = {0};
-  const int expected_inter[4] = {1, 1, 0, 1};
-  const int expected_union[4] = {2, 3, 2, 2};
-  const int expected_diff[4] = {1, 2, 2, 1};
-  const int expected_minus[4] = {1, 1, 1, 0};
+  uint64_t actual[4] = {0};
+  const uint64_t expected_inter[4] = {1, 1, 0, 1};
+  const uint64_t expected_union[4] = {2, 3, 2, 2};
+  const uint64_t expected_diff[4] = {1, 2, 2, 1};
+  const uint64_t expected_minus[4] = {1, 1, 1, 0};
   bool success = true;
 
   BitDB_inter_count_store(left, right, actual, opts, cpu);
-  for (int i = 0; i < 4; ++i)
+  for (size_t i = 0; i < 4; ++i)
     success = success && actual[i] == expected_inter[i];
 
   BitDB_union_count_store(left, right, actual, opts, cpu);
-  for (int i = 0; i < 4; ++i)
+  for (size_t i = 0; i < 4; ++i)
     success = success && actual[i] == expected_union[i];
 
   BitDB_diff_count_store(left, right, actual, opts, cpu);
-  for (int i = 0; i < 4; ++i)
+  for (size_t i = 0; i < 4; ++i)
     success = success && actual[i] == expected_diff[i];
 
   BitDB_minus_count_store(left, right, actual, opts, cpu);
-  for (int i = 0; i < 4; ++i)
+  for (size_t i = 0; i < 4; ++i)
     success = success && actual[i] == expected_minus[i];
 
   BitDB_inter_count_store(left, right, actual, opts, gpu);
-  for (int i = 0; i < 4; ++i)
+  for (size_t i = 0; i < 4; ++i)
     success = success && actual[i] == expected_inter[i];
 
   Bit_free(&value);
@@ -876,7 +876,7 @@ static uint64_t xs64(uint64_t *state) {
    the public accessor since Bit_T is opaque here. */
 static void fill_random(Bit_T bit, uint64_t seed) {
   uint64_t state = seed ? seed : 0x9E3779B97F4A7C15ull;
-  for (int i = 0; i < Bit_length(bit); ++i) {
+  for (size_t i = 0; i < Bit_length(bit); ++i) {
     if (xs64(&state) & 1ull) {
       Bit_bset(bit, i);
     }
@@ -897,13 +897,13 @@ bool test_bit_count_alignment() {
 
     Bit_T ref = Bit_new(len);
     fill_random(ref, 0xDEADBEEFull + (uint64_t)len);
-    int expected = Bit_count(ref);
+    uint64_t expected = Bit_count(ref);
 
     /* Aligned buffer via calloc (glibc returns >=16-byte aligned). */
     unsigned char *aligned_buf = calloc(1, buf_bytes);
     Bit_extract(ref, aligned_buf);
     Bit_T aligned_set = Bit_load(len, aligned_buf);
-    int aligned_count = Bit_count(aligned_set);
+    uint64_t aligned_count = Bit_count(aligned_set);
     success = success && (aligned_count == expected);
 
     /* Misaligned buffer: shift by 8 bytes within a larger allocation so the
@@ -912,7 +912,7 @@ bool test_bit_count_alignment() {
     unsigned char *mis_buf = raw + 8;
     Bit_extract(ref, mis_buf);
     Bit_T mis_set = Bit_load(len, mis_buf);
-    int mis_count = Bit_count(mis_set);
+    uint64_t mis_count = Bit_count(mis_set);
     success = success && (mis_count == expected);
 
     /* Bit_load marks the buffer external, so Bit_free returns it without
@@ -1022,10 +1022,10 @@ bool test_bitdb_count_tile_boundaries() {
       Bit_free(&tmp);
     }
 
-    int *inter = BitDB_inter_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
-    int *uni = BitDB_union_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
-    int *diff = BitDB_diff_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
-    int *minus = BitDB_minus_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+    uint64_t *inter = BitDB_inter_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+    uint64_t *uni = BitDB_union_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+    uint64_t *diff = BitDB_diff_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+    uint64_t *minus = BitDB_minus_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
 
     /* Per-pair reference via materialized setop + Bit_count. */
     for (int i = 0; i < nelem && success; ++i) {
@@ -1113,15 +1113,15 @@ bool test_bitDB_gpu_parity() {
   bool success = true;
   size_t ncounts = (size_t)nelem * (size_t)nelem;
 
-  int *ci = BitDB_inter_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
-  int *cu = BitDB_union_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
-  int *cd = BitDB_diff_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
-  int *cm = BitDB_minus_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+  uint64_t *ci = BitDB_inter_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+  uint64_t *cu = BitDB_union_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+  uint64_t *cd = BitDB_diff_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
+  uint64_t *cm = BitDB_minus_count(left, right, (SETOP_COUNT_OPTS){}, cpu);
 
-  int *gi = BitDB_inter_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
-  int *gu = BitDB_union_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
-  int *gd = BitDB_diff_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
-  int *gm = BitDB_minus_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
+  uint64_t *gi = BitDB_inter_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
+  uint64_t *gu = BitDB_union_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
+  uint64_t *gd = BitDB_diff_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
+  uint64_t *gm = BitDB_minus_count(left, right, (SETOP_COUNT_OPTS){}, gpu);
 
   for (size_t i = 0; i < ncounts; ++i) {
     if (ci[i] != gi[i] || cu[i] != gu[i] || cd[i] != gd[i] || cm[i] != gm[i]) {
@@ -1169,12 +1169,12 @@ bool test_bitdb_count_thread_sweep() {
   /* Reference: single-threaded. (BitDB_*_count are macros, so pass a named
      opts variable rather than a compound literal.) */
   const SETOP_COUNT_OPTS opts1 = {.num_cpu_threads = 1};
-  int *ref = BitDB_inter_count(left, right, opts1, cpu);
+  uint64_t *ref = BitDB_inter_count(left, right, opts1, cpu);
 
   const int threads[] = {1, 2, 4, 8};
   for (size_t t = 0; t < sizeof(threads) / sizeof(threads[0]); ++t) {
     const SETOP_COUNT_OPTS optst = {.num_cpu_threads = threads[t]};
-    int *c = BitDB_inter_count(left, right, optst, cpu);
+    uint64_t *c = BitDB_inter_count(left, right, optst, cpu);
     for (size_t i = 0; i < ncounts; ++i) {
       if (c[i] != ref[i]) {
         success = false;
@@ -1214,8 +1214,8 @@ bool test_bitDB_load_external_buffer() {
     Bit_free(&tmp);
   }
 
-  int *ce = BitDB_inter_count(ext, ext, (SETOP_COUNT_OPTS){}, cpu);
-  int *cl = BitDB_inter_count(lib, lib, (SETOP_COUNT_OPTS){}, cpu);
+  uint64_t *ce = BitDB_inter_count(ext, ext, (SETOP_COUNT_OPTS){}, cpu);
+  uint64_t *cl = BitDB_inter_count(lib, lib, (SETOP_COUNT_OPTS){}, cpu);
   for (int i = 0; i < nelem * nelem; ++i) {
     if (ce[i] != cl[i]) {
       success = false;
@@ -1243,7 +1243,7 @@ bool test_bit_count_large() {
   const int len = 1 << 24; /* ~16.7M bits = 262144 qwords, multiple of 4V */
   Bit_T bit = Bit_new(len);
   /* Set a known number of bits: every 1024th bit plus a contiguous tail. */
-  int expected = 0;
+  uint64_t expected = 0;
   for (int i = 0; i < len; i += 1024) {
     Bit_bset(bit, i);
     ++expected;
@@ -1274,7 +1274,7 @@ bool test_setop_validate_branches() {
 
   /* Self-ops: inter(s,s)=union(s,s)=s ; minus(s,s)=empty ; diff(s,s)=empty.
      For the count forms the self-result is the popcount (or 0). */
-  int cnt = Bit_count(a);
+  uint64_t cnt = Bit_count(a);
   success = success && (Bit_inter_count(a, a) == cnt);
   success = success && (Bit_union_count(a, a) == cnt);
   success = success && (Bit_minus_count(a, a) == 0);
@@ -1320,7 +1320,6 @@ void run_tests() {
   test_bit_aset_aclear();
   test_bit_not_and_map();
   test_bit_buffer_size_and_length();
-  test_bit_invalid_index_handling();
 
   // Comparison operations
   test_bit_eq();
@@ -1351,7 +1350,6 @@ void run_tests() {
   test_bitDB_clear_ops();
   test_bitDB_get_put();
   test_bitDB_load_from_buffer();
-  test_bitDB_invalid_index_handling();
   test_bitDB_count_macro_variants();
   test_bitDB_extract_replace();
   test_bitDB_inter_count();
@@ -1371,6 +1369,11 @@ void run_tests() {
   test_bitDB_load_external_buffer();
   test_bit_count_large();
   test_setop_validate_branches();
+
+      /* Fork-based assertion tests run last because OpenMP offload runtimes may
+        retain worker state that cannot safely survive fork(). */
+      test_bit_invalid_index_handling();
+    test_bitDB_invalid_index_handling();
 
   // Print summary
   printf("\nTest Summary:\n");

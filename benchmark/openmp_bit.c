@@ -3,6 +3,7 @@
 OpenMP enabled benchmarks
 
 */
+#include <stddef.h>
 #define _POSIX_C_SOURCE 199309L
 
 #include "bit.h"
@@ -332,7 +333,8 @@ int database_match_omp(Bit_T* bit, Bit_T* bitsets, int num_of_bits,
 }
 
 int database_match_container_omp(Bit_DB_T db1, Bit_DB_T db2, int num_threads) {
-  int max = 0, current = 0, * results;
+  uint64_t max = 0, current = 0;
+  uint64_t *results;
   results = BitDB_inter_count_cpu(
     db1, db2, (SETOP_COUNT_OPTS) { .num_cpu_threads = num_threads });
   size_t nelem = (size_t)BitDB_nelem(db2) * BitDB_nelem(db1);
@@ -347,11 +349,12 @@ int database_match_container_omp(Bit_DB_T db1, Bit_DB_T db2, int num_threads) {
 }
 
 int database_match_GPU(Bit_DB_T db1, Bit_DB_T db2, SETOP_COUNT_OPTS opts) {
-  int max = 0, current = 0, * results;
+  int max = 0, current = 0;
+  size_t * results;
   results = BitDB_inter_count_gpu(db1, db2, opts);
   size_t nelem = (size_t)BitDB_nelem(db2) * BitDB_nelem(db1);
   for (size_t i = 0; i < nelem; i++) {
-    current = results[i];
+    current = (int)results[i];
     if (current > max) {
       max = current;
     }

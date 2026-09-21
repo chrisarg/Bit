@@ -38,8 +38,8 @@ int64_t bench_Bit_aset(int size, int iterations) {
   int64_t timeElapsed = 0;
   Bit_T bit1 = Bit_new(size);
   int length_of_index = size / 2 >= 2048 ? 2048 : size / 2;
-  int *indices = malloc((length_of_index) * sizeof(int));
-  for (int i = 0; i < length_of_index; i++) {
+  size_t *indices = malloc((size_t)length_of_index * sizeof(*indices));
+  for (size_t i = 0; i < (size_t)length_of_index; i++) {
     indices[i] = i;
   }
   clock_gettime(CLOCK_MONOTONIC, &start_time);
@@ -59,8 +59,8 @@ int64_t bench_Bit_aclear(int size, int iterations) {
   int64_t timeElapsed = 0;
   Bit_T bit1 = Bit_new(size);
   int length_of_index = size / 2 >= 2048 ? 2048 : size / 2;
-  int *indices = malloc((length_of_index) * sizeof(int));
-  for (int i = 0; i < length_of_index; i++) {
+  size_t *indices = malloc((size_t)length_of_index * sizeof(*indices));
+  for (size_t i = 0; i < (size_t)length_of_index; i++) {
     indices[i] = i;
   }
   clock_gettime(CLOCK_MONOTONIC, &start_time);

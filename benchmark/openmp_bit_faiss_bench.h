@@ -49,9 +49,9 @@ typedef struct {
 } Bench_Instrumentation;
 
 typedef struct FilteredResults {
-  int max;
-  int *top_scores;
-  int *top_ids;
+  uint64_t max;
+  uint64_t *top_scores;
+  size_t *top_ids;
 } FilteredResults;
 
 static inline int parse_positive_size(const char *text, size_t *value) {

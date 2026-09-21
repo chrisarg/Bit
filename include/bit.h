@@ -144,6 +144,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define T Bit_T
 typedef struct T *T;
@@ -191,14 +192,14 @@ typedef struct {
 
     It is a checked runtime error to pass a NULL set to any of these routines.
 */
-extern T Bit_new(int length);  // create a new bitset
+extern T Bit_new(size_t length);  // create a new bitset
 extern void *Bit_free(T *set); // free the bitset
-extern T Bit_load(int length, void *buffer);
-extern int Bit_extract(T set, void *buffer);
+extern T Bit_load(size_t length, void *buffer);
+extern size_t Bit_extract(T set, void *buffer);
 
-extern int Bit_buffer_size(int length);
-extern int Bit_length(T set);
-extern int Bit_count(T set);
+extern size_t Bit_buffer_size(size_t length);
+extern size_t Bit_length(T set);
+extern uint64_t Bit_count(T set);
 
 /*
     Functions that manipulate an individual bitset (member operations).
@@ -209,23 +210,23 @@ extern int Bit_count(T set);
     length and 4) the low bit to be greater than the high bit, 5) the
     indices to attempt to overrun the bitset length.
     */
-extern void Bit_aset(T set, int indices[], int n); // set an array of bits
-extern void Bit_bset(T set, int index); // set a bit in the bitset to 1
-extern void Bit_aclear(T set, int indices[],
-                       int n); // clear an array of bits in the bitset
-extern void Bit_bclear(T set, int index); // clear a bit in the bitset
-extern void Bit_clear(T set, int lo,
-                      int hi); // clear a range of bits [lo,hi] in the bitset
-extern int Bit_get(T set, int index); // returns the bit at index
+extern void Bit_aset(T set, size_t indices[], size_t n); // set an array of bits
+extern void Bit_bset(T set, size_t index); // set a bit in the bitset to 1
+extern void Bit_aclear(T set, size_t indices[],
+           size_t n); // clear an array of bits in the bitset
+extern void Bit_bclear(T set, size_t index); // clear a bit in the bitset
+extern void Bit_clear(T set, size_t lo,
+          size_t hi); // clear a range of bits [lo,hi] in the bitset
+extern int Bit_get(T set, size_t index); // returns the bit at index
 extern void
-Bit_map(T set, void apply(int n, int bit, void *cl),
+Bit_map(T set, void apply(size_t n, int bit, void *cl),
         void *cl); // maps apply to bit n in the range [0, length-1], where *cl
 // is a pointer to a closure that is provided by the client
-extern void Bit_not(T set, int lo,
-                    int hi); // inverts a range of bits [lo,hi] in the bitset
-extern int Bit_put(T set, int n, int val); // sets the nth bit to val in set
-extern void Bit_set(T set, int lo,
-                    int hi); // sets a range of bits [lo,hi] in the bitset
+extern void Bit_not(T set, size_t lo,
+                    size_t hi); // inverts a range of bits [lo,hi] in the bitset
+extern int Bit_put(T set, size_t n, int val); // sets the nth bit to val in set
+extern void Bit_set(T set, size_t lo,
+                    size_t hi); // sets a range of bits [lo,hi] in the bitset
 
 /*
     Functions that compare two bitsets; note the following error checking:
@@ -280,10 +281,10 @@ extern T Bit_union(T s, T t); // union of two bitsets
 
 
 */
-extern int Bit_diff_count(T s, T t);  // symmetric-difference count
-extern int Bit_inter_count(T s, T t); // intersection of two bitsets
-extern int Bit_minus_count(T s, T t); // left-set-difference count
-extern int Bit_union_count(T s, T t); // union of two bitsets
+extern uint64_t Bit_diff_count(T s, T t);  // symmetric-difference count
+extern uint64_t Bit_inter_count(T s, T t); // intersection of two bitsets
+extern uint64_t Bit_minus_count(T s, T t); // left-set-difference count
+extern uint64_t Bit_union_count(T s, T t); // union of two bitsets
 
 /*
     BitDB operations on packed containers of bitsets
@@ -307,18 +308,18 @@ extern int Bit_union_count(T s, T t); // union of two bitsets
 
     It is a checked runtime error to pass a NULL set to any of these routines.
 */
-extern T_DB BitDB_new(int length, int num_of_bitsets);
-extern T_DB BitDB_load(int length, int num_of_bitsets, void *buffer);
+extern T_DB BitDB_new(size_t length, size_t num_of_bitsets);
+extern T_DB BitDB_load(size_t length, size_t num_of_bitsets, void *buffer);
 extern void *BitDB_free(T_DB *set);
 
 /*
     Functions that return the properties of a Bit_DB container.
 
 */
-extern int BitDB_length(T_DB set);
-extern int BitDB_nelem(T_DB set);
-extern int BitDB_count_at(T_DB set, int index);
-extern int *BitDB_count(T_DB set);
+extern size_t BitDB_length(T_DB set);
+extern size_t BitDB_nelem(T_DB set);
+extern uint64_t BitDB_count_at(T_DB set, size_t index);
+extern uint64_t *BitDB_count(T_DB set);
 /*
     Functions that manipulate and obtain the contents of a packed
     container of bitsets (Bit_DB). One can use either Bits or externally
@@ -334,12 +335,12 @@ extern int *BitDB_count(T_DB set);
     less than 0 or greater than the number of bitsets in the container for
     any of these routines.
 */
-extern T BitDB_get_from(T_DB set, int index);
-extern void BitDB_put_at(T_DB set, int index, T bitset);
-extern void BitDB_extract_from(T_DB set, int index, void *buffer);
-extern void BitDB_replace_at(T_DB set, int index, void *buffer);
+extern T BitDB_get_from(T_DB set, size_t index);
+extern void BitDB_put_at(T_DB set, size_t index, T bitset);
+extern void BitDB_extract_from(T_DB set, size_t index, void *buffer);
+extern void BitDB_replace_at(T_DB set, size_t index, void *buffer);
 extern void BitDB_clear(T_DB set);
-extern void BitDB_clear_at(T_DB set, int index);
+extern void BitDB_clear_at(T_DB set, size_t index);
 
 /*
     Functions that perform SETOP counts between two packed containers
@@ -376,33 +377,33 @@ extern void BitDB_clear_at(T_DB set, int index);
 #define BitDB_minus_count_store(bit, bits, results, opts, TARGET)              \
   BitDB_minus_count_store_##TARGET((bit), (bits), (results), (opts))
 
-extern void BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, int *buffer,
+extern void BitDB_inter_count_store_cpu(T_DB bit, T_DB bits, uint64_t *buffer,
                                         SETOP_COUNT_OPTS opts);
-extern void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, int *buffer,
+extern void BitDB_inter_count_store_gpu(T_DB bit, T_DB bits, uint64_t *buffer,
                                         SETOP_COUNT_OPTS opts);
-extern int *BitDB_inter_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
-extern int *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
+extern uint64_t *BitDB_inter_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
+extern uint64_t *BitDB_inter_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
-extern void BitDB_union_count_store_cpu(T_DB bit, T_DB bits, int *buffer,
+extern void BitDB_union_count_store_cpu(T_DB bit, T_DB bits, uint64_t *buffer,
                                         SETOP_COUNT_OPTS opts);
-extern void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, int *buffer,
+extern void BitDB_union_count_store_gpu(T_DB bit, T_DB bits, uint64_t *buffer,
                                         SETOP_COUNT_OPTS opts);
-extern int *BitDB_union_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
-extern int *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
+extern uint64_t *BitDB_union_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
+extern uint64_t *BitDB_union_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
-extern void BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, int *buffer,
+extern void BitDB_diff_count_store_cpu(T_DB bit, T_DB bits, uint64_t *buffer,
                                        SETOP_COUNT_OPTS opts);
-extern void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, int *buffer,
+extern void BitDB_diff_count_store_gpu(T_DB bit, T_DB bits, uint64_t *buffer,
                                        SETOP_COUNT_OPTS opts);
-extern int *BitDB_diff_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
-extern int *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
+extern uint64_t *BitDB_diff_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
+extern uint64_t *BitDB_diff_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
-extern void BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, int *buffer,
+extern void BitDB_minus_count_store_cpu(T_DB bit, T_DB bits, uint64_t *buffer,
                                         SETOP_COUNT_OPTS opts);
-extern void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, int *buffer,
+extern void BitDB_minus_count_store_gpu(T_DB bit, T_DB bits, uint64_t *buffer,
                                         SETOP_COUNT_OPTS opts);
-extern int *BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
-extern int *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
+extern uint64_t *BitDB_minus_count_cpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
+extern uint64_t *BitDB_minus_count_gpu(T_DB bit, T_DB bits, SETOP_COUNT_OPTS opts);
 
 #undef T
 #undef T_DB

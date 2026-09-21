@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
   const int repetitions = parse_positive(argv[5], "repetitions");
   const size_t result_count = (size_t)left_count * (size_t)right_count;
 
-  if (result_count > SIZE_MAX / sizeof(int)) {
+  if (result_count > SIZE_MAX / sizeof(uint64_t)) {
     fputs("Result matrix is too large\n", stderr);
     return EXIT_FAILURE;
   }
@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
   }
   Bit_free(&template);
 
-  int *results = malloc(result_count * sizeof(*results));
+  uint64_t *results = malloc(result_count * sizeof(*results));
   if (results == NULL) {
     fputs("Unable to allocate result matrix\n", stderr);
     BitDB_free(&left);
@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
 
   uint64_t checksum = 0;
   for (size_t i = 0; i < result_count; ++i) {
-    checksum += (uint32_t)results[i];
+    checksum += results[i];
   }
 
   const double qword_reductions =
